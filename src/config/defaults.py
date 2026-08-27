@@ -1,0 +1,143 @@
+"""
+Default hyperparameters for HC-PT (InstaDeepAI/ms_proteometools, ~2.7M spectra).
+
+Tuned for large-scale training on a single A100 (40 GB) GCP VM.
+InstaNovo uses ~95M parameters; these defaults scale the model up substantially
+while remaining trainable on one high-end GPU.
+"""
+
+from __future__ import annotations
+
+from dataclasses import asdict, dataclass, field
+
+from data.lengths import MAX_PEPTIDE_LENGTH, MIN_PEPTIDE_LENGTH
+
+# Centralized explicit architectural configuration (12 total Transformer blocks: 6 encoder + 6 AdaLN decoder, ~59.48M params)
+MODEL_CONFIG: dict[str, int | float] = {
+    "model_dim": 512,
+    "encoder_layers": 6,
+    "encoder_heads": 8,
+    "encoder_ff_dim": 1536,
+    "decoder_blocks": 6,          # 6 AdaLN-Zero decoder blocks
+    "decoder_heads": 8,
+    "mlp_hidden_dim": 1536,       # SwiGLU FFN hidden dimension (3× model_dim)
+    "max_charge": 6,
+    "max_length": MAX_PEPTIDE_LENGTH,
+    "min_length": MIN_PEPTIDE_LENGTH,
+    "dropout": 0.1,
+}
+
+
+@dataclass(frozen=True)
+class ModelDefaults:
+    model_dim: int = int(MODEL_CONFIG["model_dim"])
+    encoder_layers: int = int(MODEL_CONFIG["encoder_layers"])
+    encoder_heads: int = int(MODEL_CONFIG["encoder_heads"])
+    encoder_ff_dim: int = int(MODEL_CONFIG["encoder_ff_dim"])
+    decoder_blocks: int = int(MODEL_CONFIG["decoder_blocks"])
+    decoder_heads: int = int(MODEL_CONFIG["decoder_heads"])
+    mlp_hidden_dim: int = int(MODEL_CONFIG["mlp_hidden_dim"])
+    max_charge: int = int(MODEL_CONFIG["max_charge"])
+    max_length: int = int(MODEL_CONFIG["max_length"])
+    min_length: int = int(MODEL_CONFIG["min_length"])
+    dropout: float = float(MODEL_CONFIG["dropout"])
+
+
+@dataclass(frozen=True)
+class DataDefaults:
+    dataset_repo: str = "InstaDeepAI/ms_proteometools"
+    train_split: str = "train"
+    valid_split: str = "validation"
+    test_split: str = "test"
+    top_k_peaks: int = 200  # InstaNovo n_peaks=200
+    remove_precursor_peak: bool = True
+
+
+@dataclass(frozen=True)
+class TrainDefaults:
+    batch_size: int = 128 
+    epochs: int = 30
+    learning_rate: float = 6e-4
+    weight_decay: float = 0.01
+    num_workers: int = 8
+    device: str = "cuda"
+    output_dir: str = "artifacts"
+    # Generative validation metrics (de novo decode); eval_every>1 saves GPU time.
+    eval_every: int = 2
+    eval_max_batches: int = 64
+    # 20 steps is sufficient for mid-training monitoring (full 50 only for final bench).
+    inference_steps: int = 20
+    noising_scheme: str = "mask"
+    guidance_scale: float = 1.35
+    compile: bool = False
+    amp: bool = True
+    length_noising: bool = True
+    length_noising_prob: float = 0.1
+    top_k_lengths: int = 3
+    length_beam_alpha: float = 0.01
+    use_ema: bool = True
+    ema_decay: float = 0.999
+    label_smoothing: float = 0.05
+    peak_dropout: float = 0.15
+    decoding_strategy: str = "confidence"
+    decoding_temperature: float = 0.0
+    fragment_matching_weight: float = 0.5
+    trypsin_prior: bool = True
+
+
+@dataclass(frozen=True)
+class EvalDefaults:
+    # Tuned for high throughput and optimal accuracy on modern GPUs (e.g. A100 / H100)
+    batch_size: int = 2048
+    num_workers: int = 8
+    inference_steps: int = 25
+    noising_scheme: str = "mask"
+    guidance_scale: float = 1.8
+    top_k_lengths: int = 3
+    length_beam_alpha: float = 0.5
+    decoding_strategy: str = "confidence"
+    decoding_temperature: float = 0.0
+    fragment_matching_weight: float = 0.5
+    trypsin_prior: bool = True
+    use_knapsack_filter: bool = True
+    knapsack_tol_da: float = 1.0
+    num_samples_per_length: int = 1
+    compile: bool = False
+    amp: bool = True
+    max_batches: int | None = None  # None = full split
+    aa_mass_tolerance: float = 0.1
+    prefix_mass_tolerance: float = 0.5
+
+
+@dataclass(frozen=True)
+class GCPDefaults:
+    """
+    Recommended Google Cloud VM for HC-PT training.
+
+    Primary: a2-highgpu-1g  (1x NVIDIA A100 40GB, 12 vCPU, 85 GB RAM)
+    Budget:  g2-standard-24 (1x NVIDIA L4 24GB, 24 vCPU, 96 GB RAM)
+    """
+
+    machine_type: str = "a2-highgpu-1g"
+    accelerator_type: str = "nvidia-tesla-a100"
+    accelerator_count: int = 1
+    boot_disk_gb: int = 500
+    zone: str = "us-central1-a"
+    # Fallback if A100 quota unavailable.
+    budget_machine_type: str = "g2-standard-24"
+    budget_accelerator_type: str = "nvidia-l4"
+
+
+@dataclass(frozen=True)
+class ProjectDefaults:
+    model: ModelDefaults = field(default_factory=ModelDefaults)
+    data: DataDefaults = field(default_factory=DataDefaults)
+    train: TrainDefaults = field(default_factory=TrainDefaults)
+    eval: EvalDefaults = field(default_factory=EvalDefaults)
+    gcp: GCPDefaults = field(default_factory=GCPDefaults)
+
+    def to_dict(self) -> dict:
+        return asdict(self)
+
+
+DEFAULTS = ProjectDefaults()
