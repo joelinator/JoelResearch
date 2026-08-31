@@ -197,6 +197,7 @@ class DFMPeptideDecoder(nn.Module):
         positions = torch.arange(seq_len, device=peptide_seq.device, dtype=torch.float32)
         pos_emb = self.sinusoidal_embedding(positions).unsqueeze(0)
 
+        #TODO: bigger number of charges?
         charge_index = precursor_c.long().clamp(min=0, max=self.charge_embedding.num_embeddings - 1)
         c_emb = self.charge_embedding(charge_index)
         m_emb = self.sinusoidal_embedding(precursor_m)
@@ -215,6 +216,8 @@ class DFMPeptideDecoder(nn.Module):
         )
 
         x = peptide_emb + pos_emb
+
+        print("Debug:\t peptide and positional", peptide_emb.shape, pos_emb.shape, x.shape)
         y = self.spectrum_proj(spectrum_embeddings)
         for block in self.decoder_blocks:
             x = block(precursor_m_c_t_l, x, y, full_mask)
