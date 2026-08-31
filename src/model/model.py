@@ -84,6 +84,7 @@ class DecoderBlock(nn.Module):
         )
 
     def forward(self, conditioner, x, y, full_mask=None):
+        print("----->>>> DEBUG:::", full_mask.shape, x.shape, y.shape)
         params = self.ada_n_layers(conditioner)
         scales = params[:3]
         shifts = params[3:]
