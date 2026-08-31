@@ -1,68 +1,149 @@
+import os
+from functools import partial
+
 import torch
+from datasets import load_dataset
+from torch.nn.utils.rnn import pad_sequence
+from torch.utils.data import DataLoader, Dataset
 
-from data.lengths import length_to_active_mask
-from eval.evaluate import evaluate_teacher_forced
-from flow_matching.sampling import sample_noising_step_uniform
-from train.io import copy_history
-from train.loss import (
-    gamma_schedule,
-    lambda_schedule,
-    length_loss,
-    loss_weights,
-    mass_loss_hubert,
-    peptide_loss,
-)
+from .constants import AA_MASSES_DICT, M_H, STANDARD_AMINO_ACIDS
+from .lengths import validate_peptide_length
 
+DEFAULT_DATASET = "InstaDeepAI/ms_proteometools"
+DEFAULT_SPLIT = "train"
 
-def _move_batch_to_device(batch, device):
-    return tuple(
-        tensor.to(device) if isinstance(tensor, torch.Tensor) else tensor
-        for tensor in batch
-    )
+# HuggingFace column names -> internal names used by the training code.
+HF_COLUMN_MAP = {
+    "precursor_mz": "precursor_mass",
+    "charge": "precursor_charge",
+}
 
 
-def _run_epoch(
-    loader,
-    vocabulary,
-    guidance,
-    spectrum_encoder,
-    length_predictor,
-    decoder,
-    aa_masses,
-    scheduler,
-    device=None,
-    optimizer=None,
-    train=True,
-    epoch=0,
-    total_epochs=1,
+def precursor_mass_from_mz(precursor_mz: float, charge: int) -> float:
+    """Convert precursor m/z to neutral monoisotopic mass."""
+    return precursor_mz * charge - charge * M_H
+
+
+def get_dataset(
+    repo_id: str = DEFAULT_DATASET,
+    split: str = DEFAULT_SPLIT,
+    cache_dir: str | None = None,
+    token: str | None = None,
 ):
-    if train:
-        spectrum_encoder.train()
-        length_predictor.train()
-        decoder.train()
-        guidance.train()
-    else:
-        spectrum_encoder.eval()
-        length_predictor.eval()
-        decoder.eval()
-        guidance.eval()
+    """
+    Load the ProteomeTools dataset from HuggingFace.
 
-    total_samples = 0
-    totals = {
-        "loss": 0.0,
-        "decoder_loss": 0.0,
-        "length_loss": 0.0,
-        "mass_loss": 0.0,
-    }
-    proxy_totals = {
-        "token_accuracy": 0.0,
-        "length_accuracy": 0.0,
-        "exact_peptide_accuracy": 0.0,
-    }
+    The raw dataset exposes `precursor_mz` and `charge`; we derive `precursor_mass`
+    so the rest of the pipeline can keep using mass-based conditioning.
+    """
+    token = token or os.environ.get("HF_TOKEN") or os.environ.get("HUGGINGFACE_TOKEN")
+    ds = load_dataset(repo_id, split=split, cache_dir=cache_dir, token=token)
 
-    context = torch.enable_grad() if train else torch.no_grad()
-    with context:
-        for (
+    if "precursor_mass" not in ds.column_names and "precursor_mz" in ds.column_names:
+        ds = ds.map(
+            lambda row: {
+                "precursor_mass": precursor_mass_from_mz(
+                    row["precursor_mz"], int(row["charge"])
+                )
+            },
+            desc="Deriving precursor_mass from precursor_mz",
+        )
+
+    if "precursor_charge" not in ds.column_names and "charge" in ds.column_names:
+        ds = ds.rename_column("charge", "precursor_charge")
+
+    keep_columns = [
+        "mz_array",
+        "intensity_array",
+        "precursor_mass",
+        "precursor_charge",
+        "sequence",
+    ]
+    existing = [column for column in keep_columns if column in ds.column_names]
+    ds = ds.select_columns(existing)
+    return ds
+
+
+def build_vocabulary(ds):
+    """Build token vocabulary with stable special tokens and standard amino acids."""
+    tokens = set(STANDARD_AMINO_ACIDS)
+    for sequence in ds["sequence"]:
+        tokens.update(sequence)
+
+    vocab = {token: index for index, token in enumerate(sorted(tokens))}
+    vocab["<pad>"] = len(vocab)
+    vocab["<mask>"] = len(vocab)
+    return vocab
+
+
+def invert_vocabulary(vocab: dict[str, int]) -> dict[int, str]:
+    return {index: token for token, index in vocab.items()}
+
+
+def decoder_output_token_ids(vocab: dict[str, int]) -> list[int]:
+    """Token ids the decoder may predict: amino acids only (no <pad>, no <mask>)."""
+    pad_id = vocab["<pad>"]
+    mask_id = vocab["<mask>"]
+    special = {pad_id, mask_id}
+    return sorted(token_id for token_id in vocab.values() if token_id not in special)
+
+
+def decoder_output_size(vocab: dict[str, int]) -> int:
+    return len(decoder_output_token_ids(vocab))
+
+
+def get_aa_masses(vocab):
+    masses = []
+    for token, _ in sorted(vocab.items(), key=lambda item: item[1]):
+        if token not in AA_MASSES_DICT:
+            raise KeyError(
+                f"Amino acid '{token}' is missing from AA_MASSES_DICT. "
+                "Add its monoisotopic mass or filter the vocabulary."
+            )
+        masses.append(AA_MASSES_DICT[token])
+    return torch.tensor(masses, dtype=torch.float32)
+
+
+def get_output_aa_masses(vocab: dict[str, int]) -> torch.Tensor:
+    """Per-residue masses aligned with decoder output logits (amino acids only)."""
+    masses = get_aa_masses(vocab)
+    return masses[decoder_output_token_ids(vocab)]
+
+class SpectrumDataSet(Dataset):
+    def __init__(self, data, vocab, top_k: int = 200, remove_precursor_peak: bool = True):
+        self.data = data
+        self.top_k = top_k
+        self.remove_precursor_peak = remove_precursor_peak
+        self.vocab = vocab
+
+    def __getitem__(self, idx):
+        row = self.data[idx]
+        mz_array = torch.tensor(row["mz_array"], dtype=torch.float32)
+        intensity_array = torch.tensor(row["intensity_array"], dtype=torch.float32)
+        precursor_mass = float(row["precursor_mass"])
+        precursor_charge = int(row["precursor_charge"])
+
+        if self.remove_precursor_peak:
+            tol = 1e-3
+            keep = (mz_array - precursor_mass).abs() > tol
+            mz_array = mz_array[keep]
+            intensity_array = intensity_array[keep]
+
+        if self.top_k is not None:
+            k = min(self.top_k, intensity_array.shape[0])
+            if k > 0:
+                intensity_array, indices = torch.topk(intensity_array, k)
+                mz_array = mz_array[indices]
+
+        sequence = torch.tensor(
+            [self.vocab[residue] for residue in row["sequence"]],
+            dtype=torch.long,
+        )
+        length = len(row["sequence"])
+        validate_peptide_length(length)
+        mz_complementary = precursor_mass + 2 * M_H - mz_array
+
+        return (
             mz_array,
             intensity_array,
             precursor_mass,
@@ -70,260 +151,65 @@ def _run_epoch(
             sequence,
             mz_complementary,
             length,
-            padded_mask,
-            spectrum_mask,
-        ) in loader:
-            if device is not None:
-                (
-                    mz_array,
-                    intensity_array,
-                    precursor_mass,
-                    precursor_charge,
-                    sequence,
-                    mz_complementary,
-                    length,
-                    padded_mask,
-                    spectrum_mask,
-                ) = _move_batch_to_device(
-                    (
-                        mz_array,
-                        intensity_array,
-                        precursor_mass,
-                        precursor_charge,
-                        sequence,
-                        mz_complementary,
-                        length,
-                        padded_mask,
-                        spectrum_mask,
-                    ),
-                    device,
-                )
-
-            batch_size = mz_array.shape[0]
-            active_mask = length_to_active_mask(length, sequence.shape[1])
-            time = torch.rand(batch_size, device=sequence.device)
-            kt, _kt_derivative = scheduler(time)
-
-            spectrum_emb_cls, spectrum_emb_peaks, full_mask = spectrum_encoder(
-                mz_array,
-                mz_complementary,
-                intensity_array,
-                spectrum_mask,
-            )
-
-            conditioner = guidance(
-                spectrum_emb_peaks,
-                guidance_prob=0.1,
-                need_guidance=train,
-            )
-
-            x_t = sample_noising_step_uniform(
-                kt, sequence, vocabulary, padding_mask=padded_mask
-            )
-            length_logits = length_predictor(
-                spectrum_emb_cls,
-                precursor_mass,
-                precursor_charge,
-            )
-            peptide_logits = decoder(
-                time,
-                precursor_mass,
-                precursor_charge,
-                conditioner,
-                x_t,
-                length,
-                full_mask,
-            )
-
-            decoder_loss = peptide_loss(
-                peptide_logits,
-                sequence,
-                pad_id=vocabulary["<pad>"],
-            )
-            len_loss = length_loss(length_logits, length)
-            mass_loss = mass_loss_hubert(
-                peptide_logits,
-                aa_masses,
-                precursor_mass,
-                active_mask=active_mask,
-            )
-            lambd = lambda_schedule(epoch, total_epochs)
-            gamma = gamma_schedule(epoch, total_epochs)
-
-            loss = decoder_loss + lambd * len_loss + gamma * mass_loss
-
-            if train:
-                optimizer.zero_grad()
-                loss.backward()
-                torch.nn.utils.clip_grad_norm_(spectrum_encoder.parameters(), max_norm=1.0)
-                torch.nn.utils.clip_grad_norm_(decoder.parameters(), max_norm=1.0)
-                torch.nn.utils.clip_grad_norm_(guidance.parameters(), max_norm=1.0)
-                optimizer.step()
-
-            total_samples += batch_size
-            totals["loss"] += loss.item() * batch_size
-            totals["decoder_loss"] += decoder_loss.item() * batch_size
-            totals["length_loss"] += len_loss.item() * batch_size
-            totals["mass_loss"] += mass_loss.item() * batch_size
-
-            if not train:
-                proxy = evaluate_teacher_forced(
-                    peptide_logits,
-                    sequence,
-                    length_logits,
-                    length,
-                    active_mask,
-                    vocabulary,
-                )
-                for key in proxy_totals:
-                    proxy_totals[key] += proxy[key] * batch_size
-
-    if total_samples == 0:
-        metrics = {key: 0.0 for key in totals}
-        metrics.update({key: 0.0 for key in proxy_totals})
-        return metrics
-
-    metrics = {key: value / total_samples for key, value in totals.items()}
-    if not train:
-        metrics.update({key: value / total_samples for key, value in proxy_totals.items()})
-    return metrics
-
-
-def training_loop(
-    optimizer,
-    epochs,
-    vocabulary,
-    guidance,
-    spectrum_encoder,
-    length_predictor,
-    decoder,
-    aa_masses,
-    train_loader,
-    valid_loader,
-    scheduler,
-    device=None,
-    total_epochs=None,
-    initial_history=None,
-    epoch_end_callback=None,
-    eval_every: int = 1,
-    eval_max_batches: int = 32,
-    inference_steps: int = 50,
-    noising_scheme: str = "uniform",
-    guidance_scale: float = 1.0,
-):
-    from eval.evaluate import evaluate_generative
-    from eval.metrics import format_metrics
-
-    history = copy_history(initial_history)
-    for key in (
-        "valid_token_accuracy",
-        "valid_length_accuracy",
-        "valid_exact_peptide_accuracy",
-        "valid_aa_precision",
-        "valid_aa_recall",
-        "valid_peptide_precision",
-        "valid_peptide_recall",
-        "valid_exact_generative_accuracy",
-    ):
-        history.setdefault(key, [])
-    if total_epochs is None:
-        epoch_list = list(epochs)
-        total_epochs = epoch_list[-1] + 1 if epoch_list else 0
-
-    for epoch in epochs:
-        weights = loss_weights(epoch, total_epochs)
-        history["lambda"].append(weights["lambda"])
-        history["gamma"].append(weights["gamma"])
-        train_metrics = _run_epoch(
-            train_loader,
-            vocabulary,
-            guidance,
-            spectrum_encoder,
-            length_predictor,
-            decoder,
-            aa_masses,
-            scheduler,
-            device=device,
-            optimizer=optimizer,
-            train=True,
-            epoch=epoch,
-            total_epochs=total_epochs,
-        )
-        valid_metrics = _run_epoch(
-            valid_loader,
-            vocabulary,
-            guidance,
-            spectrum_encoder,
-            length_predictor,
-            decoder,
-            aa_masses,
-            scheduler,
-            device=device,
-            train=False,
-            epoch=epoch,
-            total_epochs=total_epochs,
         )
 
-        history["train_loss"].append(train_metrics["loss"])
-        history["train_decoder_loss"].append(train_metrics["decoder_loss"])
-        history["train_length_loss"].append(train_metrics["length_loss"])
-        history["train_mass_loss"].append(train_metrics["mass_loss"])
-        history["valid_loss"].append(valid_metrics["loss"])
-        history["valid_decoder_loss"].append(valid_metrics["decoder_loss"])
-        history["valid_length_loss"].append(valid_metrics["length_loss"])
-        history["valid_mass_loss"].append(valid_metrics["mass_loss"])
-        history["valid_token_accuracy"].append(valid_metrics.get("token_accuracy", 0.0))
-        history["valid_length_accuracy"].append(valid_metrics.get("length_accuracy", 0.0))
-        history["valid_exact_peptide_accuracy"].append(
-            valid_metrics.get("exact_peptide_accuracy", 0.0)
-        )
-
-        generative_metrics = None
-        if eval_max_batches > 0 and (epoch % eval_every == 0 or epoch == total_epochs - 1):
-            generative_metrics = evaluate_generative(
-                valid_loader,
-                vocabulary,
-                spectrum_encoder,
-                length_predictor,
-                decoder,
-                guidance,
-                scheduler,
-                device,
-                max_batches=eval_max_batches,
-                num_steps=inference_steps,
-                noising_scheme=noising_scheme,
-                guidance_scale=guidance_scale,
-            )
-            history["valid_aa_precision"].append(generative_metrics.aa_precision)
-            history["valid_aa_recall"].append(generative_metrics.aa_recall)
-            history["valid_peptide_precision"].append(generative_metrics.peptide_precision)
-            history["valid_peptide_recall"].append(generative_metrics.peptide_recall)
-            history["valid_exact_generative_accuracy"].append(
-                generative_metrics.exact_peptide_accuracy
-            )
-
-        print(
-            f"epoch {epoch + 1}/{total_epochs} "
-            f"λ={weights['lambda']:.3f} γ={weights['gamma']:.3f} "
-            f"train={train_metrics['loss']:.4f} valid={valid_metrics['loss']:.4f} "
-            f"tf_tok={valid_metrics.get('token_accuracy', 0.0):.4f} "
-            f"tf_len={valid_metrics.get('length_accuracy', 0.0):.4f}"
-        )
-        if generative_metrics is not None:
-            print(f"  generative: {format_metrics(generative_metrics)}")
-        if epoch_end_callback is not None:
-            epoch_end_callback(
-                epoch=epoch,
-                total_epochs=total_epochs,
-                history=history,
-                train_metrics=train_metrics,
-                valid_metrics=valid_metrics,
-                weights=weights,
-                generative_metrics=generative_metrics.to_dict() if generative_metrics else None,
-            )
-
-    return history
+    def __len__(self):
+        return len(self.data)
 
 
-# Backward-compatible alias.
-trainning_loop = training_loop
+def spectrum_collate(batch_data, vocab):
+    (
+        mz_array,
+        intensity_array,
+        precursor_mass,
+        precursor_charge,
+        sequence,
+        mz_complementary,
+        length,
+    ) = zip(*batch_data)
+
+    intensity_array = pad_sequence(
+        intensity_array, batch_first=True, padding_value=-1, padding_side="right"
+    )
+
+    spectrum_mask = intensity_array == -1
+    intensity_array[spectrum_mask] = .0
+    intensity_array = (intensity_array/(intensity_array.max(dim =-1)+1e-7)).sqrt()
+
+    mz_array = pad_sequence(
+        mz_array, batch_first=True, padding_value=.0, padding_side="right"
+    )
+    mz_complementary = pad_sequence(
+        mz_complementary, batch_first=True, padding_value=.0, padding_side="right"
+    )
+
+    precursor_mass = torch.tensor(precursor_mass, dtype=torch.float32)
+    precursor_charge = torch.tensor(precursor_charge, dtype=torch.long)
+    sequence = pad_sequence(
+        sequence, batch_first=True, padding_value=vocab["<pad>"], padding_side="right"
+    )
+    padded_mask = sequence == vocab["<pad>"]
+
+    return (
+        mz_array,
+        intensity_array,
+        precursor_mass,
+        precursor_charge,
+        sequence,
+        mz_complementary,
+        torch.tensor(length, dtype=torch.long),
+        padded_mask,
+        spectrum_mask,
+    )
+
+
+def build_dataloader(ds, vocab, batch_size: int = 32, shuffle: bool = True, num_workers: int = 0):
+    dataset = SpectrumDataSet(ds, vocab)
+    collate_fn = partial(spectrum_collate, vocab=vocab)
+    return DataLoader(
+        dataset,
+        batch_size=batch_size,
+        shuffle=shuffle,
+        num_workers=num_workers,
+        collate_fn=collate_fn,
+    )
