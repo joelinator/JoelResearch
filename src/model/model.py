@@ -60,7 +60,7 @@ class SpectrumEncoder(nn.Module):
             dim=1,
         )
         x = self.transformer_encoder(x, src_key_padding_mask=full_mask)
-        return x[:, 0, :], x, full_mask[:, 1:]
+        return x[:, 0, :], x[:,1:,:], spectrum_mask
 
 
 class DecoderBlock(nn.Module):
