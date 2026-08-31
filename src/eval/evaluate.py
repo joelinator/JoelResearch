@@ -102,7 +102,7 @@ def evaluate_teacher_forced(
     """Fast proxy metrics from a single forward pass (not full generative decoding)."""
     pad_id = vocabulary["<pad>"]
     output_token_tensor = torch.tensor(
-        decoder_output_token_ids, device=sequence.device, dtype=sequence.dtype
+        decoder_output_token_ids(vocabulary), device=sequence.device, dtype=sequence.dtype
     )
     pred_class = peptide_logits.argmax(dim=-1)
     pred_tokens = output_token_tensor[pred_class]
@@ -139,3 +139,4 @@ def evaluate_teacher_forced(
         "length_accuracy": float(length_accuracy),
         "exact_peptide_accuracy": float(exact_accuracy),
     }
+
