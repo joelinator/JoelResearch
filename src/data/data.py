@@ -72,7 +72,7 @@ def build_vocabulary(ds):
 
     vocab = {token: index for index, token in enumerate(sorted(tokens))}
     vocab["<pad>"] = len(vocab)
-    vocab["<mask>"] = len(vocab) + 1
+    vocab["<mask>"] = len(vocab)
     return vocab
 
 
