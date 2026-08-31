@@ -155,6 +155,9 @@ def _run_epoch(
             if train:
                 optimizer.zero_grad()
                 loss.backward()
+                torch.nn.utils.clip_grad_value_(spectrum_encoder.parameters(), clip_value=1.0)
+                torch.nn.utils.clip_grad_value_(decoder.parameters(), clip_value=1.0)
+                torch.nn.utils.clip_grad_value_(guidance.parameters(), clip_value=1.0)
                 optimizer.step()
 
             total_samples += batch_size
