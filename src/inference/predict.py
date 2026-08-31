@@ -91,12 +91,28 @@ def predict_peptide(
     batch_size = mz_array.shape[0]
     pad_id = vocabulary["<pad>"]
 
+
+    print("----->>>>Debug, mz_array", mz_array[:2])
+
+    print("----->>>>Debug, int_array", intensity_array[:2])
+
+    print("----->>>>Debug, mz_compelementary", mz_complementary[:2])
+    
+    print("----->>>>Debug, spectrum_mask", spectrum_mask[:2])
+    
+
     spectrum_emb_cls, spectrum_emb_peaks, full_mask = spectrum_encoder(
         mz_array,
         mz_complementary,
         intensity_array,
         spectrum_mask,
     )
+
+    print("----->>>>Debug, emb_cls", spectrum_emb_cls[:2])
+
+    print("----->>>>Debug, emb_peaks", spectrum_emb_peaks[:2])
+
+    print("----->>>>Debug, full_mask", full_mask[:2])
 
     length_logits = length_predictor(
         spectrum_emb_cls,
@@ -106,6 +122,8 @@ def predict_peptide(
     predicted_lengths = clamp_length(class_to_length(length_logits.argmax(dim=-1)))
     max_len = int(predicted_lengths.max().item())
     active_mask = length_to_active_mask(predicted_lengths, max_len)
+
+    print("----->>>>Debug, length", length_logits[:2])
 
     x_t = _initialize_noisy_sequence(
         batch_size,
@@ -136,6 +154,8 @@ def predict_peptide(
                 guidance_prob=0.0,
                 need_guidance=False,
             )
+        
+        print("----->>>>Debug, conditioner", conditioner[:2])
 
         logits = decoder(
             t,
@@ -146,6 +166,7 @@ def predict_peptide(
             predicted_lengths.float(),
             full_mask,
         )
+        print("----->>>>Debug, logits", logits[:2])
 
         # Only score / update active peptide positions (amino-acid logits only).
         logits = logits.masked_fill(~active_mask.unsqueeze(-1), float("-inf"))
