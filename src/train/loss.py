@@ -101,15 +101,14 @@ def mass_loss_hubert(
     temperature=0.5,
     threshold=1e-3,
 ):
-    probs = F.softmax(logits / temperature, dim=-1)
+    seq_probs = F.softmax(logits / temperature, dim=-1)
     if active_mask is not None:
         weights = active_mask.float().unsqueeze(-1)
-        weighted = probs * weights
-        seq_probs = weighted.sum(dim=1) / weights.sum(dim=1).clamp(min=1.0)
-    else:
-        seq_probs = probs.mean(dim=1)
+        seq_probs = seq_probs * weights
+    seq_probs = seq_probs.sum(dim=1)
+        
     average_mass = torch.sum(seq_probs * aa_masses.unsqueeze(0), dim=-1)
-    loss = torch.abs(precursor_mass - average_mass) / precursor_mass.clamp(min=1e-6)
+    loss = torch.abs(precursor_mass - average_mass) / precursor_mass.clamp(min=1.0)
     mask = loss < threshold
     loss = torch.where(mask, 0.5 * loss**2, threshold * (loss - threshold * 0.5))
     return loss.mean()
@@ -136,3 +135,4 @@ def peptide_loss(logits, peptide, pad_id: int, loss_fn=None):
         logits.reshape(-1, logits.shape[-1]),
         peptide.reshape(-1),
     )
+
