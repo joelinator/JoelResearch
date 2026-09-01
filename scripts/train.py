@@ -93,12 +93,14 @@ def main():
 
     aa_masses = get_output_aa_masses(vocabulary).to(device)
 
+    pin = device.type == "cuda"
     train_loader = build_dataloader(
         train_ds,
         vocabulary,
         batch_size=args.batch_size,
         shuffle=True,
         num_workers=args.num_workers,
+        pin_memory=pin,
     )
     valid_loader = build_dataloader(
         valid_ds,
@@ -106,6 +108,7 @@ def main():
         batch_size=args.batch_size,
         shuffle=False,
         num_workers=args.num_workers,
+        pin_memory=pin,
     )
     # Apply top-k via dataset attribute after build (collate uses dataset).
     train_loader.dataset.top_k = args.top_k_peaks

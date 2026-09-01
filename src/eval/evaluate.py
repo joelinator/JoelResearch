@@ -104,34 +104,40 @@ def evaluate_teacher_forced(
     output_token_tensor = torch.tensor(
         decoder_output_token_ids(vocabulary), device=sequence.device, dtype=sequence.dtype
     )
-    pred_class = peptide_logits.argmax(dim=-1)
-    pred_tokens = output_token_tensor[pred_class]
+
+    # ── Token accuracy (fully vectorised) ──────────────────────────────────
+    pred_class = peptide_logits.argmax(dim=-1)            # (B, L)
+    pred_tokens = output_token_tensor[pred_class]          # (B, L) vocab ids
     token_correct = (pred_tokens == sequence) & active_mask
     token_accuracy = token_correct.sum().item() / active_mask.sum().clamp(min=1).item()
 
+    # ── Length accuracy ────────────────────────────────────────────────────
     pred_lengths = length_logits.argmax(dim=-1) + 1
     length_accuracy = (pred_lengths == length).float().mean().item()
 
+    # ── Exact peptide accuracy (vectorised string assembly) ────────────────
     index_to_token = invert_vocabulary(vocabulary)
-    predictions = []
-    targets = []
-    for row_idx in range(sequence.shape[0]):
-        pred_chars = []
-        target_chars = []
-        for col_idx in range(sequence.shape[1]):
-            if not active_mask[row_idx, col_idx]:
-                continue
-            target_id = int(sequence[row_idx, col_idx].item())
-            pred_id = int(pred_tokens[row_idx, col_idx].item())
-            if target_id == pad_id:
-                continue
-            target_chars.append(index_to_token[target_id])
-            if pred_id != pad_id:
-                pred_chars.append(index_to_token.get(pred_id, "?"))
-        predictions.append("".join(pred_chars))
-        targets.append("".join(target_chars))
+    predictions: list[str] = []
+    targets: list[str] = []
 
-    exact = sum(pred == target for pred, target in zip(predictions, targets))
+    # Move to CPU once; iterate over rows only (not over tokens).
+    pred_tokens_cpu = pred_tokens.cpu()
+    sequence_cpu = sequence.cpu()
+    active_mask_cpu = active_mask.cpu()
+
+    for row_idx in range(sequence_cpu.shape[0]):
+        mask_row = active_mask_cpu[row_idx]           # (L,) bool
+        tgt_ids = sequence_cpu[row_idx][mask_row]     # active target ids
+        prd_ids = pred_tokens_cpu[row_idx][mask_row]  # active pred ids
+
+        targets.append("".join(
+            index_to_token[t.item()] for t in tgt_ids if t.item() != pad_id
+        ))
+        predictions.append("".join(
+            index_to_token.get(p.item(), "?") for p in prd_ids if p.item() != pad_id
+        ))
+
+    exact = sum(p == t for p, t in zip(predictions, targets))
     exact_accuracy = exact / len(targets) if targets else 0.0
 
     return {
