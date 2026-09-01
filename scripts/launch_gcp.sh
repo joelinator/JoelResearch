@@ -51,6 +51,6 @@ python scripts/download_dataset.py \
   ${HF_SUBSET:+--subset "${HF_SUBSET}"}
 
 echo "[5/6] Starting training"
-python scripts/train.py "$@"
+python scripts/train_lightning.py "$@"
 
 echo "[6/6] Done"
