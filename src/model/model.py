@@ -182,7 +182,7 @@ class DFMPeptideDecoder(nn.Module):
         """Build a decoder whose output head excludes the <mask_token>."""
         return cls(
             vocab_size=len(vocab),
-            mask_token_id=vocab["<mask_token>" if "<mask_token>" in vocab else "<mask_token>"],
+            mask_token_id=vocab["<mask>"],
             pad_token_id=vocab["<pad>"],
             **kwargs,
         )

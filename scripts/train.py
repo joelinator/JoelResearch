@@ -62,6 +62,8 @@ def parse_args():
         type=int,
         default=int(os.environ.get("INFERENCE_STEPS", train_cfg.inference_steps)),
     )
+    parser.add_argument("--compile", action="store_true", default=train_cfg.compile, help="Compile models with torch.compile")
+    parser.add_argument("--no-amp", action="store_false", dest="amp", default=train_cfg.amp, help="Disable automatic mixed precision")
     return parser.parse_args()
 
 
@@ -109,7 +111,7 @@ def main():
     train_loader.dataset.top_k = args.top_k_peaks
     valid_loader.dataset.top_k = args.top_k_peaks
 
-    spectrum_encoder, length_predictor, decoder, guidance = build_models(vocabulary, device)
+    spectrum_encoder, length_predictor, decoder, guidance = build_models(vocabulary, device, compile_models=args.compile)
 
     optimizer = AdamW(
         list(spectrum_encoder.parameters())
@@ -202,6 +204,7 @@ def main():
         inference_steps=args.inference_steps,
         noising_scheme=DEFAULTS.train.noising_scheme,
         guidance_scale=DEFAULTS.train.guidance_scale,
+        amp=args.amp,
     )
 
     print("Training finished.")

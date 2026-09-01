@@ -1,3 +1,4 @@
+import contextlib
 import torch
 
 from data.lengths import length_to_active_mask
@@ -32,10 +33,12 @@ def _run_epoch(
     scheduler,
     device=None,
     optimizer=None,
+    scaler=None,
     train=True,
     epoch=0,
     total_epochs=1,
     noising_scheme="mask",
+    amp=True,
 ):
     if train:
         spectrum_encoder.train()
@@ -61,8 +64,15 @@ def _run_epoch(
         "exact_peptide_accuracy": 0.0,
     }
 
-    context = torch.enable_grad() if train else torch.no_grad()
-    with context:
+    use_amp = amp and device is not None and device.type == "cuda"
+    amp_dtype = (
+        torch.bfloat16
+        if (use_amp and torch.cuda.is_bf16_supported())
+        else torch.float16
+    )
+
+    grad_context = torch.enable_grad() if train else torch.no_grad()
+    with grad_context:
         for (
             mz_array,
             intensity_array,
@@ -105,12 +115,19 @@ def _run_epoch(
             time = torch.rand(batch_size, device=sequence.device).clamp(1e-7, 1 - 1e-7)
             kt, _kt_derivative = scheduler(time)
 
-            spectrum_emb_cls, spectrum_emb_peaks, peak_mask = spectrum_encoder(
-                mz_array,
-                mz_complementary,
-                intensity_array,
-                spectrum_mask,
+            autocast_ctx = (
+                torch.amp.autocast(device_type="cuda", dtype=amp_dtype)
+                if use_amp
+                else contextlib.nullcontext()
             )
+
+            with autocast_ctx:
+                spectrum_emb_cls, spectrum_emb_peaks, peak_mask = spectrum_encoder(
+                    mz_array,
+                    mz_complementary,
+                    intensity_array,
+                    spectrum_mask,
+                )
 
             conditioner = guidance(
                 spectrum_emb_peaks,
@@ -161,15 +178,22 @@ def _run_epoch(
 
             if train:
                 optimizer.zero_grad()
-                loss.backward()
                 all_params = (
                     list(spectrum_encoder.parameters())
                     + list(length_predictor.parameters())
                     + list(decoder.parameters())
                     + list(guidance.parameters())
                 )
-                torch.nn.utils.clip_grad_norm_(all_params, max_norm=1.0)
-                optimizer.step()
+                if scaler is not None and use_amp and amp_dtype == torch.float16:
+                    scaler.scale(loss).backward()
+                    scaler.unscale_(optimizer)
+                    torch.nn.utils.clip_grad_norm_(all_params, max_norm=1.0)
+                    scaler.step(optimizer)
+                    scaler.update()
+                else:
+                    loss.backward()
+                    torch.nn.utils.clip_grad_norm_(all_params, max_norm=1.0)
+                    optimizer.step()
 
             total_samples += batch_size
             totals["loss"] += loss.item() * batch_size
@@ -222,6 +246,7 @@ def training_loop(
     noising_scheme: str = "mask",
     guidance_scale: float = 1.0,
     lr_scheduler=None,
+    amp: bool = True,
 ):
     from eval.evaluate import evaluate_generative
     from eval.metrics import format_metrics
@@ -250,6 +275,10 @@ def training_loop(
             eta_min=1e-6,
         )
 
+    scaler = None
+    if amp and device is not None and device.type == "cuda" and not torch.cuda.is_bf16_supported():
+        scaler = torch.cuda.amp.GradScaler()
+
     for epoch in epochs:
         weights = loss_weights(epoch, total_epochs)
         history["lambda"].append(weights["lambda"])
@@ -268,10 +297,12 @@ def training_loop(
             scheduler,
             device=device,
             optimizer=optimizer,
+            scaler=scaler,
             train=True,
             epoch=epoch,
             total_epochs=total_epochs,
             noising_scheme=noising_scheme,
+            amp=amp,
         )
         valid_metrics = _run_epoch(
             valid_loader,
@@ -287,6 +318,7 @@ def training_loop(
             epoch=epoch,
             total_epochs=total_epochs,
             noising_scheme=noising_scheme,
+            amp=amp,
         )
 
         if lr_scheduler is not None:
