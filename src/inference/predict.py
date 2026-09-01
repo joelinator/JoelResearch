@@ -15,7 +15,7 @@ def decode_tokens(token_ids: torch.Tensor, vocab: dict[str, int]) -> list[str]:
     """Convert token indices to amino-acid strings (strips <pad> and <mask_token>)."""
     index_to_token = invert_vocabulary(vocab)
     pad_id = vocab["<pad>"]
-    mask_id = vocab["<mask_token>" if "<mask_token>" in vocab else "<mask_token>"]
+    mask_id = vocab["<mask"]
     sequences = []
 
     for row in token_ids.tolist():
@@ -42,7 +42,7 @@ def _initialize_noisy_sequence(
     Active positions (0 .. length-1) start noisy; the padding tail is `<pad>`.
     """
     pad_id = vocab["<pad>"]
-    mask_id = vocab["<mask_token>" if "<mask_token>" in vocab else "<mask_token>"]
+    mask_id = vocab["<mask>"]
     active_mask = length_to_active_mask(length, seq_len)
 
     if scheme == "mask":

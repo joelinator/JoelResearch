@@ -16,10 +16,10 @@ class ModelDefaults:
     model_dim: int = 512
     encoder_layers: int = 6
     encoder_heads: int = 8
-    encoder_ff_dim: int = 2048
+    encoder_ff_dim: int = 1536   # tuned: 2048 → 1536 to stay in 40-50M param range
     decoder_blocks: int = 6
     decoder_heads: int = 8
-    mlp_hidden_dim: int = 2048
+    mlp_hidden_dim: int = 768    # tuned: 2048 → 768 (SwiGLU scales to 4× internally)
     max_charge: int = 6
     dropout: float = 0.1
 
