@@ -15,8 +15,7 @@ import torch
 from data.data import build_dataloader, build_vocabulary, get_dataset
 from flow_matching.scheduler import cosine_scheduler
 from inference.predict import predict_peptide
-from model.guidance import ClfGuidance
-from model.model import DFMPeptideDecoder, PeptideLengthClassifier, SpectrumEncoder
+from train.factory import build_models
 from train.io import load_checkpoint, load_models_from_checkpoint
 
 
@@ -58,10 +57,7 @@ def main():
     vocabulary = checkpoint["vocabulary"] if checkpoint is not None else build_vocabulary(ds)
     loader = build_dataloader(ds, vocabulary, batch_size=args.batch_size, shuffle=False)
 
-    spectrum_encoder = SpectrumEncoder().to(device)
-    length_predictor = PeptideLengthClassifier().to(device)
-    decoder = DFMPeptideDecoder.from_vocabulary(vocabulary).to(device)
-    guidance = ClfGuidance(cond_dim=128).to(device)
+    spectrum_encoder, length_predictor, decoder, guidance = build_models(vocabulary, device)
 
     if checkpoint is not None:
         load_models_from_checkpoint(
@@ -117,3 +113,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+
