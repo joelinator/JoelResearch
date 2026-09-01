@@ -49,6 +49,8 @@ class TrainDefaults:
     inference_steps: int = 50
     noising_scheme: str = "mask"
     guidance_scale: float = 1.0
+    compile: bool = False
+    amp: bool = True
 
 
 @dataclass(frozen=True)
@@ -58,6 +60,8 @@ class EvalDefaults:
     inference_steps: int = 50
     noising_scheme: str = "mask"
     guidance_scale: float = 1.0
+    compile: bool = False
+    amp: bool = True
     max_batches: int | None = None  # None = full split
     aa_mass_tolerance: float = 0.1
     prefix_mass_tolerance: float = 0.5

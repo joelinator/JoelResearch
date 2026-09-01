@@ -9,7 +9,11 @@ from model.guidance import ClfGuidance
 from model.model import DFMPeptideDecoder, PeptideLengthClassifier, SpectrumEncoder
 
 
-def build_models(vocabulary: dict[str, int], device: torch.device):
+def build_models(
+    vocabulary: dict[str, int],
+    device: torch.device,
+    compile_models: bool = False,
+):
     model_cfg = DEFAULTS.model
     spectrum_encoder = SpectrumEncoder(
         model_dim=model_cfg.model_dim,
@@ -34,4 +38,13 @@ def build_models(vocabulary: dict[str, int], device: torch.device):
         max_charge=model_cfg.max_charge,
     ).to(device)
     guidance = ClfGuidance(cond_dim=model_cfg.model_dim).to(device)
+
+    if compile_models and device.type == "cuda" and hasattr(torch, "compile"):
+        try:
+            spectrum_encoder = torch.compile(spectrum_encoder)
+            decoder = torch.compile(decoder)
+            print("Successfully compiled spectrum_encoder and decoder with torch.compile")
+        except Exception as e:
+            print(f"Warning: torch.compile failed ({e}), continuing with uncompiled models.")
+
     return spectrum_encoder, length_predictor, decoder, guidance
