@@ -15,7 +15,7 @@ def decode_tokens(token_ids: torch.Tensor, vocab: dict[str, int]) -> list[str]:
     """Convert token indices to amino-acid strings (strips <pad> and <mask_token>)."""
     index_to_token = invert_vocabulary(vocab)
     pad_id = vocab["<pad>"]
-    mask_id = vocab["<mask"]
+    mask_id = vocab["<mask>"]
     sequences = []
 
     for row in token_ids.tolist():
