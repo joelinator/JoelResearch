@@ -19,7 +19,7 @@ class ModelDefaults:
     encoder_ff_dim: int = 2048
     decoder_blocks: int = 6
     decoder_heads: int = 8
-    mlp_hidden_dim: int = 512
+    mlp_hidden_dim: int = 2048
     max_charge: int = 6
     dropout: float = 0.1
 
@@ -47,7 +47,7 @@ class TrainDefaults:
     eval_every: int = 2
     eval_max_batches: int = 64
     inference_steps: int = 50
-    noising_scheme: str = "uniform"
+    noising_scheme: str = "mask"
     guidance_scale: float = 1.0
 
 
@@ -56,7 +56,7 @@ class EvalDefaults:
     batch_size: int = 64
     num_workers: int = 4
     inference_steps: int = 50
-    noising_scheme: str = "uniform"
+    noising_scheme: str = "mask"
     guidance_scale: float = 1.0
     max_batches: int | None = None  # None = full split
     aa_mass_tolerance: float = 0.1
