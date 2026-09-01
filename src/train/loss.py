@@ -107,8 +107,10 @@ def mass_loss_hubert(
         seq_probs = seq_probs * weights
     seq_probs = seq_probs.sum(dim=1)
         
+    # Precursor neutral mass = sum(residue masses) + M_H2O (18.010565 Da)
     average_mass = torch.sum(seq_probs * aa_masses.unsqueeze(0), dim=-1)
-    loss = torch.abs(precursor_mass - average_mass) / precursor_mass.clamp(min=1.0)
+    target_residue_mass = (precursor_mass - 18.010565).clamp(min=1.0)
+    loss = torch.abs(target_residue_mass - average_mass) / target_residue_mass
     mask = loss < threshold
     loss = torch.where(mask, 0.5 * loss**2, threshold * (loss - threshold * 0.5))
     return loss.mean()

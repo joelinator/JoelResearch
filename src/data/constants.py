@@ -28,3 +28,6 @@ STANDARD_AMINO_ACIDS = list("ACDEFGHIKLMNPQRSTVWY")
 
 # Monoisotopic mass of a proton (Da).
 M_H = 1.007276
+
+# Monoisotopic mass of water (Da).
+M_H2O = 18.010565
