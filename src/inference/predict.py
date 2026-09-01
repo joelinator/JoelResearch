@@ -122,13 +122,22 @@ def predict_peptide(
         inference_sample_mask if noising_scheme == "mask" else inference_sample_uniform
     )
 
+    # Pre-cache conditioners outside the step loop.
+    # guidance() is a lightweight pooling op, but calling it 2×num_steps times
+    # (once per step for cond + uncond) wastes dispatch overhead.
+    if guidance_scale != 1.0:
+        cond_conditioner = guidance(spectrum_emb_peaks, guidance_prob=0.0, need_guidance=False)
+        uncond_conditioner = guidance.unconditional.view(1, 1, -1).expand_as(spectrum_emb_peaks)
+    else:
+        cond_conditioner = guidance(spectrum_emb_peaks, guidance_prob=0.0, need_guidance=False)
+        uncond_conditioner = None  # unused in this branch
+
     for step_idx in range(num_steps):
         t = time_grid[step_idx].expand(batch_size)
         delta_t = float(time_grid[step_idx + 1] - time_grid[step_idx])
         kt, kt_derivative = scheduler(t)
 
         if guidance_scale != 1.0:
-            cond_conditioner = guidance(spectrum_emb_peaks, guidance_prob=0.0, need_guidance=False)
             cond_logits = decoder(
                 t,
                 precursor_mass,
@@ -138,7 +147,6 @@ def predict_peptide(
                 predicted_lengths.float(),
                 peak_mask,
             )
-            uncond_conditioner = guidance.unconditional.view(1, 1, -1).expand_as(spectrum_emb_peaks)
             uncond_logits = decoder(
                 t,
                 precursor_mass,
@@ -150,16 +158,11 @@ def predict_peptide(
             )
             logits = uncond_logits + guidance_scale * (cond_logits - uncond_logits)
         else:
-            conditioner = guidance(
-                spectrum_emb_peaks,
-                guidance_prob=0.0,
-                need_guidance=False,
-            )
             logits = decoder(
                 t,
                 precursor_mass,
                 precursor_charge,
-                conditioner,
+                cond_conditioner,
                 x_t,
                 predicted_lengths.float(),
                 peak_mask,

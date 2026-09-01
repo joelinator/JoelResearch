@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+import numpy as np
+
 from data.constants import AA_MASSES_DICT
 
 
@@ -40,24 +42,27 @@ def count_matching_amino_acids(
     if n == 0 or m == 0:
         return 0
 
-    pred_prefixes = [_prefix_mass(predicted, i + 1) for i in range(n)]
-    true_prefixes = [_prefix_mass(target, j + 1) for j in range(m)]
+    # Fast path: identical strings — every position matches.
+    if predicted == target:
+        return n
 
-    dp = [[0] * (m + 1) for _ in range(n + 1)]
+    # Pre-compute cumulative prefix masses as numpy arrays (avoids O(N²) Python calls).
+    pred_masses = np.array([_residue_mass(aa) for aa in predicted], dtype=np.float64)
+    true_masses = np.array([_residue_mass(aa) for aa in target], dtype=np.float64)
+    pred_prefixes = np.cumsum(pred_masses)
+    true_prefixes = np.cumsum(true_masses)
+
+    dp = np.zeros((n + 1, m + 1), dtype=np.int32)
     for i in range(1, n + 1):
         for j in range(1, m + 1):
-            best = max(dp[i - 1][j], dp[i][j - 1])
-            if amino_acid_pair_matches(
-                predicted[i - 1],
-                target[j - 1],
-                pred_prefixes[i - 1],
-                true_prefixes[j - 1],
-                aa_mass_tolerance,
-                prefix_mass_tolerance,
+            best = max(dp[i - 1, j], dp[i, j - 1])
+            if (
+                abs(pred_masses[i - 1] - true_masses[j - 1]) < aa_mass_tolerance
+                and abs(pred_prefixes[i - 1] - true_prefixes[j - 1]) < prefix_mass_tolerance
             ):
-                best = max(best, dp[i - 1][j - 1] + 1)
-            dp[i][j] = best
-    return dp[n][m]
+                best = max(best, dp[i - 1, j - 1] + 1)
+            dp[i, j] = best
+    return int(dp[n, m])
 
 
 def peptide_matches_mass_based(

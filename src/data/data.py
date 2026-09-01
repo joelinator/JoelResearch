@@ -199,14 +199,28 @@ def spectrum_collate(batch_data, vocab):
         spectrum_mask,
     )
 
-def build_dataloader(ds, vocab, batch_size: int = 32, shuffle: bool = True, num_workers: int = 0):
+def build_dataloader(
+    ds,
+    vocab,
+    batch_size: int = 32,
+    shuffle: bool = True,
+    num_workers: int = 0,
+    pin_memory: bool = False,
+):
     dataset = SpectrumDataSet(ds, vocab)
     collate_fn = partial(spectrum_collate, vocab=vocab)
+    # persistent_workers avoids re-forking worker processes each epoch.
+    # prefetch_factor keeps the GPU fed with 4 batches in flight at all times.
+    # pin_memory allows async DMA transfers to the GPU (zero-copy host memory).
+    use_persistent = num_workers > 0
     return DataLoader(
         dataset,
         batch_size=batch_size,
         shuffle=shuffle,
         num_workers=num_workers,
         collate_fn=collate_fn,
+        pin_memory=pin_memory,
+        persistent_workers=use_persistent,
+        prefetch_factor=4 if use_persistent else None,
     )
 

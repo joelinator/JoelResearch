@@ -46,7 +46,8 @@ class TrainDefaults:
     # Generative validation metrics (de novo decode); eval_every>1 saves GPU time.
     eval_every: int = 2
     eval_max_batches: int = 64
-    inference_steps: int = 50
+    # 20 steps is sufficient for mid-training monitoring (full 50 only for final bench).
+    inference_steps: int = 20
     noising_scheme: str = "mask"
     guidance_scale: float = 1.0
     compile: bool = False
@@ -55,9 +56,10 @@ class TrainDefaults:
 
 @dataclass(frozen=True)
 class EvalDefaults:
-    batch_size: int = 64
+    # 256 batch is safe with AMP + no_grad on A100 (4× the VRAM headroom vs training).
+    batch_size: int = 256
     num_workers: int = 4
-    inference_steps: int = 50
+    inference_steps: int = 20
     noising_scheme: str = "mask"
     guidance_scale: float = 1.0
     compile: bool = False

@@ -41,9 +41,12 @@ def build_models(
 
     if compile_models and device.type == "cuda" and hasattr(torch, "compile"):
         try:
+            # The encoder runs once per batch – default mode (max optimisations).
             spectrum_encoder = torch.compile(spectrum_encoder)
-            decoder = torch.compile(decoder)
-            print("Successfully compiled spectrum_encoder and decoder with torch.compile")
+            # The decoder runs num_steps times per batch in a fixed-shape loop;
+            # reduce-overhead mode minimises Python dispatch cost in that loop.
+            decoder = torch.compile(decoder, mode="reduce-overhead")
+            print("torch.compile applied: spectrum_encoder (default), decoder (reduce-overhead)")
         except Exception as e:
             print(f"Warning: torch.compile failed ({e}), continuing with uncompiled models.")
 
