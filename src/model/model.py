@@ -117,6 +117,8 @@ class DFMPeptideDecoder(nn.Module):
         mask_token_id=None,
         pad_token_id=None,
         max_charge=6,
+        min_length: int = MIN_PEPTIDE_LENGTH,
+        max_length: int = MAX_PEPTIDE_LENGTH,
         n_decoder_blocks: int = 6,
         num_heads: int = 8,
         dropout: float = 0.1,
@@ -152,6 +154,15 @@ class DFMPeptideDecoder(nn.Module):
             num_embeddings=max_charge + 1,
             embedding_dim=emb_dim,
         )
+
+        self.min_length = min_length
+        self.max_length = max_length
+        # Lengths are in [min_length, max_length]; reserve indices 0..max_length for 1-based indexing.
+        self.length_embedding = nn.Embedding(
+            num_embeddings=max_length + 1,
+            embedding_dim=emb_dim,
+        )
+
         self.decoder_blocks = nn.ModuleList(
             [
                 DecoderBlock(
@@ -199,15 +210,17 @@ class DFMPeptideDecoder(nn.Module):
     ):
         seq_len = peptide_seq.shape[1]
         t = self.sinusoidal_embedding(time)
-        length_emb = self.sinusoidal_embedding(length.float())
 
         peptide_emb = self.peptide_embedding(peptide_seq)
         positions = torch.arange(seq_len, device=peptide_seq.device, dtype=torch.float32)
         pos_emb = self.sinusoidal_embedding(positions).unsqueeze(0)
 
-        charge_index = precursor_c.long().clamp(min=0, max=self.charge_embedding.num_embeddings - 1)
+        charge_index = precursor_c.long().clamp(min=1, max=self.charge_embedding.num_embeddings - 1)
         c_emb = self.charge_embedding(charge_index)
         m_emb = self.sinusoidal_embedding(precursor_m)
+
+        length_index = length.long().clamp(min=self.min_length, max=self.max_length)
+        length_emb = self.length_embedding(length_index)
 
         if m_emb.dim() > 2:
             m_emb = m_emb.squeeze(1)

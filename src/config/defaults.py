@@ -10,6 +10,8 @@ from __future__ import annotations
 
 from dataclasses import asdict, dataclass, field
 
+from data.lengths import MAX_PEPTIDE_LENGTH, MIN_PEPTIDE_LENGTH
+
 
 @dataclass(frozen=True)
 class ModelDefaults:
@@ -21,6 +23,8 @@ class ModelDefaults:
     decoder_heads: int = 8
     mlp_hidden_dim: int = 768    # tuned: 2048 → 768 (SwiGLU scales to 4× internally)
     max_charge: int = 6
+    max_length: int = MAX_PEPTIDE_LENGTH
+    min_length: int = MIN_PEPTIDE_LENGTH
     dropout: float = 0.1
 
 
@@ -52,6 +56,10 @@ class TrainDefaults:
     guidance_scale: float = 1.0
     compile: bool = False
     amp: bool = True
+    length_noising: bool = True
+    length_noising_prob: float = 0.1
+    top_k_lengths: int = 3
+    length_beam_alpha: float = 0.1
 
 
 @dataclass(frozen=True)
@@ -62,6 +70,8 @@ class EvalDefaults:
     inference_steps: int = 20
     noising_scheme: str = "mask"
     guidance_scale: float = 1.0
+    top_k_lengths: int = 3
+    length_beam_alpha: float = 0.1
     compile: bool = False
     amp: bool = True
     max_batches: int | None = None  # None = full split

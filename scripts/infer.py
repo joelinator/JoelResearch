@@ -34,6 +34,18 @@ def parse_args():
         type=float,
         default=float(os.environ.get("GUIDANCE_SCALE", "1.0")),
     )
+    parser.add_argument(
+        "--top-k-lengths",
+        type=int,
+        default=int(os.environ.get("TOP_K_LENGTHS", "3")),
+        help="Number of top length candidates to decode in parallel (default: 3).",
+    )
+    parser.add_argument(
+        "--length-beam-alpha",
+        type=float,
+        default=float(os.environ.get("LENGTH_BEAM_ALPHA", "0.1")),
+        help="Weight for mass mismatch penalty in length beam score (default: 0.1).",
+    )
     parser.add_argument("--cache-dir", default=os.environ.get("HF_DATASETS_CACHE", "data/cache"))
     parser.add_argument("--device", default=os.environ.get("DEVICE", "cuda" if torch.cuda.is_available() else "cpu"))
     parser.add_argument("--max-batches", type=int, default=int(os.environ.get("MAX_BATCHES", "1")))
@@ -101,6 +113,8 @@ def main():
             num_steps=args.num_steps,
             noising_scheme=args.noising_scheme,
             guidance_scale=args.guidance_scale,
+            top_k_lengths=args.top_k_lengths,
+            alpha=args.length_beam_alpha,
         )
 
         for idx, sequence in enumerate(sequences):

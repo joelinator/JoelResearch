@@ -21,6 +21,7 @@ from train.loss import (
     mass_loss_hubert,
     peptide_loss,
 )
+from train.utils import length_noiser
 
 
 class DFMLightningModule(pl.LightningModule):
@@ -93,13 +94,26 @@ class DFMLightningModule(pl.LightningModule):
             precursor_mass,
             precursor_charge,
         )
+
+        true_length = length
+        is_length_noised = False
+        use_length_noising = self.args.get("length_noising", True)
+        noising_prob = self.args.get("length_noising_prob", 0.1)
+
+        if mode == "train" and use_length_noising:
+            length_for_decoder, is_length_noised = length_noiser(
+                length, noising_prob=noising_prob
+            )
+        else:
+            length_for_decoder = length
+
         peptide_logits = self.decoder(
             time,
             precursor_mass,
             precursor_charge,
             conditioner,
             x_t,
-            length.float(),
+            length_for_decoder,
             peak_mask,
         )
 
@@ -108,32 +122,37 @@ class DFMLightningModule(pl.LightningModule):
             sequence,
             pad_id=self.vocabulary["<pad>"],
         )
-        len_loss = length_loss(length_logits, length)
-        mass_loss = mass_loss_hubert(
-            peptide_logits,
-            self.aa_masses,
-            precursor_mass,
-            active_mask=active_mask,
-        )
+        len_loss = length_loss(length_logits, true_length)
 
         epoch = self.current_epoch
         total_epochs = self.trainer.max_epochs or self.args.get("epochs", 30)
         lambd = lambda_schedule(epoch, total_epochs)
         gamma = gamma_schedule(epoch, total_epochs)
 
-        loss = decoder_loss + lambd * len_loss + gamma * mass_loss
+        if not is_length_noised:
+            mass_loss = mass_loss_hubert(
+                peptide_logits,
+                self.aa_masses,
+                precursor_mass,
+                active_mask=active_mask,
+            )
+            loss = decoder_loss + lambd * len_loss + gamma * mass_loss
+            mass_loss_log = mass_loss
+        else:
+            loss = decoder_loss + lambd * len_loss
+            mass_loss_log = torch.tensor(0.0, device=loss.device)
 
         self.log(f"{mode}/loss", loss, batch_size=batch_size, sync_dist=True)
         self.log(f"{mode}/decoder_loss", decoder_loss, batch_size=batch_size, sync_dist=True)
         self.log(f"{mode}/length_loss", len_loss, batch_size=batch_size, sync_dist=True)
-        self.log(f"{mode}/mass_loss", mass_loss, batch_size=batch_size, sync_dist=True)
+        self.log(f"{mode}/mass_loss", mass_loss_log, batch_size=batch_size, sync_dist=True)
 
         if mode == "valid":
             proxy = evaluate_teacher_forced(
                 peptide_logits,
                 sequence,
                 length_logits,
-                length,
+                true_length,
                 active_mask,
                 self.vocabulary,
             )
