@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import torch
+import torch.nn.functional as F
 
+from data.constants import AA_MASSES_DICT, M_H2O
 from data.data import invert_vocabulary
 from data.lengths import apply_length_padding, class_to_length, clamp_length, length_to_active_mask
 from flow_matching.sampling import (
@@ -23,7 +25,7 @@ def decode_tokens(token_ids: torch.Tensor, vocab: dict[str, int]) -> list[str]:
         for token_id in row:
             if token_id in (pad_id, mask_id):
                 continue
-            residues.append(index_to_token[token_id])
+            residues.append(index_to_token.get(token_id, "?"))
         sequences.append("".join(residues))
     return sequences
 
@@ -76,12 +78,39 @@ def predict_peptide(
     num_steps: int = 20,
     noising_scheme: str = "mask",
     guidance_scale: float = 1.0,
+    top_k_lengths: int = 3,
+    alpha: float = 0.1,
 ) -> tuple[torch.Tensor, torch.Tensor, list[str]]:
     """
-    Run de novo inference: predict peptide length, then decode the sequence.
+    Run de novo inference with Top-k Length Beam Decoding.
 
-    Length governs which positions are decoded (amino acids only); positions
-    j >= predicted_length are kept as structural `<pad>` throughout.
+    Predicts the top-k most likely peptide lengths from the length classifier,
+    runs the peptide decoder on all candidate lengths in parallel across the batch,
+    scores each candidate sequence based on:
+        Score(Y) = -H(Y | Spectrum) - alpha * |sum m(aa) - M_true|
+    and selects the optimal sequence per spectrum.
+
+    Args:
+        mz_array: Mass spectrum m/z values (B, S).
+        intensity_array: Mass spectrum peak intensities (B, S).
+        precursor_mass: Neutral precursor monoisotopic mass (B,).
+        precursor_charge: Ionization charge (B,).
+        mz_complementary: Theoretical complementary m/z values (B, S).
+        spectrum_mask: Padding mask for spectrum peaks (B, S).
+        vocabulary: Residue vocabulary dictionary mapping tokens to IDs.
+        spectrum_encoder: Trained SpectrumEncoder module.
+        length_predictor: Trained PeptideLengthClassifier module.
+        decoder: Trained DFMPeptideDecoder module.
+        guidance: Classifier-Free Guidance module.
+        scheduler: Flow matching noise schedule function.
+        num_steps: Number of discrete diffusion integration steps.
+        noising_scheme: 'mask' (absorbing state) or 'uniform'.
+        guidance_scale: Strength of CFG extrapolation.
+        top_k_lengths: Number of top length candidates to decode in parallel (default: 3).
+        alpha: Weight for precursor mass mismatch penalty in beam score (default: 0.1).
+
+    Returns:
+        (best_token_ids, best_lengths, best_sequences)
     """
     spectrum_encoder.eval()
     length_predictor.eval()
@@ -92,6 +121,7 @@ def predict_peptide(
     batch_size = mz_array.shape[0]
     pad_id = vocabulary["<pad>"]
 
+    # 1. Encode spectra (computed once per spectrum)
     spectrum_emb_cls, spectrum_emb_peaks, peak_mask = spectrum_encoder(
         mz_array,
         mz_complementary,
@@ -99,22 +129,45 @@ def predict_peptide(
         spectrum_mask,
     )
 
+    # 2. Predict candidate lengths
     length_logits = length_predictor(
         spectrum_emb_cls,
         precursor_mass,
         precursor_charge,
     )
-    predicted_lengths = clamp_length(class_to_length(length_logits.argmax(dim=-1)))
-    max_len = int(predicted_lengths.max().item())
-    active_mask = length_to_active_mask(predicted_lengths, max_len)
+    k_cand = max(1, min(top_k_lengths, length_logits.shape[-1]))
 
+    if k_cand == 1:
+        cand_lengths_flat = clamp_length(class_to_length(length_logits.argmax(dim=-1)))
+        K = 1
+        precursor_mass_exp = precursor_mass
+        precursor_charge_exp = precursor_charge
+        spectrum_emb_peaks_exp = spectrum_emb_peaks
+        peak_mask_exp = peak_mask
+    else:
+        topk_classes = torch.topk(length_logits, k=k_cand, dim=-1).indices  # (B, K)
+        cand_lengths = clamp_length(class_to_length(topk_classes))  # (B, K)
+        cand_lengths_flat = cand_lengths.reshape(-1)  # (B * K,)
+        K = k_cand
+
+        # Parallelize across candidates via batch interleave
+        precursor_mass_exp = precursor_mass.repeat_interleave(K, dim=0)
+        precursor_charge_exp = precursor_charge.repeat_interleave(K, dim=0)
+        spectrum_emb_peaks_exp = spectrum_emb_peaks.repeat_interleave(K, dim=0)
+        peak_mask_exp = peak_mask.repeat_interleave(K, dim=0)
+
+    total_samples = batch_size * K
+    max_len = int(cand_lengths_flat.max().item())
+    active_mask = length_to_active_mask(cand_lengths_flat, max_len)
+
+    # 3. Initialize noisy candidate sequences
     x_t = _initialize_noisy_sequence(
-        batch_size,
+        total_samples,
         max_len,
         vocabulary,
         device,
         noising_scheme,
-        predicted_lengths,
+        cand_lengths_flat,
     )
 
     time_grid = torch.linspace(0.0, 1.0, num_steps + 1, device=device)
@@ -122,56 +175,101 @@ def predict_peptide(
         inference_sample_mask if noising_scheme == "mask" else inference_sample_uniform
     )
 
-    # Pre-cache conditioners outside the step loop.
-    # guidance() is a lightweight pooling op, but calling it 2×num_steps times
-    # (once per step for cond + uncond) wastes dispatch overhead.
+    # Pre-cache conditioners outside integration loop
     if guidance_scale != 1.0:
-        cond_conditioner = guidance(spectrum_emb_peaks, guidance_prob=0.0, need_guidance=False)
-        uncond_conditioner = guidance.unconditional.view(1, 1, -1).expand_as(spectrum_emb_peaks)
+        cond_conditioner = guidance(
+            spectrum_emb_peaks_exp, guidance_prob=0.0, need_guidance=False
+        )
+        uncond_conditioner = guidance.unconditional.view(1, 1, -1).expand_as(
+            spectrum_emb_peaks_exp
+        )
     else:
-        cond_conditioner = guidance(spectrum_emb_peaks, guidance_prob=0.0, need_guidance=False)
-        uncond_conditioner = None  # unused in this branch
+        cond_conditioner = guidance(
+            spectrum_emb_peaks_exp, guidance_prob=0.0, need_guidance=False
+        )
+        uncond_conditioner = None
 
+    # 4. Parallel generative decoding loop
+    last_logits = None
     for step_idx in range(num_steps):
-        t = time_grid[step_idx].expand(batch_size)
+        t = time_grid[step_idx].expand(total_samples)
         delta_t = float(time_grid[step_idx + 1] - time_grid[step_idx])
         kt, kt_derivative = scheduler(t)
 
         if guidance_scale != 1.0:
             cond_logits = decoder(
                 t,
-                precursor_mass,
-                precursor_charge,
+                precursor_mass_exp,
+                precursor_charge_exp,
                 cond_conditioner,
                 x_t,
-                predicted_lengths.float(),
-                peak_mask,
+                cand_lengths_flat,
+                peak_mask_exp,
             )
             uncond_logits = decoder(
                 t,
-                precursor_mass,
-                precursor_charge,
+                precursor_mass_exp,
+                precursor_charge_exp,
                 uncond_conditioner,
                 x_t,
-                predicted_lengths.float(),
-                peak_mask,
+                cand_lengths_flat,
+                peak_mask_exp,
             )
             logits = uncond_logits + guidance_scale * (cond_logits - uncond_logits)
         else:
             logits = decoder(
                 t,
-                precursor_mass,
-                precursor_charge,
+                precursor_mass_exp,
+                precursor_charge_exp,
                 cond_conditioner,
                 x_t,
-                predicted_lengths.float(),
-                peak_mask,
+                cand_lengths_flat,
+                peak_mask_exp,
             )
 
+        last_logits = logits
         x_t = sample_step(
             kt, kt_derivative, x_t, logits, vocabulary, delta_t, active_mask=active_mask
         )
-        x_t = apply_length_padding(x_t, predicted_lengths, pad_id)
+        x_t = apply_length_padding(x_t, cand_lengths_flat, pad_id)
 
-    sequences = decode_tokens(x_t, vocabulary)
-    return x_t, predicted_lengths, sequences
+    # 5. Candidate scoring & beam selection
+    if K > 1 and last_logits is not None:
+        # Build mass lookup table on device
+        mass_table = torch.zeros(
+            max(vocabulary.values()) + 1, device=device, dtype=torch.float32
+        )
+        for token, idx in vocabulary.items():
+            if token in AA_MASSES_DICT:
+                mass_table[idx] = AA_MASSES_DICT[token]
+
+        # Mass error: |sum m(aa) - (M_prec - M_H2O)|
+        seq_masses = (mass_table[x_t] * active_mask.float()).sum(dim=-1)
+        target_residue_mass = (precursor_mass_exp - M_H2O).clamp(min=0.0)
+        delta_m = (seq_masses - target_residue_mass).abs()
+
+        # Spectral log-likelihood / cross-entropy: -H(Y | Spectrum) = mean_{i} log P(Y_i | Spectrum)
+        log_probs = F.log_softmax(last_logits, dim=-1)
+        token_indices = x_t.clamp(min=0, max=last_logits.shape[-1] - 1)
+        token_log_probs = log_probs.gather(
+            dim=-1, index=token_indices.unsqueeze(-1)
+        ).squeeze(-1)
+        token_log_probs = token_log_probs * active_mask.float()
+        mean_log_prob = token_log_probs.sum(dim=-1) / cand_lengths_flat.float().clamp(min=1.0)
+
+        # Joint score: higher is better
+        score = mean_log_prob - alpha * delta_m
+        score_2d = score.view(batch_size, K)
+        best_k = score_2d.argmax(dim=-1)  # (B,)
+
+        batch_idx = torch.arange(batch_size, device=device)
+        best_indices = batch_idx * K + best_k
+
+        selected_x_t = x_t[best_indices]
+        selected_lengths = cand_lengths_flat[best_indices]
+    else:
+        selected_x_t = x_t
+        selected_lengths = cand_lengths_flat
+
+    sequences = decode_tokens(selected_x_t, vocabulary)
+    return selected_x_t, selected_lengths, sequences

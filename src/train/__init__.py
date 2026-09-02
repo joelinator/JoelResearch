@@ -9,6 +9,7 @@ from .loss import (
     peptide_loss,
 )
 from .factory import build_models
+from .utils import length_noiser
 from .io import (
     TrainingRunLogger,
     build_checkpoint_payload,
@@ -36,4 +37,5 @@ __all__ = [
     "mass_loss_hubert",
     "peptide_loss",
     "training_loop",
+    "length_noiser",
 ]

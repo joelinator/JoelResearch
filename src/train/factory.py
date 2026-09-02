@@ -36,6 +36,8 @@ def build_models(
         num_heads=model_cfg.decoder_heads,
         dropout=model_cfg.dropout,
         max_charge=model_cfg.max_charge,
+        max_length = model_cfg.max_length,
+        min_length = model_cfg.min_length
     ).to(device)
     guidance = ClfGuidance(cond_dim=model_cfg.model_dim).to(device)
 

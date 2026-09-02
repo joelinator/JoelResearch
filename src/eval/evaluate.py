@@ -28,6 +28,8 @@ def evaluate_generative(
     num_steps: int = 50,
     noising_scheme: str = "uniform",
     guidance_scale: float = 1.0,
+    top_k_lengths: int = 3,
+    alpha: float = 0.1,
     aa_mass_tolerance: float = 0.1,
     prefix_mass_tolerance: float = 0.5,
 ) -> DenovoMetrics:
@@ -71,6 +73,8 @@ def evaluate_generative(
             num_steps=num_steps,
             noising_scheme=noising_scheme,
             guidance_scale=guidance_scale,
+            top_k_lengths=top_k_lengths,
+            alpha=alpha,
         )
 
         predictions.extend(pred_sequences)

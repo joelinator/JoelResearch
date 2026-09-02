@@ -15,7 +15,7 @@ from pathlib import Path
 import torch
 import pytorch_lightning as pl
 from pytorch_lightning.callbacks import ModelCheckpoint, LearningRateMonitor
-from pytorch_lightning.loggers import CSVLogger
+from pytorch_lightning.loggers import CSVLogger, TensorBoardLogger
 
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / "src"))
@@ -97,7 +97,9 @@ def main():
 
     model = DFMLightningModule(vocabulary, args_dict)
 
-    logger = CSVLogger(save_dir=args.output_dir, name=args.run_name)
+    csv_logger = CSVLogger(save_dir=args.output_dir, name=args.run_name)
+    tb_logger = TensorBoardLogger(save_dir=args.output_dir, name=args.run_name)
+    loggers = [csv_logger, tb_logger]
     
     checkpoint_callback = ModelCheckpoint(
         dirpath=output_dir / args.run_name / "checkpoints",
@@ -116,7 +118,7 @@ def main():
         strategy="ddp_find_unused_parameters_true" if torch.cuda.device_count() > 1 else "auto",
         precision="bf16-mixed" if (args.amp and torch.cuda.is_available() and torch.cuda.is_bf16_supported()) 
                   else ("16-mixed" if args.amp else "32-true"),
-        logger=logger,
+        logger=loggers,
         callbacks=[checkpoint_callback, LearningRateMonitor(logging_interval="step")],
         default_root_dir=args.output_dir,
     )

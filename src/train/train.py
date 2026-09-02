@@ -5,6 +5,7 @@ from data.lengths import length_to_active_mask
 from eval.evaluate import evaluate_teacher_forced
 from flow_matching.sampling import sample_noising_step_mask, sample_noising_step_uniform
 from train.io import copy_history
+from train.utils import length_noiser
 from train.loss import (
     gamma_schedule,
     lambda_schedule,
@@ -39,6 +40,8 @@ def _run_epoch(
     total_epochs=1,
     noising_scheme="mask",
     amp=True,
+    length_noising=length_noiser,
+    length_noising_prob=0.1,
 ):
     if train:
         spectrum_encoder.train()
@@ -111,7 +114,8 @@ def _run_epoch(
                 )
 
             batch_size = mz_array.shape[0]
-            active_mask = length_to_active_mask(length, sequence.shape[1])
+            true_length = length
+            active_mask = length_to_active_mask(true_length, sequence.shape[1])
             time = torch.rand(batch_size, device=sequence.device).clamp(1e-7, 1 - 1e-7)
             kt, _kt_derivative = scheduler(time)
 
@@ -149,13 +153,27 @@ def _run_epoch(
                 precursor_mass,
                 precursor_charge,
             )
+
+            is_length_noised = False
+            if train and length_noising is not None:
+                if callable(length_noising):
+                    length_for_decoder, is_length_noised = length_noising(
+                        length, noising_prob=length_noising_prob
+                    )
+                else:
+                    length_for_decoder, is_length_noised = length_noiser(
+                        length, noising_prob=length_noising_prob
+                    )
+            else:
+                length_for_decoder = length
+
             peptide_logits = decoder(
                 time,
                 precursor_mass,
                 precursor_charge,
                 conditioner,
                 x_t,
-                length,
+                length_for_decoder,
                 peak_mask,
             )
 
@@ -164,17 +182,23 @@ def _run_epoch(
                 sequence,
                 pad_id=vocabulary["<pad>"],
             )
-            len_loss = length_loss(length_logits, length)
-            mass_loss = mass_loss_hubert(
-                peptide_logits,
-                aa_masses,
-                precursor_mass,
-                active_mask=active_mask,
-            )
-            lambd = lambda_schedule(epoch, total_epochs)
-            gamma = gamma_schedule(epoch, total_epochs)
+            len_loss = length_loss(length_logits, true_length)
 
-            loss = decoder_loss + lambd * len_loss + gamma * mass_loss
+            lambd = lambda_schedule(epoch, total_epochs)
+
+            if not is_length_noised:  # only apply mass loss if length was not noised
+                gamma = gamma_schedule(epoch, total_epochs)
+                mass_loss = mass_loss_hubert(
+                    peptide_logits,
+                    aa_masses,
+                    precursor_mass,
+                    active_mask=active_mask,
+                )
+                loss = decoder_loss + lambd * len_loss + gamma * mass_loss
+                mass_loss_val = mass_loss.item()
+            else:
+                loss = decoder_loss + lambd * len_loss
+                mass_loss_val = 0.0
 
             if train:
                 optimizer.zero_grad()
@@ -199,14 +223,14 @@ def _run_epoch(
             totals["loss"] += loss.item() * batch_size
             totals["decoder_loss"] += decoder_loss.item() * batch_size
             totals["length_loss"] += len_loss.item() * batch_size
-            totals["mass_loss"] += mass_loss.item() * batch_size
+            totals["mass_loss"] += mass_loss_val * batch_size
 
             if not train:
                 proxy = evaluate_teacher_forced(
                     peptide_logits,
                     sequence,
                     length_logits,
-                    length,
+                    true_length,
                     active_mask,
                     vocabulary,
                 )
@@ -236,6 +260,8 @@ def training_loop(
     train_loader,
     valid_loader,
     scheduler,
+    length_noising=length_noiser,
+    length_noising_prob: float = 0.1, 
     device=None,
     total_epochs=None,
     initial_history=None,
@@ -245,6 +271,8 @@ def training_loop(
     inference_steps: int = 20,
     noising_scheme: str = "mask",
     guidance_scale: float = 1.0,
+    top_k_lengths: int = 3,
+    length_beam_alpha: float = 0.1,
     lr_scheduler=None,
     amp: bool = True,
 ):
@@ -303,6 +331,8 @@ def training_loop(
             total_epochs=total_epochs,
             noising_scheme=noising_scheme,
             amp=amp,
+            length_noising=length_noising,
+            length_noising_prob=length_noising_prob,
         )
         valid_metrics = _run_epoch(
             valid_loader,
@@ -319,6 +349,7 @@ def training_loop(
             total_epochs=total_epochs,
             noising_scheme=noising_scheme,
             amp=amp,
+            length_noising = None
         )
 
         if lr_scheduler is not None:
@@ -353,6 +384,8 @@ def training_loop(
                 num_steps=inference_steps,
                 noising_scheme=noising_scheme,
                 guidance_scale=guidance_scale,
+                top_k_lengths=top_k_lengths,
+                alpha=length_beam_alpha,
             )
             history["valid_aa_precision"].append(generative_metrics.aa_precision)
             history["valid_aa_recall"].append(generative_metrics.aa_recall)

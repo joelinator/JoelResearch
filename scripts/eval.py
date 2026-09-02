@@ -45,6 +45,18 @@ def parse_args():
         default=float(os.environ.get("GUIDANCE_SCALE", eval_cfg.guidance_scale)),
     )
     parser.add_argument(
+        "--top-k-lengths",
+        type=int,
+        default=int(os.environ.get("TOP_K_LENGTHS", eval_cfg.top_k_lengths)),
+        help="Number of top length candidates to decode in parallel (default: 3).",
+    )
+    parser.add_argument(
+        "--length-beam-alpha",
+        type=float,
+        default=float(os.environ.get("LENGTH_BEAM_ALPHA", eval_cfg.length_beam_alpha)),
+        help="Weight for mass mismatch penalty in length beam score (default: 0.1).",
+    )
+    parser.add_argument(
         "--max-batches",
         type=int,
         default=int(os.environ["MAX_BATCHES"]) if os.environ.get("MAX_BATCHES") else eval_cfg.max_batches,
@@ -91,6 +103,8 @@ def main():
         num_steps=args.num_steps,
         noising_scheme=args.noising_scheme,
         guidance_scale=args.guidance_scale,
+        top_k_lengths=args.top_k_lengths,
+        alpha=args.length_beam_alpha,
         aa_mass_tolerance=DEFAULTS.eval.aa_mass_tolerance,
         prefix_mass_tolerance=DEFAULTS.eval.prefix_mass_tolerance,
     )
