@@ -32,7 +32,12 @@ GCP_BOOT_DISK_GB="${GCP_BOOT_DISK_GB:-500}"
 GCP_IMAGE_FAMILY="${GCP_IMAGE_FAMILY:-common-cu124-ubuntu-2204}"
 GCP_IMAGE_PROJECT="${GCP_IMAGE_PROJECT:-deeplearning-platform-release}"
 
+echo "config of project"
 gcloud config set project "${GCP_PROJECT}" >/dev/null
+
+echo "config of project done"
+
+echo "checking existing VM"
 
 if gcloud compute instances describe "${GCP_VM_NAME}" --zone="${GCP_ZONE}" >/dev/null 2>&1; then
   echo "VM '${GCP_VM_NAME}' already exists in ${GCP_ZONE}."
@@ -58,6 +63,7 @@ else
     --restart-on-failure \
     --scopes=storage-full,cloud-platform \
     --metadata-from-file=startup-script="${ROOT_DIR}/scripts/gcp_vm_startup.sh" \
+    --network=${GCP_NETWORK}
     --tags=dfm-train,http-server
 
   echo "Waiting for VM to become RUNNING..."
