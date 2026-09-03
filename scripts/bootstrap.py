@@ -13,8 +13,14 @@ def setup_src_path() -> Path:
     root = Path(__file__).resolve().parents[1]
     src = root / "src"
     src_str = str(src)
-    if src_str not in sys.path:
-        sys.path.insert(0, src_str)
+    scripts_str = str(root / "scripts")
+    while scripts_str in sys.path:
+        sys.path.remove(scripts_str)
+    if src_str in sys.path:
+        sys.path.remove(src_str)
+    sys.path.insert(0, src_str)
+    if "eval" in sys.modules and not hasattr(sys.modules["eval"], "__path__"):
+        del sys.modules["eval"]
     return root
 
 
