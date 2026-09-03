@@ -43,8 +43,14 @@ def parse_args():
     parser.add_argument("--resume-from", default=os.environ.get("RESUME_FROM"))
     parser.add_argument("--noising-scheme", default=train_cfg.noising_scheme)
     parser.add_argument("--compile", action="store_true", default=train_cfg.compile, help="Compile models")
-    parser.add_argument("--accumulate-grad-batches", type=int, default=4, help="Gradient accumulation steps")
+    parser.add_argument("--accumulate-grad-batches", type=int, default=1, help="Gradient accumulation steps")
     parser.add_argument("--no-amp", dest="amp", action="store_false", default=train_cfg.amp)
+    parser.add_argument(
+        "--seed",
+        type=int,
+        default=int(os.environ.get("SEED", 42)),
+        help="Random seed for reproducibility",
+    )
     return parser.parse_args()
 
 
@@ -60,6 +66,7 @@ def main():
 
     print(f"=== PyTorch Lightning Training: {args.run_name} ===")
     print(f"Effective Batch Size: {args.batch_size * args.accumulate_grad_batches} (Batch: {args.batch_size}, Accumulate: {args.accumulate_grad_batches})")
+    pl.seed_everything(args.seed, workers=True)
 
     train_ds = get_dataset(split=args.train_split, cache_dir=args.cache_dir)
     valid_ds = get_dataset(split=args.valid_split, cache_dir=args.cache_dir)

@@ -65,8 +65,21 @@ def main():
     if args.checkpoint:
         checkpoint = load_checkpoint(args.checkpoint, map_location=device)
 
+    vocabulary = None
+    if checkpoint is not None:
+        vocabulary = checkpoint.get("vocabulary")
+        if vocabulary is None and args.checkpoint:
+            ckpt_p = Path(args.checkpoint).resolve()
+            for cand in [ckpt_p.parent / "vocabulary.json", ckpt_p.parent.parent / "vocabulary.json"]:
+                if cand.exists():
+                    import json
+                    with cand.open() as f:
+                        vocabulary = json.load(f)
+                    break
+
     ds = get_dataset(split=args.split, cache_dir=args.cache_dir)
-    vocabulary = checkpoint["vocabulary"] if checkpoint is not None else build_vocabulary(ds)
+    if vocabulary is None:
+        vocabulary = build_vocabulary(ds)
     loader = build_dataloader(ds, vocabulary, batch_size=args.batch_size, shuffle=False)
 
     spectrum_encoder, length_predictor, decoder, guidance = build_models(vocabulary, device)
@@ -80,6 +93,15 @@ def main():
             guidance,
         )
         print(f"Loaded checkpoint: {args.checkpoint}")
+
+    if device.type == "cuda":
+        torch.set_float32_matmul_precision("high")
+
+    amp_dtype = (
+        torch.bfloat16
+        if torch.cuda.is_available() and torch.cuda.is_bf16_supported()
+        else torch.float16
+    )
 
     for batch_idx, batch in enumerate(loader):
         if batch_idx >= args.max_batches:
@@ -97,25 +119,30 @@ def main():
             spectrum_mask,
         ) = move_batch_to_device(batch, device)
 
-        token_ids, predicted_lengths, sequences = predict_peptide(
-            mz_array=mz_array,
-            intensity_array=intensity_array,
-            precursor_mass=precursor_mass,
-            precursor_charge=precursor_charge,
-            mz_complementary=mz_complementary,
-            spectrum_mask=spectrum_mask,
-            vocabulary=vocabulary,
-            spectrum_encoder=spectrum_encoder,
-            length_predictor=length_predictor,
-            decoder=decoder,
-            guidance=guidance,
-            scheduler=cosine_scheduler,
-            num_steps=args.num_steps,
-            noising_scheme=args.noising_scheme,
-            guidance_scale=args.guidance_scale,
-            top_k_lengths=args.top_k_lengths,
-            alpha=args.length_beam_alpha,
-        )
+        with torch.autocast(
+            device_type=device.type,
+            dtype=amp_dtype,
+            enabled=(device.type == "cuda"),
+        ):
+            token_ids, predicted_lengths, sequences = predict_peptide(
+                mz_array=mz_array,
+                intensity_array=intensity_array,
+                precursor_mass=precursor_mass,
+                precursor_charge=precursor_charge,
+                mz_complementary=mz_complementary,
+                spectrum_mask=spectrum_mask,
+                vocabulary=vocabulary,
+                spectrum_encoder=spectrum_encoder,
+                length_predictor=length_predictor,
+                decoder=decoder,
+                guidance=guidance,
+                scheduler=cosine_scheduler,
+                num_steps=args.num_steps,
+                noising_scheme=args.noising_scheme,
+                guidance_scale=args.guidance_scale,
+                top_k_lengths=args.top_k_lengths,
+                alpha=args.length_beam_alpha,
+            )
 
         for idx, sequence in enumerate(sequences):
             print(
@@ -127,4 +154,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-

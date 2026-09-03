@@ -40,9 +40,9 @@ class DataDefaults:
 
 @dataclass(frozen=True)
 class TrainDefaults:
-    batch_size: int = 128
+    batch_size: int = 128 
     epochs: int = 30
-    learning_rate: float = 3e-4
+    learning_rate: float = 6e-4
     weight_decay: float = 0.01
     num_workers: int = 8
     device: str = "cuda"
@@ -53,7 +53,7 @@ class TrainDefaults:
     # 20 steps is sufficient for mid-training monitoring (full 50 only for final bench).
     inference_steps: int = 20
     noising_scheme: str = "mask"
-    guidance_scale: float = 1.0
+    guidance_scale: float = 1.35
     compile: bool = False
     amp: bool = True
     length_noising: bool = True
