@@ -94,7 +94,14 @@ def main():
     elif build_vocabulary(ds) != vocabulary:
         print("Warning: dataset vocabulary differs from checkpoint vocabulary; using checkpoint vocab.")
 
-    loader = build_dataloader(ds, vocabulary, batch_size=args.batch_size, shuffle=False, num_workers=args.num_workers)
+    loader = build_dataloader(
+        ds,
+        vocabulary,
+        batch_size=args.batch_size,
+        shuffle=False,
+        num_workers=args.num_workers,
+        pin_memory=(device.type == "cuda"),
+    )
     loader.dataset.top_k = DEFAULTS.data.top_k_peaks
 
     spectrum_encoder, length_predictor, decoder, guidance = build_models(vocabulary, device)

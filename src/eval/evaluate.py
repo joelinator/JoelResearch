@@ -94,6 +94,11 @@ def evaluate_generative(
         predicted_lengths.extend(int(value) for value in pred_lengths.tolist())
         target_lengths.extend(int(value) for value in length.tolist())
 
+        total_batches = len(loader) if hasattr(loader, "__len__") else None
+        if (batch_idx + 1) % 10 == 0 or (total_batches is not None and (batch_idx + 1) == total_batches):
+            total_str = f"/{total_batches}" if total_batches else ""
+            print(f"[{batch_idx + 1}{total_str}] Processed {len(predictions)} peptides...", flush=True)
+
         del token_ids
 
     return compute_denovo_metrics(
