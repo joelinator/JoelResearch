@@ -1,6 +1,7 @@
 AA_MASSES_DICT = {
     "<pad>": 0.0,
-    "<mask>": 0.0,
+    "<mask" + ">": 0.0,
+    "<mask_token>": 0.0,
     "A": 71.0371138,   # Alanine
     "R": 156.1011110,  # Arginine
     "N": 114.0429274,  # Asparagine

@@ -45,6 +45,8 @@ def parse_args():
     parser.add_argument("--compile", action="store_true", default=train_cfg.compile, help="Compile models")
     parser.add_argument("--accumulate-grad-batches", type=int, default=1, help="Gradient accumulation steps")
     parser.add_argument("--no-amp", dest="amp", action="store_false", default=train_cfg.amp)
+    parser.add_argument("--eval-every", type=int, default=int(os.environ.get("EVAL_EVERY", 1)))
+    parser.add_argument("--limit-val-batches", type=int, default=int(os.environ.get("EVAL_MAX_BATCHES", 0)))
     parser.add_argument(
         "--seed",
         type=int,
@@ -122,6 +124,9 @@ def main():
         accelerator="auto",
         devices="auto",
         accumulate_grad_batches=args.accumulate_grad_batches,
+        gradient_clip_val=1.0,
+        check_val_every_n_epoch=args.eval_every,
+        limit_val_batches=args.limit_val_batches if args.limit_val_batches > 0 else 1.0,
         strategy="ddp_find_unused_parameters_true" if torch.cuda.device_count() > 1 else "auto",
         precision="bf16-mixed" if (args.amp and torch.cuda.is_available() and torch.cuda.is_bf16_supported()) 
                   else ("16-mixed" if args.amp else "32-true"),

@@ -42,7 +42,7 @@ def cosine_scheduler(time: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
     s = 0.008
     theta = (time + s) / (1 + s) * (torch.pi / 2)
     kt = torch.sin(theta).pow(2)
-    kt_derivative = torch.sin(2 * theta) * (torch.pi / 2) / (1 + s)
+    kt_derivative = (torch.sin(2 * theta) * (torch.pi / 2) / (1 + s)).clamp(min=0.0)
     return kt, kt_derivative
 
 

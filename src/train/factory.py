@@ -24,8 +24,8 @@ def build_models(
     ).to(device)
     length_predictor = PeptideLengthClassifier(
         in_dim=model_cfg.model_dim,
-        hidden_dim=model_cfg.mlp_hidden_dim // 2,
-        emb_dim=model_cfg.mlp_hidden_dim // 4,
+        hidden_dim=256,
+        emb_dim=128,
     ).to(device)
     decoder = DFMPeptideDecoder.from_vocabulary(
         vocabulary,

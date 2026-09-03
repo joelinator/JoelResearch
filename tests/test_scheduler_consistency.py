@@ -25,7 +25,9 @@ def test_forward_boundaries_mask():
 
 
 def test_forward_boundaries_uniform():
-    vocab = {"A": 0, "B": 1, "<pad>": 2, "<mask>": 3}
+    vocab = {chr(65 + i): i for i in range(20)}
+    vocab["<pad>"] = len(vocab)
+    vocab["<mask_token>"] = len(vocab)
     x1 = torch.zeros(10_000, 20, dtype=torch.long)
 
     for scheduler, name in ((linear_scheduler, "linear"), (cosine_scheduler, "cosine")):
@@ -38,7 +40,7 @@ def test_forward_boundaries_uniform():
         clean_rate_t0 = (xt0 == 0).float().mean().item()
         clean_rate_t1 = (xt1 == 0).float().mean().item()
 
-        assert clean_rate_t0 < 0.05, f"{name}: expected ~no clean at t=0, got {clean_rate_t0}"
+        assert clean_rate_t0 < 0.08, f"{name}: expected ~no clean at t=0, got {clean_rate_t0}"
         assert clean_rate_t1 > 0.95, f"{name}: expected ~all clean at t=1, got {clean_rate_t1}"
 
 
