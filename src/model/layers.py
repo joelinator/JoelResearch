@@ -46,12 +46,42 @@ class AdaNLayers(nn.Module):
         return x.chunk(2 * self.n, dim=-1)
 
 
+def modulate(x: torch.Tensor, shift: torch.Tensor, scale: torch.Tensor) -> torch.Tensor:
+    """Modulate normalized features with scale and shift: x * (1 + scale) + shift."""
+    return x * (1.0 + scale.unsqueeze(1)) + shift.unsqueeze(1)
+
+
+class AdaLNZero(nn.Module):
+    """
+    Adaptive Layer Normalization with Zero-Initialization for Diffusion Transformers (DiT).
+    Predicts (scale, shift, gate) modulation parameters for transformer sublayers.
+    Initializes the projection to zeros so blocks start as identity functions.
+    """
+    def __init__(self, emb_dim: int = 512, num_params: int = 9):
+        super().__init__()
+        self.mlp = nn.Sequential(
+            nn.SiLU(),
+            nn.Linear(emb_dim, num_params * emb_dim),
+        )
+        # AdaLN-Zero: zero out the final linear layer
+        nn.init.zeros_(self.mlp[1].weight)
+        nn.init.zeros_(self.mlp[1].bias)
+        self.num_params = num_params
+
+    def forward(self, conditioner: torch.Tensor) -> tuple[torch.Tensor, ...]:
+        return self.mlp(conditioner).chunk(self.num_params, dim=-1)
+
+
 class SwiGLU(nn.Module):
-    def __init__(self, d_model: int, d_ff: int):
+    def __init__(self, d_model: int, d_ff: int, dropout: float = 0.0):
         super().__init__()
         self.w_gate_up = nn.Linear(d_model, 2 * d_ff, bias=False)
         self.w_down = nn.Linear(d_ff, d_model, bias=False)
+        self.dropout = nn.Dropout(dropout) if dropout > 0.0 else nn.Identity()
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         gate, up = self.w_gate_up(x).chunk(2, dim=-1)
-        return self.w_down(F.silu(gate) * up)
+        return self.dropout(self.w_down(F.silu(gate) * up))
+
+
+SwiGLUFFN = SwiGLU

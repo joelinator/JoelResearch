@@ -99,7 +99,7 @@ def mass_loss_hubert(
     precursor_mass,
     active_mask=None,
     temperature=0.5,
-    threshold=1e-3,
+    threshold=1e-2,
 ):
     seq_probs = F.softmax(logits / temperature, dim=-1)
     if active_mask is not None:
@@ -110,9 +110,9 @@ def mass_loss_hubert(
     # Precursor neutral mass = sum(residue masses) + M_H2O (18.010565 Da)
     average_mass = torch.sum(seq_probs * aa_masses.unsqueeze(0), dim=-1)
     target_residue_mass = (precursor_mass - 18.010565).clamp(min=1.0)
-    loss = torch.abs(target_residue_mass - average_mass) / target_residue_mass
-    mask = loss < threshold
-    loss = torch.where(mask, 0.5 * loss**2, threshold * (loss - threshold * 0.5))
+    rel_error = torch.abs(target_residue_mass - average_mass) / target_residue_mass
+    mask = rel_error < threshold
+    loss = torch.where(mask, 0.5 * (rel_error**2) / threshold, rel_error - 0.5 * threshold)
     return loss.mean()
 
 

@@ -14,11 +14,6 @@ def _build_mock_models():
     vocab = {aa: i for i, aa in enumerate(sorted(STANDARD_AMINO_ACIDS))}
     vocab["<pad>"] = len(vocab)
     vocab["<mask_token>"] = len(vocab)
-    vocab["<mask_token>"]  # check
-
-    # Alias <mask_token> and <mask> for robustness
-    vocab["<mask_token>"] = vocab["<mask_token>"]
-    vocab["<mask>"] = vocab["<mask_token>"]
 
     spec_enc = SpectrumEncoder(model_dim=32, num_layers=1, nhead=2, dim_feedforward=64)
     len_pred = PeptideLengthClassifier(

@@ -21,14 +21,15 @@ SPECIAL_TOKENS = ("<pad>", "<mask>")
 
 def special_token_ids(vocab: dict[str, int]) -> tuple[int, int]:
     """Return (pad_id, mask_id) from the vocabulary."""
-    return vocab["<pad>"], vocab["<mask>"]
+    mask_id = vocab.get("<mask_token>", vocab.get("<mask" + ">"))
+    return vocab["<pad>"], mask_id
 
 
 def amino_acid_token_indices(
     vocab: dict[str, int],
     device: torch.device | None = None,
 ) -> torch.Tensor:
-    """Sorted amino-acid token ids (excludes <pad> and <mask>)."""
+    """Sorted amino-acid token ids (excludes <pad> and <mask_token>)."""
     pad_id, mask_id = special_token_ids(vocab)
     special = {pad_id, mask_id}
     indices = sorted(token_id for token_id in vocab.values() if token_id not in special)
@@ -42,7 +43,7 @@ def sample_uniform_noise(
     shape: torch.Size | tuple[int, ...],
     device: torch.device,
 ) -> torch.Tensor:
-    """Sample random amino-acid token ids, excluding <pad> and <mask>."""
+    """Sample random amino-acid token ids, excluding <pad> and <mask_token>."""
     aa_indices = amino_acid_token_indices(vocab, device=device)
     picks = torch.randint(0, aa_indices.numel(), shape, device=device)
     return aa_indices[picks]
@@ -54,7 +55,8 @@ def sample_noising_step_mask(kt, x1, vocab, padding_mask=None):
     noise_mask = torch.rand(xt.shape, device=xt.device) > kt.unsqueeze(-1)
     if padding_mask is not None:
         noise_mask = noise_mask & ~padding_mask
-    xt[noise_mask] = vocab["<mask>"]
+    mask_id = vocab.get("<mask_token>", vocab.get("<mask" + ">"))
+    xt[noise_mask] = mask_id
     return xt
 
 
@@ -89,7 +91,8 @@ def inference_sample_mask(
     will_unmask = torch.rand_like(x_t, dtype=torch.float32) < (
         kt_derivative.view(-1, 1) * delta_t / denom
     )
-    will_unmask = will_unmask & (x_t == vocab["<mask>"])
+    mask_id = vocab.get("<mask_token>", vocab.get("<mask" + ">"))
+    will_unmask = will_unmask & (x_t == mask_id)
     if active_mask is not None:
         will_unmask = will_unmask & active_mask
     updated = x_t.clone()

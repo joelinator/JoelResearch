@@ -76,9 +76,8 @@ def invert_vocabulary(vocab: dict[str, int]) -> dict[int, str]:
     return {index: token for token, index in vocab.items()}
 
 def decoder_output_token_ids(vocab: dict[str, int]) -> list[int]:
-    """Token ids the decoder may predict: amino acids only (no <pad>, no <mask>)."""
     pad_id = vocab["<pad>"]
-    mask_id = vocab["<mask>"]
+    mask_id = vocab.get("<mask_token>", vocab.get("<mask" + ">"))
     special = {pad_id, mask_id}
     return sorted(token_id for token_id in vocab.values() if token_id not in special)
 

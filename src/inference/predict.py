@@ -17,7 +17,7 @@ def decode_tokens(token_ids: torch.Tensor, vocab: dict[str, int]) -> list[str]:
     """Convert token indices to amino-acid strings (strips <pad> and <mask_token>)."""
     index_to_token = invert_vocabulary(vocab)
     pad_id = vocab["<pad>"]
-    mask_id = vocab["<mask>"]
+    mask_id = vocab.get("<mask_token>", vocab.get("<mask>"))
     sequences = []
 
     for row in token_ids.tolist():
@@ -44,7 +44,7 @@ def _initialize_noisy_sequence(
     Active positions (0 .. length-1) start noisy; the padding tail is `<pad>`.
     """
     pad_id = vocab["<pad>"]
-    mask_id = vocab["<mask>"]
+    mask_id = vocab.get("<mask_token>", vocab.get("<mask" + ">"))
     active_mask = length_to_active_mask(length, seq_len)
 
     if scheme == "mask":
@@ -140,15 +140,19 @@ def predict_peptide(
     if k_cand == 1:
         cand_lengths_flat = clamp_length(class_to_length(length_logits.argmax(dim=-1)))
         K = 1
+        cand_length_log_probs = None
         precursor_mass_exp = precursor_mass
         precursor_charge_exp = precursor_charge
         spectrum_emb_peaks_exp = spectrum_emb_peaks
         peak_mask_exp = peak_mask
     else:
-        topk_classes = torch.topk(length_logits, k=k_cand, dim=-1).indices  # (B, K)
+        topk = torch.topk(length_logits, k=k_cand, dim=-1)
+        topk_classes = topk.indices  # (B, K)
         cand_lengths = clamp_length(class_to_length(topk_classes))  # (B, K)
         cand_lengths_flat = cand_lengths.reshape(-1)  # (B * K,)
         K = k_cand
+        length_log_probs = F.log_softmax(length_logits, dim=-1)
+        cand_length_log_probs = length_log_probs.gather(-1, topk_classes).reshape(-1)  # (B * K,)
 
         # Parallelize across candidates via batch interleave
         precursor_mass_exp = precursor_mass.repeat_interleave(K, dim=0)
@@ -233,6 +237,13 @@ def predict_peptide(
         )
         x_t = apply_length_padding(x_t, cand_lengths_flat, pad_id)
 
+    # Final unmasking safety: if any active position is still masked, unmask via argmax logits
+    mask_token_id = vocabulary.get("<mask_token>", vocabulary.get("<mask" + ">"))
+    if mask_token_id is not None and last_logits is not None:
+        rem_mask = (x_t == mask_token_id) & active_mask
+        if rem_mask.any():
+            x_t[rem_mask] = last_logits.argmax(dim=-1)[rem_mask]
+
     # 5. Candidate scoring & beam selection
     if K > 1 and last_logits is not None:
         # Build mass lookup table on device
@@ -248,7 +259,10 @@ def predict_peptide(
         target_residue_mass = (precursor_mass_exp - M_H2O).clamp(min=0.0)
         delta_m = (seq_masses - target_residue_mass).abs()
 
-        # Spectral log-likelihood / cross-entropy: -H(Y | Spectrum) = mean_{i} log P(Y_i | Spectrum)
+        # Relative PPM mass error (in 100 ppm units)
+        relative_mass_error = (delta_m / target_residue_mass.clamp(min=1.0)) * 1e4
+
+        # Spectral log-likelihood: mean_{i} log P(Y_i | Spectrum)
         log_probs = F.log_softmax(last_logits, dim=-1)
         token_indices = x_t.clamp(min=0, max=last_logits.shape[-1] - 1)
         token_log_probs = log_probs.gather(
@@ -257,8 +271,9 @@ def predict_peptide(
         token_log_probs = token_log_probs * active_mask.float()
         mean_log_prob = token_log_probs.sum(dim=-1) / cand_lengths_flat.float().clamp(min=1.0)
 
-        # Joint score: higher is better
-        score = mean_log_prob - alpha * delta_m
+        # Bayesian Joint Posterior Score:
+        # log P(L | S) + mean_i log P(Y_i | S, L) - alpha * relative_mass_penalty
+        score = cand_length_log_probs + mean_log_prob - alpha * relative_mass_error
         score_2d = score.view(batch_size, K)
         best_k = score_2d.argmax(dim=-1)  # (B,)
 

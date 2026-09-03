@@ -21,7 +21,7 @@ class ModelDefaults:
     encoder_ff_dim: int = 1536   # tuned: 2048 → 1536 to stay in 40-50M param range
     decoder_blocks: int = 6
     decoder_heads: int = 8
-    mlp_hidden_dim: int = 768    # tuned: 2048 → 768 (SwiGLU scales to 4× internally)
+    mlp_hidden_dim: int = 1536   # SwiGLU FFN hidden dimension (3× model_dim for ~59M total parameters)
     max_charge: int = 6
     max_length: int = MAX_PEPTIDE_LENGTH
     min_length: int = MIN_PEPTIDE_LENGTH
@@ -59,7 +59,7 @@ class TrainDefaults:
     length_noising: bool = True
     length_noising_prob: float = 0.1
     top_k_lengths: int = 3
-    length_beam_alpha: float = 0.1
+    length_beam_alpha: float = 0.01
 
 
 @dataclass(frozen=True)
@@ -71,7 +71,7 @@ class EvalDefaults:
     noising_scheme: str = "mask"
     guidance_scale: float = 1.0
     top_k_lengths: int = 3
-    length_beam_alpha: float = 0.1
+    length_beam_alpha: float = 0.01
     compile: bool = False
     amp: bool = True
     max_batches: int | None = None  # None = full split

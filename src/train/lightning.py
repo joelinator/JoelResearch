@@ -125,7 +125,8 @@ class DFMLightningModule(pl.LightningModule):
         len_loss = length_loss(length_logits, true_length)
 
         epoch = self.current_epoch
-        total_epochs = self.trainer.max_epochs or self.args.get("epochs", 30)
+        trainer = getattr(self, "_trainer", None)
+        total_epochs = (trainer.max_epochs if trainer is not None else None) or self.args.get("epochs", 30)
         lambd = lambda_schedule(epoch, total_epochs)
         gamma = gamma_schedule(epoch, total_epochs)
 
@@ -184,13 +185,15 @@ class DFMLightningModule(pl.LightningModule):
         # Warmup for 5% of total training steps
         warmup_steps = int(total_steps * 0.05)
 
+        min_lr_ratio = float(self.args.get("min_lr_ratio", 0.05))
+
         def lr_lambda(current_step: int):
             if current_step < warmup_steps:
                 # Linear warmup
                 return float(current_step) / float(max(1, warmup_steps))
-            # Cosine decay
-            progress = float(current_step - warmup_steps) / float(max(1, total_steps - warmup_steps))
-            return max(0.0, 0.5 * (1.0 + math.cos(math.pi * progress)))
+            # Cosine decay with minimum learning rate floor to prevent late training freeze
+            progress = min(1.0, float(current_step - warmup_steps) / float(max(1, total_steps - warmup_steps)))
+            return min_lr_ratio + (1.0 - min_lr_ratio) * 0.5 * (1.0 + math.cos(math.pi * progress))
 
         scheduler = LambdaLR(optimizer, lr_lambda)
 
