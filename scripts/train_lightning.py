@@ -48,6 +48,42 @@ def parse_args():
     parser.add_argument("--eval-every", type=int, default=int(os.environ.get("EVAL_EVERY", 1)))
     parser.add_argument("--limit-val-batches", type=int, default=int(os.environ.get("EVAL_MAX_BATCHES", 0)))
     parser.add_argument(
+        "--gen-eval-proxy-batches",
+        type=int,
+        default=int(os.environ.get("GEN_EVAL_PROXY_BATCHES", 5)),
+        help="Number of validation batches to run generative de novo evaluation proxy on (default: 5).",
+    )
+    parser.add_argument(
+        "--guidance-scale",
+        type=float,
+        default=float(os.environ.get("GUIDANCE_SCALE", 1.5)),
+        help="Classifier-free guidance scale for generative proxy evaluation (default: 1.5).",
+    )
+    parser.add_argument(
+        "--inference-steps",
+        type=int,
+        default=int(os.environ.get("INFERENCE_STEPS", 20)),
+        help="Flow matching integration steps for generative proxy evaluation (default: 20).",
+    )
+    parser.add_argument(
+        "--top-k-lengths",
+        type=int,
+        default=int(os.environ.get("TOP_K_LENGTHS", 3)),
+        help="Top-K length candidates for generative proxy evaluation (default: 3).",
+    )
+    parser.add_argument(
+        "--length-beam-alpha",
+        type=float,
+        default=float(os.environ.get("LENGTH_BEAM_ALPHA", 0.01)),
+        help="Mass mismatch penalty weight for generative proxy evaluation (default: 0.01).",
+    )
+    parser.add_argument(
+        "--checkpoint-every-n-epochs",
+        type=int,
+        default=int(os.environ.get("CHECKPOINT_EVERY_N_EPOCHS", 10)),
+        help="Save unconditional periodic checkpoint every N epochs to capture grokking (default: 10).",
+    )
+    parser.add_argument(
         "--seed",
         type=int,
         default=int(os.environ.get("SEED", 42)),
@@ -110,14 +146,46 @@ def main():
     tb_logger = TensorBoardLogger(save_dir=args.output_dir, name=args.run_name)
     loggers = [csv_logger, tb_logger]
     
-    checkpoint_callback = ModelCheckpoint(
-        dirpath=output_dir / args.run_name / "checkpoints",
-        filename="best-{epoch:02d}-{valid/loss:.4f}",
-        monitor="valid/loss",
-        mode="min",
-        save_last=True,
+    checkpoint_dir = output_dir / args.run_name / "checkpoints"
+
+    # Tier 1: Checkpoint best models based on true Generative Exact Peptide Match
+    best_gen_cb = ModelCheckpoint(
+        dirpath=checkpoint_dir,
+        filename="best-gen-exact-epoch={epoch:02d}-exact={valid_gen_exact_match:.4f}",
+        monitor="valid_gen_exact_match",
+        mode="max",
         save_top_k=3,
+        auto_insert_metric_name=False,
     )
+
+    # Tier 2: Unconditional periodic checkpoints every N epochs (e.g. 10 epochs to capture grokking)
+    periodic_cb = ModelCheckpoint(
+        dirpath=checkpoint_dir,
+        filename="periodic-epoch={epoch:02d}",
+        every_n_epochs=args.checkpoint_every_n_epochs,
+        save_top_k=-1,
+        auto_insert_metric_name=False,
+    )
+
+    # Tier 3: Monitored validation loss (continuous loss minimum)
+    best_loss_cb = ModelCheckpoint(
+        dirpath=checkpoint_dir,
+        filename="best-loss-epoch={epoch:02d}-loss={valid_loss:.4f}",
+        monitor="valid_loss",
+        mode="min",
+        save_top_k=2,
+        auto_insert_metric_name=False,
+    )
+
+    # Tier 4: Guaranteed latest snapshot at the end of every training epoch
+    last_cb = ModelCheckpoint(
+        dirpath=checkpoint_dir,
+        filename="last",
+        save_last=True,
+        save_on_train_epoch_end=True,
+    )
+
+    checkpoint_callbacks = [best_gen_cb, periodic_cb, best_loss_cb, last_cb]
 
     trainer = pl.Trainer(
         max_epochs=args.epochs,
@@ -131,13 +199,14 @@ def main():
         precision="bf16-mixed" if (args.amp and torch.cuda.is_available() and torch.cuda.is_bf16_supported()) 
                   else ("16-mixed" if args.amp else "32-true"),
         logger=loggers,
-        callbacks=[checkpoint_callback, LearningRateMonitor(logging_interval="step")],
+        callbacks=[*checkpoint_callbacks, LearningRateMonitor(logging_interval="step")],
         default_root_dir=args.output_dir,
     )
 
     trainer.fit(model, train_dataloaders=train_loader, val_dataloaders=valid_loader, ckpt_path=args.resume_from)
     print(f"=== Training complete ===")
-    print(f"Best model path: {checkpoint_callback.best_model_path}")
+    print(f"Best generative model: {best_gen_cb.best_model_path} (score={best_gen_cb.best_model_score})")
+    print(f"Best loss model:       {best_loss_cb.best_model_path} (score={best_loss_cb.best_model_score})")
 
 
 if __name__ == "__main__":

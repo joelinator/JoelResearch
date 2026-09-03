@@ -149,6 +149,7 @@ class DFMLightningModule(pl.LightningModule):
         self.log(f"{mode}/mass_loss", mass_loss_log, batch_size=batch_size, sync_dist=True)
 
         if mode == "valid":
+            self.log("valid_loss", loss, batch_size=batch_size, sync_dist=True)
             proxy = evaluate_teacher_forced(
                 peptide_logits,
                 sequence,
@@ -165,8 +166,129 @@ class DFMLightningModule(pl.LightningModule):
     def training_step(self, batch, batch_idx):
         return self._shared_step(batch, batch_idx, mode="train")
 
+    def on_validation_epoch_start(self):
+        self._val_proxy_batches = []
+
     def validation_step(self, batch, batch_idx):
-        return self._shared_step(batch, batch_idx, mode="valid")
+        loss = self._shared_step(batch, batch_idx, mode="valid")
+        max_proxy_batches = int(self.args.get("gen_eval_proxy_batches", 5))
+        if max_proxy_batches > 0 and len(self._val_proxy_batches) < max_proxy_batches:
+            self._val_proxy_batches.append(batch)
+        return loss
+
+    def on_validation_epoch_end(self):
+        trainer = getattr(self, "_trainer", None)
+        if trainer is not None and getattr(trainer, "sanity_checking", False):
+            self._val_proxy_batches = []
+            return
+
+        if not getattr(self, "_val_proxy_batches", None):
+            return
+
+        from inference.predict import predict_peptide
+        from eval.evaluate import sequences_from_batch
+        from eval.metrics import compute_denovo_metrics
+
+        num_steps = int(self.args.get("inference_steps", 20))
+        guidance_scale = float(self.args.get("guidance_scale", 1.5))
+        top_k_lengths = int(self.args.get("top_k_lengths", 3))
+        alpha = float(self.args.get("length_beam_alpha", 0.01))
+
+        predictions = []
+        targets = []
+        pred_lengths_all = []
+        target_lengths_all = []
+
+        device = self.device
+        amp_dtype = (
+            torch.bfloat16
+            if torch.cuda.is_available() and torch.cuda.is_bf16_supported()
+            else torch.float16
+        )
+
+        self.spectrum_encoder.eval()
+        self.length_predictor.eval()
+        self.decoder.eval()
+        self.guidance.eval()
+
+        with torch.no_grad():
+            for batch in self._val_proxy_batches:
+                (
+                    mz_array,
+                    intensity_array,
+                    precursor_mass,
+                    precursor_charge,
+                    sequence,
+                    mz_complementary,
+                    length,
+                    _padded_mask,
+                    spectrum_mask,
+                ) = tuple(
+                    t.to(device) if torch.is_tensor(t) else t for t in batch
+                )
+
+                with torch.autocast(
+                    device_type=device.type,
+                    dtype=amp_dtype,
+                    enabled=(device.type == "cuda"),
+                ):
+                    token_ids, pred_lens, pred_seqs = predict_peptide(
+                        mz_array=mz_array,
+                        intensity_array=intensity_array,
+                        precursor_mass=precursor_mass,
+                        precursor_charge=precursor_charge,
+                        mz_complementary=mz_complementary,
+                        spectrum_mask=spectrum_mask,
+                        vocabulary=self.vocabulary,
+                        spectrum_encoder=self.spectrum_encoder,
+                        length_predictor=self.length_predictor,
+                        decoder=self.decoder,
+                        guidance=self.guidance,
+                        scheduler=self.scheduler,
+                        num_steps=num_steps,
+                        noising_scheme="mask",
+                        guidance_scale=guidance_scale,
+                        top_k_lengths=top_k_lengths,
+                        alpha=alpha,
+                    )
+
+                predictions.extend(pred_seqs)
+                targets.extend(sequences_from_batch(sequence, self.vocabulary))
+                pred_lengths_all.extend(int(v) for v in pred_lens.tolist())
+                target_lengths_all.extend(int(v) for v in length.tolist())
+
+        self._val_proxy_batches = []
+
+        if len(predictions) > 0:
+            metrics = compute_denovo_metrics(
+                predictions,
+                targets,
+                predicted_lengths=pred_lengths_all,
+                target_lengths=target_lengths_all,
+                aa_mass_tolerance=0.1,
+                prefix_mass_tolerance=0.5,
+            )
+
+            # Flat names for clean checkpoint filenames
+            self.log("valid_gen_exact_match", metrics.exact_peptide_accuracy, sync_dist=True)
+            self.log("valid_gen_peptide_f1", metrics.peptide_f1, sync_dist=True)
+            self.log("valid_gen_aa_f1", metrics.aa_f1, sync_dist=True)
+            self.log("valid_gen_length_acc", metrics.length_accuracy, sync_dist=True)
+
+            # Nested names for TensorBoard grouping
+            self.log("valid/gen_exact_match", metrics.exact_peptide_accuracy, sync_dist=True)
+            self.log("valid/gen_peptide_f1", metrics.peptide_f1, sync_dist=True)
+            self.log("valid/gen_aa_f1", metrics.aa_f1, sync_dist=True)
+            self.log("valid/gen_length_acc", metrics.length_accuracy, sync_dist=True)
+
+            print(
+                f"\n[Validation Generative Proxy ({len(predictions)} spectra)] "
+                f"Exact={metrics.exact_peptide_accuracy * 100:.2f}%, "
+                f"PepF1={metrics.peptide_f1 * 100:.2f}%, "
+                f"AAF1={metrics.aa_f1 * 100:.2f}%, "
+                f"LenAcc={metrics.length_accuracy * 100:.2f}%",
+                flush=True,
+            )
 
     def configure_optimizers(self):
         import math
