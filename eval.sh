@@ -19,14 +19,14 @@ fi
 
 DEFAULT_CKPT="artifacts/dfm_pl_run_20260903_092757/checkpoints/last.ckpt"
 CHECKPOINT="${1:-${CHECKPOINT:-$DEFAULT_CKPT}}"
-SPLIT="${SPLIT:-validation}"
+SPLIT="${SPLIT:-train}"
 BATCH_SIZE="${EVAL_BATCH_SIZE:-2048}"
-NUM_WORKERS="${EVAL_NUM_WORKERS:-8}"
+NUM_WORKERS="${EVAL_NUM_WORKERS:-12}"
 NUM_STEPS="${INFERENCE_STEPS:-20}"
 TOP_K_LENGTHS="${TOP_K_LENGTHS:-3}"
 LENGTH_BEAM_ALPHA="${LENGTH_BEAM_ALPHA:-0.01}"
-GUIDANCE_SCALE="${EVAL_GUIDANCE_SCALE:-1.0}"
-OUTPUT_JSON="${OUTPUT_JSON:-artifacts/dfm_pl_run_20260903_092757/eval_val_full.json}"
+GUIDANCE_SCALE="${EVAL_GUIDANCE_SCALE:-1.5}"
+OUTPUT_JSON="${OUTPUT_JSON:-artifacts/dfm_pl_run_20260903_092757/eval_${SPLIT}_full.json}"
 DEVICE="${DEVICE:-cuda}"
 
 echo "=========================================================="
