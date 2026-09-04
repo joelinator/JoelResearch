@@ -198,6 +198,23 @@ def spectrum_collate(batch_data, vocab):
         padded_mask,
         spectrum_mask,
     )
+#TODO make ti faster
+def accelerate(self, noising_step, s_a, s_b):
+    def tol(a, b, er=1e-3):
+        return abs(b-a)< er
+        ...
+    l = len(s_a)
+    m = len(s_b)
+    dp = [[0]*l]*m
+    err = 1e-3
+
+    for i in range(1, l+1):
+        for j in range(1, m+1):
+            best = max(dp[i-1][j], dp[i][j-1])
+            if tol(s_a[i], s_b[i], err):
+                best = max(best, dp[i-1][j-1]+1)
+            dp[i][j] = best
+    return dp[l][m]
 
 def build_dataloader(
     ds,

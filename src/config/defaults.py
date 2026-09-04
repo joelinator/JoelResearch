@@ -40,7 +40,7 @@ class DataDefaults:
 
 @dataclass(frozen=True)
 class TrainDefaults:
-    batch_size: int = 128
+    batch_size: int = 512 
     epochs: int = 30
     learning_rate: float = 3e-4
     weight_decay: float = 0.01

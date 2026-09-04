@@ -83,8 +83,22 @@ def build_checkpoint_payload(
     }
 
 
+def _clean_state_dict_keys(state_dict: dict[str, torch.Tensor], prefix: str = "") -> dict[str, torch.Tensor]:
+    result = {}
+    prefix_dot = f"{prefix}." if prefix else ""
+    for k, v in state_dict.items():
+        if prefix_dot and not k.startswith(prefix_dot):
+            continue
+        sub_k = k[len(prefix_dot):] if prefix_dot else k
+        # Handle torch.compile '_orig_mod.' prefix if present
+        sub_k = sub_k.replace("_orig_mod.", "")
+        result[sub_k] = v
+    return result
+
+
 def load_checkpoint(path: str | Path, map_location: str | torch.device = "cpu") -> dict:
-    return torch.load(Path(path), map_location=map_location)
+    """Load checkpoint dictionary from file."""
+    return torch.load(Path(path), map_location=map_location, weights_only=False)
 
 
 def load_models_from_checkpoint(
@@ -95,11 +109,21 @@ def load_models_from_checkpoint(
     guidance,
     optimizer=None,
 ) -> dict:
-    """Load model (and optionally optimizer) weights from a checkpoint dict."""
-    spectrum_encoder.load_state_dict(checkpoint["spectrum_encoder_state_dict"])
-    length_predictor.load_state_dict(checkpoint["length_predictor_state_dict"])
-    decoder.load_state_dict(checkpoint["decoder_state_dict"])
-    guidance.load_state_dict(checkpoint["guidance_state_dict"])
+    """Load model (and optionally optimizer) weights from a checkpoint dict (supports both custom and PyTorch Lightning checkpoints)."""
+    if "state_dict" in checkpoint:
+        # PyTorch Lightning checkpoint format
+        pl_sd = checkpoint["state_dict"]
+        spectrum_encoder.load_state_dict(_clean_state_dict_keys(pl_sd, "spectrum_encoder"))
+        length_predictor.load_state_dict(_clean_state_dict_keys(pl_sd, "length_predictor"))
+        decoder.load_state_dict(_clean_state_dict_keys(pl_sd, "decoder"))
+        guidance.load_state_dict(_clean_state_dict_keys(pl_sd, "guidance"))
+    else:
+        # Custom training loop checkpoint format
+        spectrum_encoder.load_state_dict(_clean_state_dict_keys(checkpoint["spectrum_encoder_state_dict"]))
+        length_predictor.load_state_dict(_clean_state_dict_keys(checkpoint["length_predictor_state_dict"]))
+        decoder.load_state_dict(_clean_state_dict_keys(checkpoint["decoder_state_dict"]))
+        guidance.load_state_dict(_clean_state_dict_keys(checkpoint["guidance_state_dict"]))
+
     if optimizer is not None and "optimizer_state_dict" in checkpoint:
         optimizer.load_state_dict(checkpoint["optimizer_state_dict"])
     return checkpoint

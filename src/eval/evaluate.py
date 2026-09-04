@@ -25,19 +25,26 @@ def evaluate_generative(
     device: torch.device,
     *,
     max_batches: int | None = None,
-    num_steps: int = 50,
+    num_steps: int = 20,
     noising_scheme: str = "uniform",
     guidance_scale: float = 1.0,
     top_k_lengths: int = 3,
     alpha: float = 0.1,
     aa_mass_tolerance: float = 0.1,
     prefix_mass_tolerance: float = 0.5,
+    amp: bool = True,
 ) -> DenovoMetrics:
     """Decode peptides with the full DFM inference loop and score against labels."""
     predictions: list[str] = []
     targets: list[str] = []
     predicted_lengths: list[int] = []
     target_lengths: list[int] = []
+
+    amp_dtype = (
+        torch.bfloat16
+        if torch.cuda.is_available() and torch.cuda.is_bf16_supported()
+        else torch.float16
+    )
 
     for batch_idx, batch in enumerate(loader):
         if max_batches is not None and batch_idx >= max_batches:
@@ -57,25 +64,30 @@ def evaluate_generative(
             tensor.to(device) if torch.is_tensor(tensor) else tensor for tensor in batch
         )
 
-        token_ids, pred_lengths, pred_sequences = predict_peptide(
-            mz_array=mz_array,
-            intensity_array=intensity_array,
-            precursor_mass=precursor_mass,
-            precursor_charge=precursor_charge,
-            mz_complementary=mz_complementary,
-            spectrum_mask=spectrum_mask,
-            vocabulary=vocabulary,
-            spectrum_encoder=spectrum_encoder,
-            length_predictor=length_predictor,
-            decoder=decoder,
-            guidance=guidance,
-            scheduler=scheduler,
-            num_steps=num_steps,
-            noising_scheme=noising_scheme,
-            guidance_scale=guidance_scale,
-            top_k_lengths=top_k_lengths,
-            alpha=alpha,
-        )
+        with torch.autocast(
+            device_type=device.type,
+            dtype=amp_dtype,
+            enabled=(amp and device.type == "cuda"),
+        ):
+            token_ids, pred_lengths, pred_sequences = predict_peptide(
+                mz_array=mz_array,
+                intensity_array=intensity_array,
+                precursor_mass=precursor_mass,
+                precursor_charge=precursor_charge,
+                mz_complementary=mz_complementary,
+                spectrum_mask=spectrum_mask,
+                vocabulary=vocabulary,
+                spectrum_encoder=spectrum_encoder,
+                length_predictor=length_predictor,
+                decoder=decoder,
+                guidance=guidance,
+                scheduler=scheduler,
+                num_steps=num_steps,
+                noising_scheme=noising_scheme,
+                guidance_scale=guidance_scale,
+                top_k_lengths=top_k_lengths,
+                alpha=alpha,
+            )
 
         predictions.extend(pred_sequences)
         targets.extend(sequences_from_batch(sequence, vocabulary))
