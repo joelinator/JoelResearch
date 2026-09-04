@@ -28,8 +28,8 @@ fi
 : "${GCP_ZONE:?Set GCP_ZONE}"
 : "${GCP_VM_NAME:?Set GCP_VM_NAME}"
 
-REMOTE_DIR="${GCP_REMOTE_DIR:-~/dfm-joelresearch}"
-SESSION_NAME="${GCP_TMUX_SESSION:-dfm-train}"
+REMOTE_DIR="${GCP_REMOTE_DIR}"
+SESSION_NAME="${GCP_TMUX_SESSION}"
 
 gcloud config set project "${GCP_PROJECT}" >/dev/null
 
@@ -70,6 +70,9 @@ fi
 
 REMOTE_CMD="$(printf '%s; ' "${REMOTE_ENV[@]}")"
 REMOTE_CMD+="cd ${REMOTE_DIR} && bash scripts/launch_gcp.sh"
+echo "remote_cmd ${REMOTE_CMD}"
+exit
+
 
 # Kill old session if present, start fresh tmux with logging.
 gcloud compute ssh "${GCP_VM_NAME}" --zone="${GCP_ZONE}" --command="

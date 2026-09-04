@@ -43,7 +43,7 @@ def parse_args():
     parser.add_argument("--resume-from", default=os.environ.get("RESUME_FROM"))
     parser.add_argument("--noising-scheme", default=train_cfg.noising_scheme)
     parser.add_argument("--compile", action="store_true", default=train_cfg.compile, help="Compile models")
-    parser.add_argument("--accumulate-grad-batches", type=int, default=4, help="Gradient accumulation steps")
+    parser.add_argument("--accumulate-grad-batches", type=int, default=1, help="Gradient accumulation steps")
     parser.add_argument("--no-amp", dest="amp", action="store_false", default=train_cfg.amp)
     return parser.parse_args()
 

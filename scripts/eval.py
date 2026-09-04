@@ -62,6 +62,7 @@ def parse_args():
         default=int(os.environ["MAX_BATCHES"]) if os.environ.get("MAX_BATCHES") else eval_cfg.max_batches,
     )
     parser.add_argument("--output-json", default=os.environ.get("EVAL_OUTPUT_JSON"))
+    parser.add_argument("--no-amp", dest="amp", action="store_false", default=True, help="Disable automatic mixed precision (FP16/BF16)")
     return parser.parse_args()
 
 
@@ -71,11 +72,26 @@ def main():
         raise SystemExit("Provide --checkpoint or set CHECKPOINT environment variable.")
     device = torch.device(args.device)
 
+    if device.type == "cuda":
+        torch.set_float32_matmul_precision("high")
+
     checkpoint = load_checkpoint(args.checkpoint, map_location=device)
-    vocabulary = checkpoint["vocabulary"]
+    
+    # Resolve vocabulary: from checkpoint, adjacent vocabulary.json, or dataset
+    vocabulary = checkpoint.get("vocabulary")
+    if vocabulary is None:
+        ckpt_p = Path(args.checkpoint).resolve()
+        # Look in same directory or parent directory (e.g. runs/<run_name>/checkpoints/../vocabulary.json)
+        for cand in [ckpt_p.parent / "vocabulary.json", ckpt_p.parent.parent / "vocabulary.json"]:
+            if cand.exists():
+                with cand.open() as f:
+                    vocabulary = json.load(f)
+                break
 
     ds = get_dataset(split=args.split, cache_dir=args.cache_dir)
-    if build_vocabulary(ds) != vocabulary:
+    if vocabulary is None:
+        vocabulary = build_vocabulary(ds)
+    elif build_vocabulary(ds) != vocabulary:
         print("Warning: dataset vocabulary differs from checkpoint vocabulary; using checkpoint vocab.")
 
     loader = build_dataloader(ds, vocabulary, batch_size=args.batch_size, shuffle=False, num_workers=args.num_workers)
@@ -107,6 +123,7 @@ def main():
         alpha=args.length_beam_alpha,
         aa_mass_tolerance=DEFAULTS.eval.aa_mass_tolerance,
         prefix_mass_tolerance=DEFAULTS.eval.prefix_mass_tolerance,
+        amp=args.amp,
     )
 
     print(format_metrics(metrics))
