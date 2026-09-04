@@ -80,7 +80,8 @@ def predict_peptide(
     guidance_scale: float = 1.0,
     top_k_lengths: int = 3,
     alpha: float = 0.1,
-) -> tuple[torch.Tensor, torch.Tensor, list[str]]:
+    return_scores: bool = False,
+) -> tuple[torch.Tensor, torch.Tensor, list[str]] | tuple[torch.Tensor, torch.Tensor, list[str], torch.Tensor]:
     """
     Run de novo inference with Top-k Length Beam Decoding.
 
@@ -138,9 +139,11 @@ def predict_peptide(
     k_cand = max(1, min(top_k_lengths, length_logits.shape[-1]))
 
     if k_cand == 1:
-        cand_lengths_flat = clamp_length(class_to_length(length_logits.argmax(dim=-1)))
+        length_classes = length_logits.argmax(dim=-1)
+        cand_lengths_flat = clamp_length(class_to_length(length_classes))
         K = 1
-        cand_length_log_probs = None
+        length_log_probs = F.log_softmax(length_logits, dim=-1)
+        cand_length_log_probs = length_log_probs.gather(-1, length_classes.unsqueeze(-1)).squeeze(-1)
         precursor_mass_exp = precursor_mass
         precursor_charge_exp = precursor_charge
         spectrum_emb_peaks_exp = spectrum_emb_peaks
@@ -245,7 +248,7 @@ def predict_peptide(
             x_t[rem_mask] = last_logits.argmax(dim=-1)[rem_mask]
 
     # 5. Candidate scoring & beam selection
-    if K > 1 and last_logits is not None:
+    if last_logits is not None:
         # Build mass lookup table on device
         mass_table = torch.zeros(
             max(vocabulary.values()) + 1, device=device, dtype=torch.float32
@@ -274,6 +277,10 @@ def predict_peptide(
         # Bayesian Joint Posterior Score:
         # log P(L | S) + mean_i log P(Y_i | S, L) - alpha * relative_mass_penalty
         score = cand_length_log_probs + mean_log_prob - alpha * relative_mass_error
+    else:
+        score = torch.zeros(total_samples, device=device)
+
+    if K > 1:
         score_2d = score.view(batch_size, K)
         best_k = score_2d.argmax(dim=-1)  # (B,)
 
@@ -282,9 +289,13 @@ def predict_peptide(
 
         selected_x_t = x_t[best_indices]
         selected_lengths = cand_lengths_flat[best_indices]
+        selected_scores = score_2d.gather(dim=-1, index=best_k.unsqueeze(-1)).squeeze(-1)
     else:
         selected_x_t = x_t
         selected_lengths = cand_lengths_flat
+        selected_scores = score
 
     sequences = decode_tokens(selected_x_t, vocabulary)
+    if return_scores:
+        return selected_x_t, selected_lengths, sequences, selected_scores
     return selected_x_t, selected_lengths, sequences

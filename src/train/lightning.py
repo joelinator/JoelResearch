@@ -187,7 +187,10 @@ class DFMLightningModule(pl.LightningModule):
 
         from inference.predict import predict_peptide
         from eval.evaluate import sequences_from_batch
-        from eval.metrics import compute_denovo_metrics
+        from eval.metrics import calibrate_score_threshold, compute_denovo_metrics, peptide_matches_mass_based
+        from eval.plots import plot_pauc_curve
+        import json
+        from pathlib import Path
 
         num_steps = int(self.args.get("inference_steps", 20))
         guidance_scale = float(self.args.get("guidance_scale", 1.5))
@@ -198,6 +201,7 @@ class DFMLightningModule(pl.LightningModule):
         targets = []
         pred_lengths_all = []
         target_lengths_all = []
+        scores_all = []
 
         device = self.device
         amp_dtype = (
@@ -232,7 +236,7 @@ class DFMLightningModule(pl.LightningModule):
                     dtype=amp_dtype,
                     enabled=(device.type == "cuda"),
                 ):
-                    token_ids, pred_lens, pred_seqs = predict_peptide(
+                    token_ids, pred_lens, pred_seqs, pred_scores = predict_peptide(
                         mz_array=mz_array,
                         intensity_array=intensity_array,
                         precursor_mass=precursor_mass,
@@ -250,45 +254,104 @@ class DFMLightningModule(pl.LightningModule):
                         guidance_scale=guidance_scale,
                         top_k_lengths=top_k_lengths,
                         alpha=alpha,
+                        return_scores=True,
                     )
 
                 predictions.extend(pred_seqs)
                 targets.extend(sequences_from_batch(sequence, self.vocabulary))
                 pred_lengths_all.extend(int(v) for v in pred_lens.tolist())
                 target_lengths_all.extend(int(v) for v in length.tolist())
+                scores_all.extend(float(s) for s in pred_scores.tolist())
 
         self._val_proxy_batches = []
 
         if len(predictions) > 0:
+            exact_matches = [p == t for p, t in zip(predictions, targets)]
+            mass_matches = [
+                peptide_matches_mass_based(p, t, 0.1, 0.5)
+                for p, t in zip(predictions, targets)
+            ]
+
+            # Calibrate threshold on validation proxy subset (Mass Match @ 80% precision)
+            calib = calibrate_score_threshold(scores_all, mass_matches, target_precision=0.80)
+            calibrated_threshold = calib["threshold"]
+
             metrics = compute_denovo_metrics(
                 predictions,
                 targets,
                 predicted_lengths=pred_lengths_all,
                 target_lengths=target_lengths_all,
+                scores=scores_all,
+                score_threshold=calibrated_threshold,
                 aa_mass_tolerance=0.1,
                 prefix_mass_tolerance=0.5,
             )
 
-            # Flat names for clean checkpoint filenames
+            # Flat names for checkpoint callbacks & tracking (unthresholded simple metrics + thresholded)
             self.log("valid_gen_exact_match", metrics.exact_peptide_accuracy, sync_dist=True)
-            self.log("valid_gen_peptide_f1", metrics.peptide_f1, sync_dist=True)
+            self.log("valid_gen_mass_match", metrics.mass_peptide_accuracy, sync_dist=True)
+            self.log("valid_gen_exact_prec", metrics.peptide_precision_exact, sync_dist=True)
+            self.log("valid_gen_exact_rec", metrics.peptide_recall_exact, sync_dist=True)
+            self.log("valid_gen_mass_prec", metrics.peptide_precision_mass, sync_dist=True)
+            self.log("valid_gen_mass_rec", metrics.peptide_recall_mass, sync_dist=True)
+            self.log("valid_gen_pauc80_mass", metrics.pauc80_mass, sync_dist=True)
+            self.log("valid_gen_auc_mass", metrics.auc_mass, sync_dist=True)
+            self.log("valid_gen_prauc_mass", metrics.pr_auc_mass, sync_dist=True)
+            self.log("valid_gen_prauc80_mass", metrics.p_pr_auc80_mass, sync_dist=True)
             self.log("valid_gen_aa_f1", metrics.aa_f1, sync_dist=True)
             self.log("valid_gen_length_acc", metrics.length_accuracy, sync_dist=True)
+            self.log("valid_calibrated_thresh", calibrated_threshold, sync_dist=True)
 
             # Nested names for TensorBoard grouping
-            self.log("valid/gen_exact_match", metrics.exact_peptide_accuracy, sync_dist=True)
-            self.log("valid/gen_peptide_f1", metrics.peptide_f1, sync_dist=True)
+            self.log("valid/unthresholded_exact_acc", metrics.exact_peptide_accuracy, sync_dist=True)
+            self.log("valid/unthresholded_mass_acc", metrics.mass_peptide_accuracy, sync_dist=True)
+            self.log("valid/gen_exact_accuracy", metrics.exact_peptide_accuracy, sync_dist=True)
+            self.log("valid/gen_mass_accuracy", metrics.mass_peptide_accuracy, sync_dist=True)
+            self.log("valid/gen_exact_precision", metrics.peptide_precision_exact, sync_dist=True)
+            self.log("valid/gen_exact_recall", metrics.peptide_recall_exact, sync_dist=True)
+            self.log("valid/gen_mass_precision", metrics.peptide_precision_mass, sync_dist=True)
+            self.log("valid/gen_mass_recall", metrics.peptide_recall_mass, sync_dist=True)
+            self.log("valid/gen_pauc80_mass", metrics.pauc80_mass, sync_dist=True)
+            self.log("valid/gen_auc_mass", metrics.auc_mass, sync_dist=True)
+            self.log("valid/gen_prauc_mass", metrics.pr_auc_mass, sync_dist=True)
             self.log("valid/gen_aa_f1", metrics.aa_f1, sync_dist=True)
             self.log("valid/gen_length_acc", metrics.length_accuracy, sync_dist=True)
+            self.log("valid/calibrated_threshold", calibrated_threshold, sync_dist=True)
 
             print(
-                f"\n[Validation Generative Proxy ({len(predictions)} spectra)] "
-                f"Exact={metrics.exact_peptide_accuracy * 100:.2f}%, "
-                f"PepF1={metrics.peptide_f1 * 100:.2f}%, "
+                f"\n[Val Generative Proxy ({len(predictions)} spectra)] "
+                f"ExactAcc={metrics.exact_peptide_accuracy * 100:.2f}%, "
+                f"MassAcc={metrics.mass_peptide_accuracy * 100:.2f}%, "
+                f"Calibrated Thresh={calibrated_threshold:.2f} -> "
+                f"MassPrec={metrics.peptide_precision_mass * 100:.2f}%, "
+                f"MassRec={metrics.peptide_recall_mass * 100:.2f}%, "
+                f"Cov={metrics.coverage * 100:.2f}%, "
                 f"AAF1={metrics.aa_f1 * 100:.2f}%, "
                 f"LenAcc={metrics.length_accuracy * 100:.2f}%",
                 flush=True,
             )
+
+            # Automatically save PAUC curve plot & detailed JSON on milestones
+            run_dir = getattr(self.trainer, "default_root_dir", "artifacts")
+            try:
+                metrics_dir = Path(run_dir) / "val_metrics"
+                metrics_dir.mkdir(parents=True, exist_ok=True)
+                plot_path = metrics_dir / f"pauc_val_epoch_{self.current_epoch:02d}.png"
+                plot_pauc_curve(
+                    scores=scores_all,
+                    exact_matches=exact_matches,
+                    mass_matches=mass_matches,
+                    output_path=plot_path,
+                    title=f"Validation PAUC & Score Calibration (Epoch {self.current_epoch})",
+                    calibrated_threshold=calibrated_threshold,
+                    calibrated_coverage=calib["coverage"],
+                    calibrated_precision=calib["precision"],
+                    calibrated_recall=calib["recall"],
+                )
+                json_path = metrics_dir / f"metrics_val_epoch_{self.current_epoch:02d}.json"
+                json_path.write_text(json.dumps(metrics.to_dict(), indent=2) + "\n")
+            except Exception as e:
+                print(f"Warning: Failed to save PAUC plot/metrics during validation: {e}")
 
     def configure_optimizers(self):
         import math

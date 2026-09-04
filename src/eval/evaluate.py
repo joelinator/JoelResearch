@@ -26,19 +26,22 @@ def evaluate_generative(
     *,
     max_batches: int | None = None,
     num_steps: int = 20,
-    noising_scheme: str = "uniform",
+    noising_scheme: str = "mask",
     guidance_scale: float = 1.0,
     top_k_lengths: int = 3,
     alpha: float = 0.1,
     aa_mass_tolerance: float = 0.1,
     prefix_mass_tolerance: float = 0.5,
     amp: bool = True,
-) -> DenovoMetrics:
+    score_threshold: float | None = None,
+    return_details: bool = False,
+) -> DenovoMetrics | tuple[DenovoMetrics, dict]:
     """Decode peptides with the full DFM inference loop and score against labels."""
     predictions: list[str] = []
     targets: list[str] = []
     predicted_lengths: list[int] = []
     target_lengths: list[int] = []
+    scores: list[float] = []
 
     amp_dtype = (
         torch.bfloat16
@@ -69,7 +72,7 @@ def evaluate_generative(
             dtype=amp_dtype,
             enabled=(amp and device.type == "cuda"),
         ):
-            token_ids, pred_lengths, pred_sequences = predict_peptide(
+            token_ids, pred_lengths, pred_sequences, pred_scores = predict_peptide(
                 mz_array=mz_array,
                 intensity_array=intensity_array,
                 precursor_mass=precursor_mass,
@@ -87,12 +90,14 @@ def evaluate_generative(
                 guidance_scale=guidance_scale,
                 top_k_lengths=top_k_lengths,
                 alpha=alpha,
+                return_scores=True,
             )
 
         predictions.extend(pred_sequences)
         targets.extend(sequences_from_batch(sequence, vocabulary))
         predicted_lengths.extend(int(value) for value in pred_lengths.tolist())
         target_lengths.extend(int(value) for value in length.tolist())
+        scores.extend(float(s) for s in pred_scores.tolist())
 
         total_batches = len(loader) if hasattr(loader, "__len__") else None
         if (batch_idx + 1) % 10 == 0 or (total_batches is not None and (batch_idx + 1) == total_batches):
@@ -101,14 +106,36 @@ def evaluate_generative(
 
         del token_ids
 
-    return compute_denovo_metrics(
+    metrics = compute_denovo_metrics(
         predictions,
         targets,
         predicted_lengths=predicted_lengths,
         target_lengths=target_lengths,
+        scores=scores,
+        score_threshold=score_threshold,
         aa_mass_tolerance=aa_mass_tolerance,
         prefix_mass_tolerance=prefix_mass_tolerance,
     )
+
+    if return_details:
+        from eval.metrics import peptide_matches_mass_based
+        exact_matches = [p == t for p, t in zip(predictions, targets)]
+        mass_matches = [
+            peptide_matches_mass_based(p, t, aa_mass_tolerance, prefix_mass_tolerance)
+            for p, t in zip(predictions, targets)
+        ]
+        details = {
+            "predictions": predictions,
+            "targets": targets,
+            "predicted_lengths": predicted_lengths,
+            "target_lengths": target_lengths,
+            "scores": scores,
+            "exact_matches": exact_matches,
+            "mass_matches": mass_matches,
+        }
+        return metrics, details
+
+    return metrics
 
 
 @torch.no_grad()
