@@ -22,6 +22,7 @@ sys.path.insert(0, str(ROOT / "src"))
 
 from config.defaults import DEFAULTS
 from data.data import build_dataloader, build_vocabulary, get_dataset
+from train.callbacks import EMACallback
 from train.lightning import DFMLightningModule
 
 
@@ -84,6 +85,75 @@ def parse_args():
         help="Save unconditional periodic checkpoint every N epochs to capture grokking (default: 10).",
     )
     parser.add_argument(
+        "--no-reset-lr-on-resume",
+        dest="reset_lr_on_resume",
+        action="store_false",
+        default=True,
+        help="Preserve saved optimizer state and decayed learning rate when resuming from checkpoint.",
+    )
+    parser.add_argument(
+        "--weights-only",
+        action="store_true",
+        default=False,
+        help="Only load model weights from checkpoint, resetting epoch/step counters to 0.",
+    )
+    parser.add_argument(
+        "--use-ema",
+        dest="use_ema",
+        action="store_true",
+        default=True,
+        help="Maintain Exponential Moving Average (EMA) shadow weights for evaluation and inference (default: True).",
+    )
+    parser.add_argument(
+        "--no-ema",
+        dest="use_ema",
+        action="store_false",
+        help="Disable EMA shadow weights.",
+    )
+    parser.add_argument(
+        "--ema-decay",
+        type=float,
+        default=float(os.environ.get("EMA_DECAY", 0.999)),
+        help="EMA decay coefficient (default: 0.999).",
+    )
+    parser.add_argument(
+        "--label-smoothing",
+        type=float,
+        default=float(os.environ.get("LABEL_SMOOTHING", 0.05)),
+        help="Label smoothing factor for peptide cross-entropy loss (default: 0.05).",
+    )
+    parser.add_argument(
+        "--peak-dropout",
+        type=float,
+        default=float(os.environ.get("PEAK_DROPOUT", 0.15)),
+        help="Fraction of spectral peaks to randomly drop during training (default: 0.15).",
+    )
+    parser.add_argument(
+        "--decoding-strategy",
+        type=str,
+        default=os.environ.get("DECODING_STRATEGY", "confidence"),
+        choices=["confidence", "random"],
+        help="Discrete flow matching unmasking strategy during inference (default: confidence).",
+    )
+    parser.add_argument(
+        "--decoding-temperature",
+        type=float,
+        default=float(os.environ.get("DECODING_TEMPERATURE", 0.0)),
+        help="Sampling temperature during inference (default: 0.0 for greedy argmax).",
+    )
+    parser.add_argument(
+        "--fragment-matching-weight",
+        type=float,
+        default=float(os.environ.get("FRAGMENT_MATCHING_WEIGHT", 0.5)),
+        help="Weight beta for theoretical b/y fragment ion matching in beam scoring (default: 0.5).",
+    )
+    parser.add_argument(
+        "--trypsin-prior",
+        action="store_true",
+        default=False,
+        help="Apply enzymatic C-terminal cleavage prior bonus (K/R) in candidate scoring.",
+    )
+    parser.add_argument(
         "--seed",
         type=int,
         default=int(os.environ.get("SEED", 42)),
@@ -120,6 +190,9 @@ def main():
         shuffle=True,
         num_workers=args.num_workers,
         pin_memory=pin,
+        top_k=args.top_k_peaks,
+        peak_dropout_prob=args.peak_dropout,
+        is_train=True,
     )
     valid_loader = build_dataloader(
         valid_ds,
@@ -128,9 +201,10 @@ def main():
         shuffle=False,
         num_workers=args.num_workers,
         pin_memory=pin,
+        top_k=args.top_k_peaks,
+        peak_dropout_prob=0.0,
+        is_train=False,
     )
-    train_loader.dataset.top_k = args.top_k_peaks
-    valid_loader.dataset.top_k = args.top_k_peaks
 
     args_dict = vars(args)
     args_dict["learning_rate"] = args.lr
@@ -141,6 +215,19 @@ def main():
         json.dump(vocabulary, f)
 
     model = DFMLightningModule(vocabulary, args_dict)
+
+    resume_ckpt_path = args.resume_from
+    if args.resume_from:
+        if args.weights_only:
+            print(f"Loading weights only from checkpoint: {args.resume_from}")
+            ckpt = torch.load(args.resume_from, map_location="cpu", weights_only=False)
+            state_dict = ckpt.get("state_dict", ckpt)
+            missing, unexpected = model.load_state_dict(state_dict, strict=False)
+            print(f"Loaded weights (missing: {len(missing)}, unexpected: {len(unexpected)}). Starting training at epoch 0.")
+            resume_ckpt_path = None
+        else:
+            mode_desc = f"resetting optimizer with default LR ({args.lr})" if args.reset_lr_on_resume else "preserving saved optimizer state"
+            print(f"Resuming training from checkpoint: {args.resume_from} ({mode_desc})")
 
     csv_logger = CSVLogger(save_dir=args.output_dir, name=args.run_name)
     tb_logger = TensorBoardLogger(save_dir=args.output_dir, name=args.run_name)
@@ -186,6 +273,9 @@ def main():
     )
 
     checkpoint_callbacks = [best_gen_cb, periodic_cb, best_loss_cb, last_cb]
+    callbacks = [*checkpoint_callbacks, LearningRateMonitor(logging_interval="step")]
+    if args.use_ema:
+        callbacks.append(EMACallback(decay=args.ema_decay))
 
     trainer = pl.Trainer(
         max_epochs=args.epochs,
@@ -199,11 +289,17 @@ def main():
         precision="bf16-mixed" if (args.amp and torch.cuda.is_available() and torch.cuda.is_bf16_supported()) 
                   else ("16-mixed" if args.amp else "32-true"),
         logger=loggers,
-        callbacks=[*checkpoint_callbacks, LearningRateMonitor(logging_interval="step")],
+        callbacks=callbacks,
         default_root_dir=args.output_dir,
     )
 
-    trainer.fit(model, train_dataloaders=train_loader, val_dataloaders=valid_loader, ckpt_path=args.resume_from)
+
+    trainer.fit(
+        model,
+        train_dataloaders=train_loader,
+        val_dataloaders=valid_loader,
+        ckpt_path=resume_ckpt_path,
+    )
     print(f"=== Training complete ===")
     print(f"Best generative model: {best_gen_cb.best_model_path} (score={best_gen_cb.best_model_score})")
     print(f"Best loss model:       {best_loss_cb.best_model_path} (score={best_loss_cb.best_model_score})")

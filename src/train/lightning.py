@@ -5,7 +5,7 @@ from __future__ import annotations
 import torch
 import pytorch_lightning as pl
 
-from data.data import get_output_aa_masses
+from data.data import get_aa_masses, get_output_aa_masses
 from data.lengths import length_to_active_mask
 from eval.evaluate import evaluate_teacher_forced
 from flow_matching.sampling import (
@@ -19,6 +19,7 @@ from train.loss import (
     lambda_schedule,
     length_loss,
     mass_loss_hubert,
+    mass_loss_hubert_cum,
     peptide_loss,
 )
 from train.utils import length_noiser
@@ -49,6 +50,8 @@ class DFMLightningModule(pl.LightningModule):
 
         aa_masses = get_output_aa_masses(vocabulary)
         self.register_buffer("aa_masses", aa_masses)
+        full_aa_masses = get_aa_masses(vocabulary)
+        self.register_buffer("full_aa_masses", full_aa_masses, persistent=False)
 
         self.scheduler = cosine_scheduler
 
@@ -115,12 +118,15 @@ class DFMLightningModule(pl.LightningModule):
             x_t,
             length_for_decoder,
             peak_mask,
+            ~active_mask,
         )
 
+        label_smoothing = self.args.get("label_smoothing", 0.0) if mode == "train" else 0.0
         decoder_loss = peptide_loss(
             peptide_logits,
             sequence,
             pad_id=self.vocabulary["<pad>"],
+            label_smoothing=label_smoothing,
         )
         len_loss = length_loss(length_logits, true_length)
 
@@ -137,16 +143,27 @@ class DFMLightningModule(pl.LightningModule):
                 precursor_mass,
                 active_mask=active_mask,
             )
-            loss = decoder_loss + lambd * len_loss + gamma * mass_loss
+            cum_mass_loss = mass_loss_hubert_cum(
+                peptide_logits,
+                self.aa_masses,
+                sequence,
+                active_mask=active_mask,
+                vocab_aa_masses=self.full_aa_masses,
+            )
+
+            loss = decoder_loss + lambd * len_loss + .5*gamma * mass_loss + .5*gamma * cum_mass_loss
             mass_loss_log = mass_loss
+            cum_mass_loss_log = cum_mass_loss
         else:
             loss = decoder_loss + lambd * len_loss
             mass_loss_log = torch.tensor(0.0, device=loss.device)
+            cum_mass_loss_log = torch.tensor(0.0, device=loss.device)
 
         self.log(f"{mode}/loss", loss, batch_size=batch_size, sync_dist=True)
         self.log(f"{mode}/decoder_loss", decoder_loss, batch_size=batch_size, sync_dist=True)
         self.log(f"{mode}/length_loss", len_loss, batch_size=batch_size, sync_dist=True)
         self.log(f"{mode}/mass_loss", mass_loss_log, batch_size=batch_size, sync_dist=True)
+        self.log(f"{mode}/cum_mass_loss", cum_mass_loss_log, batch_size=batch_size, sync_dist=True)
 
         if mode == "valid":
             self.log("valid_loss", loss, batch_size=batch_size, sync_dist=True)
@@ -254,6 +271,10 @@ class DFMLightningModule(pl.LightningModule):
                         guidance_scale=guidance_scale,
                         top_k_lengths=top_k_lengths,
                         alpha=alpha,
+                        beta=self.args.get("fragment_matching_weight", 0.5),
+                        decoding_strategy=self.args.get("decoding_strategy", "confidence"),
+                        temperature=self.args.get("decoding_temperature", 0.0),
+                        trypsin_prior=self.args.get("trypsin_prior", False),
                         return_scores=True,
                     )
 
@@ -289,6 +310,7 @@ class DFMLightningModule(pl.LightningModule):
 
             # Flat names for checkpoint callbacks & tracking (unthresholded simple metrics + thresholded)
             self.log("valid_gen_exact_match", metrics.exact_peptide_accuracy, sync_dist=True)
+            self.log("valid_gen_exact_match_il", metrics.exact_peptide_accuracy_il, sync_dist=True)
             self.log("valid_gen_mass_match", metrics.mass_peptide_accuracy, sync_dist=True)
             self.log("valid_gen_exact_prec", metrics.peptide_precision_exact, sync_dist=True)
             self.log("valid_gen_exact_rec", metrics.peptide_recall_exact, sync_dist=True)
@@ -389,3 +411,12 @@ class DFMLightningModule(pl.LightningModule):
                 "interval": "step",  # Crucial: update LR every step, not every epoch!
             },
         }
+
+    def on_load_checkpoint(self, checkpoint: dict) -> None:
+        """
+        Allow resuming training from a checkpoint using the default/configured
+        learning rate rather than the previously saved (and decayed) learning rate.
+        """
+        if self.args.get("reset_lr_on_resume", True):
+            checkpoint["optimizer_states"] = []
+            checkpoint["lr_schedulers"] = []

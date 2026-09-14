@@ -3,7 +3,7 @@ from __future__ import annotations
 import torch
 import torch.nn.functional as F
 
-from data.constants import AA_MASSES_DICT, M_H2O
+from data.constants import AA_MASSES_DICT, M_H, M_H2O
 from data.data import invert_vocabulary
 from data.lengths import apply_length_padding, class_to_length, clamp_length, length_to_active_mask
 from flow_matching.sampling import (
@@ -61,6 +61,78 @@ def _initialize_noisy_sequence(
     return x_t
 
 
+def compute_fragment_matching_scores(
+    x_t: torch.Tensor,
+    active_mask: torch.Tensor,
+    mz_array_exp: torch.Tensor,
+    intensity_array_exp: torch.Tensor,
+    spectrum_mask_exp: torch.Tensor,
+    vocabulary: dict[str, int],
+    tolerance_ppm: float = 20.0,
+    tolerance_da: float = 0.05,
+) -> torch.Tensor:
+    """
+    Compute the explained spectral intensity fraction for each candidate sequence
+    by matching theoretical b- and y-ions against experimental spectrum peaks.
+
+    Args:
+        x_t: Candidate token sequences of shape (B_total, L).
+        active_mask: Boolean tensor of shape (B_total, L) indicating active residues.
+        mz_array_exp: Experimental peak m/z values of shape (B_total, S).
+        intensity_array_exp: Peak intensities of shape (B_total, S).
+        spectrum_mask_exp: True for padded/missing spectrum peaks (B_total, S).
+        vocabulary: Token dictionary.
+        tolerance_ppm: Mass tolerance in parts-per-million (default: 20.0).
+        tolerance_da: Absolute mass tolerance in Daltons (default: 0.05).
+
+    Returns:
+        explained_intensity: Tensor of shape (B_total,) in [0, 1].
+    """
+    device = x_t.device
+    mass_table = torch.zeros(max(vocabulary.values()) + 1, device=device, dtype=torch.float32)
+    for tok, idx in vocabulary.items():
+        if tok in AA_MASSES_DICT:
+            mass_table[idx] = AA_MASSES_DICT[tok]
+
+    # Token masses: (B_total, L)
+    token_mass = mass_table[x_t] * active_mask.float()
+    lengths = active_mask.sum(dim=-1).clamp(min=1)
+
+    # b-ions: cumulative prefix sum + M_H (1.007276 Da)
+    b_ions = token_mass.cumsum(dim=1) + M_H  # (B_total, L)
+
+    # y-ions: total peptide mass - b_ions + 2*M_H + M_H2O
+    total_mass = token_mass.sum(dim=-1, keepdim=True)
+    y_ions = total_mass - (b_ions - M_H) + M_H2O + M_H  # (B_total, L)
+
+    # Valid fragment ions exclude index L-1 (full peptide intact mass)
+    positions = torch.arange(x_t.size(1), device=device).unsqueeze(0)
+    valid_fragment = positions < (lengths.unsqueeze(1) - 1)  # (B_total, L)
+
+    # Collect theoretical ions: (B_total, 2*L)
+    theo_ions = torch.cat([b_ions, y_ions], dim=1)
+    theo_valid = torch.cat([valid_fragment, valid_fragment], dim=1)  # (B_total, 2*L)
+    theo_ions = theo_ions.masked_fill(~theo_valid, -1e9)
+
+    # Mask padded spectrum peaks
+    valid_peaks = ~spectrum_mask_exp  # (B_total, S)
+    exp_intensity = intensity_array_exp * valid_peaks.float()
+    total_spec_intensity = exp_intensity.sum(dim=-1).clamp(min=1e-7)
+
+    # Pairwise matching between experimental peaks and theoretical ions
+    exp_mz = mz_array_exp.unsqueeze(-1)  # (B_total, S, 1)
+    theo_mz = theo_ions.unsqueeze(1)     # (B_total, 1, 2*L)
+
+    diff = (exp_mz - theo_mz).abs()      # (B_total, S, 2*L)
+    tol = torch.maximum(theo_mz * (tolerance_ppm * 1e-6), torch.tensor(tolerance_da, device=device))
+    matched = (diff <= tol) & theo_valid.unsqueeze(1) & valid_peaks.unsqueeze(-1)  # (B_total, S, 2*L)
+
+    peak_is_matched = matched.any(dim=-1)  # (B_total, S)
+    matched_intensity = (exp_intensity * peak_is_matched.float()).sum(dim=-1)
+
+    return (matched_intensity / total_spec_intensity).clamp(0.0, 1.0)
+
+
 @torch.no_grad()
 def predict_peptide(
     mz_array: torch.Tensor,
@@ -80,38 +152,22 @@ def predict_peptide(
     guidance_scale: float = 1.0,
     top_k_lengths: int = 3,
     alpha: float = 0.1,
+    beta: float = 0.5,
+    decoding_strategy: str = "confidence",
+    temperature: float = 0.0,
+    trypsin_prior: bool = False,
+    tolerance_ppm: float = 20.0,
+    tolerance_da: float = 0.05,
     return_scores: bool = False,
 ) -> tuple[torch.Tensor, torch.Tensor, list[str]] | tuple[torch.Tensor, torch.Tensor, list[str], torch.Tensor]:
     """
-    Run de novo inference with Top-k Length Beam Decoding.
+    Run de novo inference with Top-k Length Beam Decoding and SOTA scoring.
 
     Predicts the top-k most likely peptide lengths from the length classifier,
     runs the peptide decoder on all candidate lengths in parallel across the batch,
-    scores each candidate sequence based on:
-        Score(Y) = -H(Y | Spectrum) - alpha * |sum m(aa) - M_true|
+    and scores candidate sequences based on:
+        Score(Y) = log P(L|S) + mean log P(Y_i|S,L) - alpha * MassError + beta * FragMatch + Prior
     and selects the optimal sequence per spectrum.
-
-    Args:
-        mz_array: Mass spectrum m/z values (B, S).
-        intensity_array: Mass spectrum peak intensities (B, S).
-        precursor_mass: Neutral precursor monoisotopic mass (B,).
-        precursor_charge: Ionization charge (B,).
-        mz_complementary: Theoretical complementary m/z values (B, S).
-        spectrum_mask: Padding mask for spectrum peaks (B, S).
-        vocabulary: Residue vocabulary dictionary mapping tokens to IDs.
-        spectrum_encoder: Trained SpectrumEncoder module.
-        length_predictor: Trained PeptideLengthClassifier module.
-        decoder: Trained DFMPeptideDecoder module.
-        guidance: Classifier-Free Guidance module.
-        scheduler: Flow matching noise schedule function.
-        num_steps: Number of discrete diffusion integration steps.
-        noising_scheme: 'mask' (absorbing state) or 'uniform'.
-        guidance_scale: Strength of CFG extrapolation.
-        top_k_lengths: Number of top length candidates to decode in parallel (default: 3).
-        alpha: Weight for precursor mass mismatch penalty in beam score (default: 0.1).
-
-    Returns:
-        (best_token_ids, best_lengths, best_sequences)
     """
     spectrum_encoder.eval()
     length_predictor.eval()
@@ -148,6 +204,9 @@ def predict_peptide(
         precursor_charge_exp = precursor_charge
         spectrum_emb_peaks_exp = spectrum_emb_peaks
         peak_mask_exp = peak_mask
+        mz_array_exp = mz_array
+        intensity_array_exp = intensity_array
+        spectrum_mask_exp = spectrum_mask
     else:
         topk = torch.topk(length_logits, k=k_cand, dim=-1)
         topk_classes = topk.indices  # (B, K)
@@ -162,6 +221,9 @@ def predict_peptide(
         precursor_charge_exp = precursor_charge.repeat_interleave(K, dim=0)
         spectrum_emb_peaks_exp = spectrum_emb_peaks.repeat_interleave(K, dim=0)
         peak_mask_exp = peak_mask.repeat_interleave(K, dim=0)
+        mz_array_exp = mz_array.repeat_interleave(K, dim=0)
+        intensity_array_exp = intensity_array.repeat_interleave(K, dim=0)
+        spectrum_mask_exp = spectrum_mask.repeat_interleave(K, dim=0)
 
     total_samples = batch_size * K
     max_len = int(cand_lengths_flat.max().item())
@@ -212,6 +274,7 @@ def predict_peptide(
                 x_t,
                 cand_lengths_flat,
                 peak_mask_exp,
+                ~active_mask,
             )
             uncond_logits = decoder(
                 t,
@@ -221,6 +284,7 @@ def predict_peptide(
                 x_t,
                 cand_lengths_flat,
                 peak_mask_exp,
+                ~active_mask,
             )
             logits = uncond_logits + guidance_scale * (cond_logits - uncond_logits)
         else:
@@ -232,12 +296,33 @@ def predict_peptide(
                 x_t,
                 cand_lengths_flat,
                 peak_mask_exp,
+                ~active_mask,
             )
 
         last_logits = logits
-        x_t = sample_step(
-            kt, kt_derivative, x_t, logits, vocabulary, delta_t, active_mask=active_mask
-        )
+        if noising_scheme == "mask":
+            x_t = sample_step(
+                kt,
+                kt_derivative,
+                x_t,
+                logits,
+                vocabulary,
+                delta_t,
+                active_mask=active_mask,
+                temperature=temperature,
+                strategy=decoding_strategy,
+            )
+        else:
+            x_t = sample_step(
+                kt,
+                kt_derivative,
+                x_t,
+                logits,
+                vocabulary,
+                delta_t,
+                active_mask=active_mask,
+                temperature=temperature if temperature > 0.0 else 1.0,
+            )
         x_t = apply_length_padding(x_t, cand_lengths_flat, pad_id)
 
     # Final unmasking safety: if any active position is still masked, unmask via argmax logits
@@ -274,9 +359,40 @@ def predict_peptide(
         token_log_probs = token_log_probs * active_mask.float()
         mean_log_prob = token_log_probs.sum(dim=-1) / cand_lengths_flat.float().clamp(min=1.0)
 
+        # Explained spectral intensity from theoretical b/y fragment matching
+        if beta > 0.0:
+            frag_score = compute_fragment_matching_scores(
+                x_t=x_t,
+                active_mask=active_mask,
+                mz_array_exp=mz_array_exp,
+                intensity_array_exp=intensity_array_exp,
+                spectrum_mask_exp=spectrum_mask_exp,
+                vocabulary=vocabulary,
+                tolerance_ppm=tolerance_ppm,
+                tolerance_da=tolerance_da,
+            )
+        else:
+            frag_score = torch.zeros(total_samples, device=device)
+
+        # Optional enzymatic C-terminal cleavage prior (Trypsin: C-terminal K or R)
+        if trypsin_prior:
+            last_pos = (cand_lengths_flat - 1).clamp(min=0)
+            last_tokens = x_t.gather(dim=-1, index=last_pos.unsqueeze(-1)).squeeze(-1)
+            k_id = vocabulary.get("K", -1)
+            r_id = vocabulary.get("R", -1)
+            trypsin_bonus = ((last_tokens == k_id) | (last_tokens == r_id)).float() * 0.2
+        else:
+            trypsin_bonus = 0.0
+
         # Bayesian Joint Posterior Score:
-        # log P(L | S) + mean_i log P(Y_i | S, L) - alpha * relative_mass_penalty
-        score = cand_length_log_probs + mean_log_prob - alpha * relative_mass_error
+        # log P(L | S) + mean_i log P(Y_i | S, L) - alpha * mass_error + beta * frag_score + prior
+        score = (
+            cand_length_log_probs
+            + mean_log_prob
+            - alpha * relative_mass_error
+            + beta * frag_score
+            + trypsin_bonus
+        )
     else:
         score = torch.zeros(total_samples, device=device)
 

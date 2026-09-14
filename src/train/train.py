@@ -12,6 +12,7 @@ from train.loss import (
     length_loss,
     loss_weights,
     mass_loss_hubert,
+    mass_loss_hubert_cum,
     peptide_loss,
 )
 
@@ -175,6 +176,7 @@ def _run_epoch(
                 x_t,
                 length_for_decoder,
                 peak_mask,
+                ~active_mask,
             )
 
             decoder_loss = peptide_loss(
@@ -194,7 +196,18 @@ def _run_epoch(
                     precursor_mass,
                     active_mask=active_mask,
                 )
-                loss = decoder_loss + lambd * len_loss + gamma * mass_loss
+                cum_mass_loss = mass_loss_hubert_cum(
+                    peptide_logits,
+                    aa_masses,
+                    sequence,
+                    active_mask=active_mask,
+                )
+                loss = (
+                    decoder_loss
+                    + lambd * len_loss
+                    + 0.5 * gamma * mass_loss
+                    + 0.5 * gamma * cum_mass_loss
+                )
                 mass_loss_val = mass_loss.item()
             else:
                 loss = decoder_loss + lambd * len_loss

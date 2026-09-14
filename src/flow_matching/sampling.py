@@ -82,29 +82,81 @@ def _apply_active_only(x_t, samples, active_mask):
 
 
 def inference_sample_mask(
-    kt, kt_derivative, x_t, logits, vocab, delta_t, active_mask=None
+    kt,
+    kt_derivative,
+    x_t,
+    logits,
+    vocab,
+    delta_t,
+    active_mask=None,
+    temperature: float = 0.0,
+    strategy: str = "confidence",
 ):
-    """Reverse mask step; only active positions may change."""
-    probs = F.softmax(logits, dim=-1)
-    x_1 = Categorical(probs).sample()
-    denom = clean_weight_denominator(kt).view(-1, 1)
-    will_unmask = torch.rand_like(x_t, dtype=torch.float32) < (
-        kt_derivative.view(-1, 1) * delta_t / denom
-    )
+    """
+    Reverse mask step for discrete flow matching. Only active positions may change.
+
+    Args:
+        kt: Scheduler state at time t, shape (B,).
+        kt_derivative: Time derivative of scheduler, shape (B,).
+        x_t: Current noisy sequence of token IDs, shape (B, L).
+        logits: Unnormalized decoder logits over vocabulary, shape (B, L, num_classes).
+        vocab: Token vocabulary mapping string tokens to token IDs.
+        delta_t: Discretization step size dt.
+        active_mask: Boolean tensor (B, L) where True indicates active (non-padded) residues.
+        temperature: Sampling temperature. If <= 0.05, uses greedy MAP unmasking (argmax).
+        strategy: Unmasking strategy:
+            - 'confidence': Top-confidence unmasking (MaskGIT / MDLM style) where positions
+                            with highest prediction certainty are unmasked first.
+            - 'random': Stochastic uniform unmasking according to rate dt * k'(t) / (1 - k(t)).
+    """
+    if temperature <= 0.05:
+        probs = F.softmax(logits, dim=-1)
+        x_1 = logits.argmax(dim=-1)
+    else:
+        probs = F.softmax(logits / temperature, dim=-1)
+        x_1 = Categorical(probs).sample()
+
     mask_id = vocab.get("<mask_token>", vocab.get("<mask" + ">"))
-    will_unmask = will_unmask & (x_t == mask_id)
+    is_masked = (x_t == mask_id)
     if active_mask is not None:
-        will_unmask = will_unmask & active_mask
+        is_masked = is_masked & active_mask
+
+    denom = clean_weight_denominator(kt).view(-1, 1)
+    prob_unmask = (kt_derivative.view(-1, 1) * delta_t / denom).clamp(0.0, 1.0)
+
+    if strategy == "confidence":
+        # Confidence is maximum predicted probability across classes
+        confidence = probs.max(dim=-1).values
+        # Exclude already unmasked or inactive positions
+        confidence = confidence.masked_fill(~is_masked, -1e9)
+
+        if active_mask is not None:
+            num_active = active_mask.sum(dim=-1, keepdim=True).float()
+        else:
+            num_active = torch.full(
+                (x_t.shape[0], 1), x_t.shape[1], device=x_t.device, dtype=torch.float32
+            )
+
+        num_to_unmask = torch.clamp(torch.ceil(num_active * prob_unmask).long(), min=1)
+        # Vectorized top-k selection via double argsort (rank 0 is highest confidence)
+        ranks = torch.argsort(torch.argsort(confidence, dim=-1, descending=True), dim=-1)
+        will_unmask = (ranks < num_to_unmask) & is_masked
+    else:
+        will_unmask = (torch.rand_like(x_t, dtype=torch.float32) < prob_unmask) & is_masked
+
     updated = x_t.clone()
     updated[will_unmask] = x_1[will_unmask]
     return updated
 
 
 def inference_sample_uniform(
-    kt, kt_derivatives, x_t, logits, vocab, delta_t, active_mask=None
+    kt, kt_derivatives, x_t, logits, vocab, delta_t, active_mask=None, temperature: float = 1.0
 ):
     """Reverse uniform step; only active positions may change."""
-    probs = F.softmax(logits, dim=-1)
+    if temperature > 0.0 and temperature != 1.0:
+        probs = F.softmax(logits / temperature, dim=-1)
+    else:
+        probs = F.softmax(logits, dim=-1)
     denom = clean_weight_denominator(kt).view(-1, 1, 1)
     step_probs = (probs * kt_derivatives.view(-1, 1, 1) * delta_t / denom).clamp(max=1.0)
     x_t_clamped = x_t.clamp(0, probs.shape[-1] - 1)
