@@ -85,10 +85,16 @@ def parse_args():
         help="Save unconditional periodic checkpoint every N epochs to capture grokking (default: 10).",
     )
     parser.add_argument(
+        "--reset-lr-on-resume",
+        dest="reset_lr_on_resume",
+        action="store_true",
+        default=bool(int(os.environ.get("RESET_LR_ON_RESUME", 1))),
+        help="Reset optimizer state to use learning rate from args when resuming (default: True).",
+    )
+    parser.add_argument(
         "--no-reset-lr-on-resume",
         dest="reset_lr_on_resume",
         action="store_false",
-        default=True,
         help="Preserve saved optimizer state and decayed learning rate when resuming from checkpoint.",
     )
     parser.add_argument(
@@ -101,7 +107,7 @@ def parse_args():
         "--use-ema",
         dest="use_ema",
         action="store_true",
-        default=True,
+        default=bool(int(os.environ.get("USE_EMA", 1))),
         help="Maintain Exponential Moving Average (EMA) shadow weights for evaluation and inference (default: True).",
     )
     parser.add_argument(
@@ -109,6 +115,19 @@ def parse_args():
         dest="use_ema",
         action="store_false",
         help="Disable EMA shadow weights.",
+    )
+    parser.add_argument(
+        "--mask-self-attention",
+        dest="mask_self_attention",
+        action="store_true",
+        default=bool(int(os.environ.get("MASK_SELF_ATTENTION", 0))),
+        help="Apply sequence padding mask to decoder self-attention (default: False for checkpoint compatibility).",
+    )
+    parser.add_argument(
+        "--no-mask-self-attention",
+        dest="mask_self_attention",
+        action="store_false",
+        help="Disable sequence padding mask in decoder self-attention.",
     )
     parser.add_argument(
         "--ema-decay",

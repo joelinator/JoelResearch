@@ -17,10 +17,14 @@ cd "${ROOT_DIR}"
 
 if [[ -f "${ROOT_DIR}/.env" ]]; then
   # shellcheck disable=SC1091
+  set -a
   source "${ROOT_DIR}/.env"
+  set +a
 elif [[ -f "${ROOT_DIR}/config/gcp_vm.env" ]]; then
   # shellcheck disable=SC1091
+  set -a
   source "${ROOT_DIR}/config/gcp_vm.env"
+  set +a
 fi
 
 PYTHON_BIN="${PYTHON_BIN:-python3}"
