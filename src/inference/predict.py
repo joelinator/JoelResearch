@@ -212,6 +212,7 @@ def predict_peptide(
                 x_t,
                 cand_lengths_flat,
                 peak_mask_exp,
+                ~active_mask
             )
             uncond_logits = decoder(
                 t,
@@ -221,6 +222,7 @@ def predict_peptide(
                 x_t,
                 cand_lengths_flat,
                 peak_mask_exp,
+                ~active_mask
             )
             logits = uncond_logits + guidance_scale * (cond_logits - uncond_logits)
         else:

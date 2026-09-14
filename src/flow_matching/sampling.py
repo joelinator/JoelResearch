@@ -21,7 +21,7 @@ SPECIAL_TOKENS = ("<pad>", "<mask>")
 
 def special_token_ids(vocab: dict[str, int]) -> tuple[int, int]:
     """Return (pad_id, mask_id) from the vocabulary."""
-    mask_id = vocab.get("<mask_token>", vocab.get("<mask" + ">"))
+    mask_id = vocab.get("<mask_token>", vocab.get("<mask>"))
     return vocab["<pad>"], mask_id
 
 
@@ -55,7 +55,7 @@ def sample_noising_step_mask(kt, x1, vocab, padding_mask=None):
     noise_mask = torch.rand(xt.shape, device=xt.device) > kt.unsqueeze(-1)
     if padding_mask is not None:
         noise_mask = noise_mask & ~padding_mask
-    mask_id = vocab.get("<mask_token>", vocab.get("<mask" + ">"))
+    mask_id = vocab.get("<mask_token>", vocab.get("<mask>"))
     xt[noise_mask] = mask_id
     return xt
 
@@ -91,7 +91,7 @@ def inference_sample_mask(
     will_unmask = torch.rand_like(x_t, dtype=torch.float32) < (
         kt_derivative.view(-1, 1) * delta_t / denom
     )
-    mask_id = vocab.get("<mask_token>", vocab.get("<mask" + ">"))
+    mask_id = vocab.get("<mask_token>", vocab.get("<mask>"))
     will_unmask = will_unmask & (x_t == mask_id)
     if active_mask is not None:
         will_unmask = will_unmask & active_mask
@@ -105,8 +105,8 @@ def inference_sample_uniform(
 ):
     """Reverse uniform step; only active positions may change."""
     probs = F.softmax(logits, dim=-1)
-    denom = clean_weight_denominator(kt).view(-1, 1, 1)
-    step_probs = (probs * kt_derivatives.view(-1, 1, 1) * delta_t / denom).clamp(max=1.0)
+    denom = clean_weight_denominator(kt)#.view(-1, 1, 1)
+    step_probs = (probs * kt_derivatives * delta_t / denom).clamp(max=1.0)
     x_t_clamped = x_t.clamp(0, probs.shape[-1] - 1)
     step_probs = step_probs.scatter(-1, x_t_clamped.unsqueeze(-1), 0.0)
     remaining = (1.0 - step_probs.sum(dim=-1, keepdim=True)).clamp(min=0.0)

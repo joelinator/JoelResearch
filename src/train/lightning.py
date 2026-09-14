@@ -115,6 +115,7 @@ class DFMLightningModule(pl.LightningModule):
             x_t,
             length_for_decoder,
             peak_mask,
+            ~active_mask
         )
 
         decoder_loss = peptide_loss(

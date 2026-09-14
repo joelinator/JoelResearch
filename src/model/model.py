@@ -90,7 +90,7 @@ class DecoderBlock(nn.Module):
         self.norm3 = nn.LayerNorm(emb_dim, elementwise_affine=False)
         self.mlp = SwiGLUFFN(d_model=emb_dim, d_ff=mlp_hidden_dim, dropout=dropout)
 
-    def forward(self, conditioner, x, y, full_mask=None):
+    def forward(self, conditioner, x, y, full_mask=None, sequence_mask=None):
         (
             shift_msa, scale_msa, gate_msa,
             shift_cross, scale_cross, gate_cross,
@@ -99,7 +99,7 @@ class DecoderBlock(nn.Module):
 
         # 1. Self-Attention with AdaLN modulation and residual gate
         norm_x1 = modulate(self.norm1(x), shift_msa, scale_msa)
-        attn_out, _ = self.self_attention(query=norm_x1, key=norm_x1, value=norm_x1)
+        attn_out, _ = self.self_attention(query=norm_x1, key=norm_x1, value=norm_x1, key_padding_mask=sequence_mask)
         x = x + gate_msa.unsqueeze(1) * attn_out
 
         # 2. Cross-Attention with AdaLN modulation and residual gate
@@ -221,6 +221,7 @@ class DFMPeptideDecoder(nn.Module):
         peptide_seq,
         length,
         full_mask=None,
+        sequence_mask = None
     ):
         seq_len = peptide_seq.shape[1]
         t = self.sinusoidal_embedding(time)
@@ -252,7 +253,7 @@ class DFMPeptideDecoder(nn.Module):
         x = peptide_emb + pos_emb
         y = self.spectrum_proj(spectrum_embeddings)
         for block in self.decoder_blocks:
-            x = block(precursor_m_c_t_l, x, y, full_mask)
+            x = block(precursor_m_c_t_l, x, y, full_mask,sequence_mask)
 
         shift_final, scale_final = self.ada_final(precursor_m_c_t_l).chunk(2, dim=-1)
         x = modulate(self.norm(x), shift_final, scale_final)
