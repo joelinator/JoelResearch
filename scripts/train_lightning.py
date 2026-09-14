@@ -55,6 +55,12 @@ def parse_args():
         help="Number of validation batches to run generative de novo evaluation proxy on (default: 5).",
     )
     parser.add_argument(
+        "--eval-chunk-size",
+        type=int,
+        default=int(os.environ.get("EVAL_CHUNK_SIZE", 256)),
+        help="Micro-batch chunk size streamed to GPU during generative evaluation to prevent OOM (default: 256).",
+    )
+    parser.add_argument(
         "--guidance-scale",
         type=float,
         default=float(os.environ.get("GUIDANCE_SCALE", 1.5)),

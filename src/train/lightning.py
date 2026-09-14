@@ -193,7 +193,11 @@ class DFMLightningModule(pl.LightningModule):
         loss = self._shared_step(batch, batch_idx, mode="valid")
         max_proxy_batches = int(self.args.get("gen_eval_proxy_batches", 5))
         if max_proxy_batches > 0 and len(self._val_proxy_batches) < max_proxy_batches:
-            self._val_proxy_batches.append(batch)
+            # Transfer proxy batch tensors to CPU immediately to keep GPU VRAM completely free
+            cpu_batch = tuple(
+                t.detach().cpu() if torch.is_tensor(t) else t for t in batch
+            )
+            self._val_proxy_batches.append(cpu_batch)
         return loss
 
     def on_validation_epoch_end(self):
@@ -216,6 +220,7 @@ class DFMLightningModule(pl.LightningModule):
         guidance_scale = float(self.args.get("guidance_scale", 1.5))
         top_k_lengths = int(self.args.get("top_k_lengths", 3))
         alpha = float(self.args.get("length_beam_alpha", 0.01))
+        eval_chunk_size = int(self.args.get("eval_chunk_size", 256))
 
         predictions = []
         targets = []
@@ -238,57 +243,73 @@ class DFMLightningModule(pl.LightningModule):
         with torch.no_grad():
             for batch in self._val_proxy_batches:
                 (
-                    mz_array,
-                    intensity_array,
-                    precursor_mass,
-                    precursor_charge,
-                    sequence,
-                    mz_complementary,
-                    length,
-                    _padded_mask,
-                    spectrum_mask,
-                ) = tuple(
-                    t.to(device) if torch.is_tensor(t) else t for t in batch
-                )
+                    mz_cpu,
+                    intensity_cpu,
+                    precursor_mass_cpu,
+                    precursor_charge_cpu,
+                    sequence_cpu,
+                    mz_complementary_cpu,
+                    length_cpu,
+                    _padded_mask_cpu,
+                    spectrum_mask_cpu,
+                ) = batch
 
-                with torch.autocast(
-                    device_type=device.type,
-                    dtype=amp_dtype,
-                    enabled=(device.type == "cuda"),
-                ):
-                    token_ids, pred_lens, pred_seqs, pred_scores = predict_peptide(
-                        mz_array=mz_array,
-                        intensity_array=intensity_array,
-                        precursor_mass=precursor_mass,
-                        precursor_charge=precursor_charge,
-                        mz_complementary=mz_complementary,
-                        spectrum_mask=spectrum_mask,
-                        vocabulary=self.vocabulary,
-                        spectrum_encoder=self.spectrum_encoder,
-                        length_predictor=self.length_predictor,
-                        decoder=self.decoder,
-                        guidance=self.guidance,
-                        scheduler=self.scheduler,
-                        num_steps=num_steps,
-                        noising_scheme="mask",
-                        guidance_scale=guidance_scale,
-                        top_k_lengths=top_k_lengths,
-                        alpha=alpha,
-                        beta=self.args.get("fragment_matching_weight", 0.5),
-                        decoding_strategy=self.args.get("decoding_strategy", "confidence"),
-                        temperature=self.args.get("decoding_temperature", 0.0),
-                        trypsin_prior=self.args.get("trypsin_prior", True),
-                        mask_self_attention=self.args.get("mask_self_attention", False),
-                        return_scores=True,
-                    )
+                batch_len = mz_cpu.size(0)
+                for start in range(0, batch_len, eval_chunk_size):
+                    end = min(start + eval_chunk_size, batch_len)
 
-                predictions.extend(pred_seqs)
-                targets.extend(sequences_from_batch(sequence, self.vocabulary))
-                pred_lengths_all.extend(int(v) for v in pred_lens.tolist())
-                target_lengths_all.extend(int(v) for v in length.tolist())
-                scores_all.extend(float(s) for s in pred_scores.tolist())
+                    mz_array = mz_cpu[start:end].to(device, non_blocking=True)
+                    intensity_array = intensity_cpu[start:end].to(device, non_blocking=True)
+                    precursor_mass = precursor_mass_cpu[start:end].to(device, non_blocking=True)
+                    precursor_charge = precursor_charge_cpu[start:end].to(device, non_blocking=True)
+                    sequence_chunk = sequence_cpu[start:end]
+                    mz_complementary = mz_complementary_cpu[start:end].to(device, non_blocking=True)
+                    length_chunk = length_cpu[start:end]
+                    spectrum_mask = spectrum_mask_cpu[start:end].to(device, non_blocking=True)
+
+                    with torch.autocast(
+                        device_type=device.type,
+                        dtype=amp_dtype,
+                        enabled=(device.type == "cuda"),
+                    ):
+                        token_ids, pred_lens, pred_seqs, pred_scores = predict_peptide(
+                            mz_array=mz_array,
+                            intensity_array=intensity_array,
+                            precursor_mass=precursor_mass,
+                            precursor_charge=precursor_charge,
+                            mz_complementary=mz_complementary,
+                            spectrum_mask=spectrum_mask,
+                            vocabulary=self.vocabulary,
+                            spectrum_encoder=self.spectrum_encoder,
+                            length_predictor=self.length_predictor,
+                            decoder=self.decoder,
+                            guidance=self.guidance,
+                            scheduler=self.scheduler,
+                            num_steps=num_steps,
+                            noising_scheme="mask",
+                            guidance_scale=guidance_scale,
+                            top_k_lengths=top_k_lengths,
+                            alpha=alpha,
+                            beta=self.args.get("fragment_matching_weight", 0.5),
+                            decoding_strategy=self.args.get("decoding_strategy", "confidence"),
+                            temperature=self.args.get("decoding_temperature", 0.0),
+                            trypsin_prior=self.args.get("trypsin_prior", True),
+                            mask_self_attention=self.args.get("mask_self_attention", False),
+                            return_scores=True,
+                        )
+
+                    predictions.extend(pred_seqs)
+                    targets.extend(sequences_from_batch(sequence_chunk, self.vocabulary))
+                    pred_lengths_all.extend(int(v) for v in pred_lens.tolist())
+                    target_lengths_all.extend(int(v) for v in length_chunk.tolist())
+                    scores_all.extend(float(s) for s in pred_scores.tolist())
+
+                    del mz_array, intensity_array, precursor_mass, precursor_charge, mz_complementary, spectrum_mask
+                    del token_ids, pred_lens, pred_scores
 
         self._val_proxy_batches = []
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
 
         if len(predictions) > 0:
             exact_matches = [p == t for p, t in zip(predictions, targets)]
@@ -358,7 +379,8 @@ class DFMLightningModule(pl.LightningModule):
             )
 
             # Automatically save PAUC curve plot & detailed JSON on milestones
-            run_dir = getattr(self.trainer, "default_root_dir", "artifacts")
+            trainer_obj = getattr(self, "_trainer", None)
+            run_dir = getattr(trainer_obj, "default_root_dir", "artifacts") if trainer_obj is not None else "artifacts"
             try:
                 metrics_dir = Path(run_dir) / "val_metrics"
                 metrics_dir.mkdir(parents=True, exist_ok=True)
