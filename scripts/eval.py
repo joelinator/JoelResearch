@@ -97,6 +97,19 @@ def parse_args():
         help="Disable enzymatic C-terminal cleavage prior bonus.",
     )
     parser.add_argument(
+        "--mask-self-attention",
+        dest="mask_self_attention",
+        action="store_true",
+        default=bool(int(os.environ.get("MASK_SELF_ATTENTION", "0"))),
+        help="Apply sequence padding mask to decoder self-attention (default: False for trained checkpoints).",
+    )
+    parser.add_argument(
+        "--no-mask-self-attention",
+        dest="mask_self_attention",
+        action="store_false",
+        help="Disable sequence padding mask in decoder self-attention.",
+    )
+    parser.add_argument(
         "--max-batches",
         type=int,
         default=int(os.environ["MAX_BATCHES"]) if os.environ.get("MAX_BATCHES") else eval_cfg.max_batches,
@@ -205,6 +218,7 @@ def main():
         decoding_strategy=args.decoding_strategy,
         temperature=args.decoding_temperature,
         trypsin_prior=args.trypsin_prior,
+        mask_self_attention=args.mask_self_attention,
         aa_mass_tolerance=DEFAULTS.eval.aa_mass_tolerance,
         prefix_mass_tolerance=DEFAULTS.eval.prefix_mass_tolerance,
         amp=args.amp,
@@ -278,8 +292,9 @@ def main():
     print("                EVALUATION SUMMARY")
     print("=" * 65)
     print(f"Total Samples: {len(scores)}")
-    print(f"Unthresholded Exact Peptide Accuracy: {metrics_unthresh.exact_peptide_accuracy * 100:.2f}%")
-    print(f"Unthresholded Mass-Based Accuracy:    {metrics_unthresh.mass_peptide_accuracy * 100:.2f}%")
+    print(f"Unthresholded Exact (Strict) Accuracy: {metrics_unthresh.exact_peptide_accuracy * 100:.2f}%")
+    print(f"Unthresholded Exact (I/L Equiv) Acc:   {metrics_unthresh.exact_peptide_accuracy_il * 100:.2f}%")
+    print(f"Unthresholded Mass-Based Accuracy:     {metrics_unthresh.mass_peptide_accuracy * 100:.2f}%")
     print(f"Unthresholded Length Accuracy:        {metrics_unthresh.length_accuracy * 100:.2f}%")
     print(f"Unthresholded Amino Acid F1:          {metrics_unthresh.aa_f1 * 100:.2f}%")
     print(f"Peptide PR-AUC (Mass-Based Match):    {metrics_unthresh.pr_auc_mass:.4f}")

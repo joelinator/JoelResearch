@@ -34,6 +34,7 @@ def evaluate_generative(
     decoding_strategy: str = "confidence",
     temperature: float = 0.0,
     trypsin_prior: bool = True,
+    mask_self_attention: bool = False,
     aa_mass_tolerance: float = 0.1,
     prefix_mass_tolerance: float = 0.5,
     amp: bool = True,
@@ -98,6 +99,7 @@ def evaluate_generative(
                 decoding_strategy=decoding_strategy,
                 temperature=temperature,
                 trypsin_prior=trypsin_prior,
+                mask_self_attention=mask_self_attention,
                 return_scores=True,
             )
 
@@ -128,6 +130,9 @@ def evaluate_generative(
     if return_details:
         from eval.metrics import peptide_matches_mass_based
         exact_matches = [p == t for p, t in zip(predictions, targets)]
+        exact_matches_il = [
+            p.replace("I", "L") == t.replace("I", "L") for p, t in zip(predictions, targets)
+        ]
         mass_matches = [
             peptide_matches_mass_based(p, t, aa_mass_tolerance, prefix_mass_tolerance)
             for p, t in zip(predictions, targets)
@@ -139,6 +144,7 @@ def evaluate_generative(
             "target_lengths": target_lengths,
             "scores": scores,
             "exact_matches": exact_matches,
+            "exact_matches_il": exact_matches_il,
             "mass_matches": mass_matches,
         }
         return metrics, details
