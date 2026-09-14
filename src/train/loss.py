@@ -115,6 +115,68 @@ def mass_loss_hubert(
     loss = torch.where(mask, 0.5 * (rel_error**2) / threshold, rel_error - 0.5 * threshold)
     return loss.mean()
 
+def mass_loss_hubert_cum(
+    logits,
+    aa_masses,
+    true_sequence,
+    active_mask=None,
+    temperature=0.5,
+    threshold=1e-2,
+    vocab_aa_masses=None,
+):
+    """
+    Cumulative prefix mass Huber loss.
+
+    Penalizes relative errors between the predicted expected cumulative prefix masses
+    and the true cumulative prefix masses at each active residue position.
+
+    Args:
+        logits: Tensor of shape (B, L, num_classes) where num_classes is typically 20 (standard amino acids).
+        aa_masses: Tensor of shape (num_classes,) containing residue masses for the decoder output classes.
+        true_sequence: Tensor of shape (B, L) with vocabulary token IDs (which include <pad> and <mask_token>).
+        active_mask: Optional boolean tensor of shape (B, L) where True denotes active (non-padded) residues.
+        temperature: Temperature for softening logits probabilities.
+        threshold: Huber loss transition threshold.
+        vocab_aa_masses: Optional full vocabulary mass tensor of shape (vocab_size,), where <pad> is at index 20 (mass 0.0).
+            If omitted, aa_masses is automatically zero-padded for special tokens >= num_classes.
+    """
+    seq_probs = F.softmax(logits / temperature, dim=-1)
+    num_classes = logits.size(-1)
+    # Output amino acid masses aligned with decoder logits (e.g. 20 amino acids)
+    output_masses = aa_masses[:num_classes]
+    expected_residue_mass = torch.sum(seq_probs * output_masses, dim=-1)
+
+    # Resolve residue masses for true_sequence:
+    # 1. If explicit vocab_aa_masses is provided (e.g. size 22), use it directly.
+    # 2. Else if aa_masses is already large enough to cover all token IDs in true_sequence, use it.
+    # 3. Else, zero-pad aa_masses for special tokens (<pad>=20, <mask_token>=21 with 0.0 mass).
+    if vocab_aa_masses is not None:
+        token_masses = vocab_aa_masses
+    elif aa_masses.size(0) >= (int(true_sequence.max().item()) + 1):
+        token_masses = aa_masses
+    else:
+        pad_size = (int(true_sequence.max().item()) + 1) - aa_masses.size(0)
+        token_masses = F.pad(aa_masses, (0, pad_size), value=0.0)
+
+    true_masses = token_masses[true_sequence]
+
+    if active_mask is not None:
+        mask_f = active_mask.float()
+        expected_residue_mass = expected_residue_mass * mask_f
+        true_masses = true_masses * mask_f
+
+    cum_average_mass = expected_residue_mass.cumsum(dim=1)
+    true_cum_masses = true_masses.cumsum(dim=1)
+
+    rel_error = torch.abs(true_cum_masses - cum_average_mass) / true_cum_masses.clamp(min=1.0)
+    huber_mask = rel_error < threshold
+    loss = torch.where(huber_mask, 0.5 * (rel_error**2) / threshold, rel_error - 0.5 * threshold)
+
+    if active_mask is not None:
+        loss = loss * active_mask.float()
+        return loss.sum() / active_mask.sum().clamp(min=1.0)
+    return loss.mean()
+
 
 def length_loss(logits, length, loss_fn=ce_loss):
     """
@@ -125,14 +187,16 @@ def length_loss(logits, length, loss_fn=ce_loss):
     return loss_fn(logits, length_to_class(length))
 
 
-def peptide_loss(logits, peptide, pad_id: int, loss_fn=None):
+def peptide_loss(logits, peptide, pad_id: int, label_smoothing: float = 0.0, loss_fn=None):
     """
     Cross-entropy on decoder logits (amino acids only).
 
     Padding positions in `peptide` are ignored via `ignore_index=pad_id`.
+    When `label_smoothing > 0.0`, regularizes the model against overconfidence
+    on noisy or ambiguous fragment peaks.
     """
     if loss_fn is None:
-        loss_fn = nn.CrossEntropyLoss(ignore_index=pad_id)
+        loss_fn = nn.CrossEntropyLoss(ignore_index=pad_id, label_smoothing=label_smoothing)
     return loss_fn(
         logits.reshape(-1, logits.shape[-1]),
         peptide.reshape(-1),

@@ -102,18 +102,26 @@ def get_output_aa_masses(vocab: dict[str, int]) -> torch.Tensor:
     return masses[decoder_output_token_ids(vocab)]
 
 class SpectrumDataSet(Dataset):
-    def __init__(self, data, vocab, top_k: int = 200, remove_precursor_peak: bool = True):
+    def __init__(
+        self,
+        data,
+        vocab,
+        top_k: int = 200,
+        remove_precursor_peak: bool = True,
+        peak_dropout_prob: float = 0.0,
+        is_train: bool = True,
+    ):
         self.data = data
         self.top_k = top_k
         self.remove_precursor_peak = remove_precursor_peak
         self.vocab = vocab
+        self.peak_dropout_prob = peak_dropout_prob
+        self.is_train = is_train
 
     def __getitem__(self, idx):
         row = self.data[idx]
         mz_array = torch.tensor(row["mz_array"], dtype=torch.float32)
         intensity_array = torch.tensor(row["intensity_array"], dtype=torch.float32)
-        #print("debug...>", type(intensity_array))
-        #print(intensity_array.shape)
         precursor_mass = float(row["precursor_mass"])
         precursor_charge = int(row["precursor_charge"])
 
@@ -128,6 +136,13 @@ class SpectrumDataSet(Dataset):
             if k > 0:
                 intensity_array, indices = torch.topk(intensity_array, k)
                 mz_array = mz_array[indices]
+
+        # Spectral peak dropout: randomly zero-out peaks during training
+        if self.is_train and self.peak_dropout_prob > 0.0 and intensity_array.numel() > 1:
+            dropout_mask = torch.rand_like(intensity_array) > self.peak_dropout_prob
+            if not dropout_mask.any():
+                dropout_mask[torch.argmax(intensity_array)] = True
+            intensity_array = intensity_array * dropout_mask.float()
 
         sequence = torch.tensor(
             [self.vocab[residue] for residue in row["sequence"]],
@@ -205,8 +220,17 @@ def build_dataloader(
     shuffle: bool = True,
     num_workers: int = 0,
     pin_memory: bool = False,
+    top_k: int = 200,
+    peak_dropout_prob: float = 0.0,
+    is_train: bool = True,
 ):
-    dataset = SpectrumDataSet(ds, vocab)
+    dataset = SpectrumDataSet(
+        ds,
+        vocab,
+        top_k=top_k,
+        peak_dropout_prob=peak_dropout_prob,
+        is_train=is_train,
+    )
     collate_fn = partial(spectrum_collate, vocab=vocab)
     # persistent_workers avoids re-forking worker processes each epoch.
     # prefetch_factor keeps the GPU fed with 4 batches in flight at all times.

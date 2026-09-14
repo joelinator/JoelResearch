@@ -330,6 +330,12 @@ class DenovoMetrics:
     peptide_recall_mass: float
     peptide_f1_mass: float
 
+    # Exact Match Level (I/L Conflated Equality - SOTA Standard)
+    exact_peptide_accuracy_il: float = 0.0
+    peptide_precision_exact_il: float = 0.0
+    peptide_recall_exact_il: float = 0.0
+    peptide_f1_exact_il: float = 0.0
+
     # Thresholding & Coverage
     score_threshold: float | None = None
     num_predicted_above_threshold: int | None = None
@@ -339,6 +345,9 @@ class DenovoMetrics:
     auc_exact: float = 0.0
     pauc80_exact: float = 0.0
     pauc50_exact: float = 0.0
+    auc_exact_il: float = 0.0
+    pauc80_exact_il: float = 0.0
+    pauc50_exact_il: float = 0.0
     auc_mass: float = 0.0
     pauc80_mass: float = 0.0
     pauc50_mass: float = 0.0
@@ -346,6 +355,8 @@ class DenovoMetrics:
     # Area Under Precision-Recall Curve (PR-AUC)
     pr_auc_exact: float = 0.0
     p_pr_auc80_exact: float = 0.0
+    pr_auc_exact_il: float = 0.0
+    p_pr_auc80_exact_il: float = 0.0
     pr_auc_mass: float = 0.0
     p_pr_auc80_mass: float = 0.0
 
@@ -458,6 +469,7 @@ def compute_denovo_metrics(
     length_correct = 0
 
     is_exact_list: list[bool] = []
+    is_exact_il_list: list[bool] = []
     is_mass_list: list[bool] = []
 
     for index, (predicted, target) in enumerate(zip(predictions, targets)):
@@ -471,6 +483,7 @@ def compute_denovo_metrics(
         aa_gold_total += len(target)
 
         exact_match = (predicted == target)
+        exact_match_il = (predicted.replace("I", "L") == target.replace("I", "L"))
         mass_match = peptide_matches_mass_based(
             predicted,
             target,
@@ -479,6 +492,7 @@ def compute_denovo_metrics(
         )
 
         is_exact_list.append(exact_match)
+        is_exact_il_list.append(exact_match_il)
         is_mass_list.append(mass_match)
 
         if predicted_lengths is not None and target_lengths is not None:
@@ -486,6 +500,7 @@ def compute_denovo_metrics(
                 length_correct += 1
 
     is_exact = np.array(is_exact_list, dtype=bool)
+    is_exact_il = np.array(is_exact_il_list, dtype=bool)
     is_mass = np.array(is_mass_list, dtype=bool)
 
     aa_precision = _safe_div(aa_matches, aa_pred_total)
@@ -496,18 +511,24 @@ def compute_denovo_metrics(
 
     # Unthresholded accuracies
     exact_acc = float(np.mean(is_exact))
+    exact_acc_il = float(np.mean(is_exact_il))
     mass_acc = float(np.mean(is_mass))
 
     # Curve analysis if scores are available
     auc_exact = 0.0
     pauc80_exact = 0.0
     pauc50_exact = 0.0
+    auc_exact_il = 0.0
+    pauc80_exact_il = 0.0
+    pauc50_exact_il = 0.0
     auc_mass = 0.0
     pauc80_mass = 0.0
     pauc50_mass = 0.0
 
     pr_auc_exact = 0.0
     p_pr_auc80_exact = 0.0
+    pr_auc_exact_il = 0.0
+    p_pr_auc80_exact_il = 0.0
     pr_auc_mass = 0.0
     p_pr_auc80_mass = 0.0
 
@@ -517,12 +538,18 @@ def compute_denovo_metrics(
         _, _, _, auc_exact, pauc80_exact, pauc50_exact = compute_precision_coverage_curve(
             is_exact, scores_arr
         )
+        _, _, _, auc_exact_il, pauc80_exact_il, pauc50_exact_il = compute_precision_coverage_curve(
+            is_exact_il, scores_arr
+        )
         _, _, _, auc_mass, pauc80_mass, pauc50_mass = compute_precision_coverage_curve(
             is_mass, scores_arr
         )
         # Precision-Recall Curves (Peptide Recall on x-axis, Precision on y-axis)
         _, _, _, pr_auc_exact, p_pr_auc80_exact, _ = compute_precision_recall_curve(
             is_exact, scores_arr
+        )
+        _, _, _, pr_auc_exact_il, p_pr_auc80_exact_il, _ = compute_precision_recall_curve(
+            is_exact_il, scores_arr
         )
         _, _, _, pr_auc_mass, p_pr_auc80_mass, _ = compute_precision_recall_curve(
             is_mass, scores_arr
@@ -536,17 +563,21 @@ def compute_denovo_metrics(
         coverage = _safe_div(num_above, num_samples)
 
         exact_above = int(np.sum(is_exact[mask]))
+        exact_il_above = int(np.sum(is_exact_il[mask]))
         mass_above = int(np.sum(is_mass[mask]))
 
         # Precision = correct above / predictions above
         pep_prec_exact = _safe_div(exact_above, num_above)
+        pep_prec_exact_il = _safe_div(exact_il_above, num_above)
         pep_prec_mass = _safe_div(mass_above, num_above)
 
         # Recall = correct above / total ground truth targets
         pep_rec_exact = _safe_div(exact_above, num_samples)
+        pep_rec_exact_il = _safe_div(exact_il_above, num_samples)
         pep_rec_mass = _safe_div(mass_above, num_samples)
 
         pep_f1_exact = _safe_div(2 * pep_prec_exact * pep_rec_exact, pep_prec_exact + pep_rec_exact)
+        pep_f1_exact_il = _safe_div(2 * pep_prec_exact_il * pep_rec_exact_il, pep_prec_exact_il + pep_rec_exact_il)
         pep_f1_mass = _safe_div(2 * pep_prec_mass * pep_rec_mass, pep_prec_mass + pep_rec_mass)
     else:
         # Default unthresholded (coverage = 100%)
@@ -555,6 +586,10 @@ def compute_denovo_metrics(
         pep_prec_exact = exact_acc
         pep_rec_exact = exact_acc
         pep_f1_exact = exact_acc
+
+        pep_prec_exact_il = exact_acc_il
+        pep_rec_exact_il = exact_acc_il
+        pep_f1_exact_il = exact_acc_il
 
         pep_prec_mass = mass_acc
         pep_rec_mass = mass_acc
@@ -571,6 +606,10 @@ def compute_denovo_metrics(
         peptide_precision_exact=pep_prec_exact,
         peptide_recall_exact=pep_rec_exact,
         peptide_f1_exact=pep_f1_exact,
+        exact_peptide_accuracy_il=exact_acc_il,
+        peptide_precision_exact_il=pep_prec_exact_il,
+        peptide_recall_exact_il=pep_rec_exact_il,
+        peptide_f1_exact_il=pep_f1_exact_il,
         mass_peptide_accuracy=mass_acc,
         peptide_precision_mass=pep_prec_mass,
         peptide_recall_mass=pep_rec_mass,
@@ -581,11 +620,16 @@ def compute_denovo_metrics(
         auc_exact=auc_exact,
         pauc80_exact=pauc80_exact,
         pauc50_exact=pauc50_exact,
+        auc_exact_il=auc_exact_il,
+        pauc80_exact_il=pauc80_exact_il,
+        pauc50_exact_il=pauc50_exact_il,
         auc_mass=auc_mass,
         pauc80_mass=pauc80_mass,
         pauc50_mass=pauc50_mass,
         pr_auc_exact=pr_auc_exact,
         p_pr_auc80_exact=p_pr_auc80_exact,
+        pr_auc_exact_il=pr_auc_exact_il,
+        p_pr_auc80_exact_il=p_pr_auc80_exact_il,
         pr_auc_mass=pr_auc_mass,
         p_pr_auc80_mass=p_pr_auc80_mass,
     )

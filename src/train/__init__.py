@@ -6,6 +6,7 @@ from .loss import (
     length_loss,
     loss_weights,
     mass_loss_hubert,
+    mass_loss_hubert_cum,
     peptide_loss,
 )
 from .factory import build_models
@@ -19,8 +20,10 @@ from .io import (
     load_models_from_checkpoint,
 )
 from .train import training_loop
+from .callbacks import EMACallback
 
 __all__ = [
+    "EMACallback",
     "GAMMA_FINAL",
     "LAMBDA_FINAL",
     "TrainingRunLogger",
@@ -35,6 +38,7 @@ __all__ = [
     "load_models_from_checkpoint",
     "loss_weights",
     "mass_loss_hubert",
+    "mass_loss_hubert_cum",
     "peptide_loss",
     "training_loop",
     "length_noiser",
