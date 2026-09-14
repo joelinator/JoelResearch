@@ -158,6 +158,7 @@ def predict_peptide(
     trypsin_prior: bool = True,
     tolerance_ppm: float = 20.0,
     tolerance_da: float = 0.05,
+    mask_self_attention: bool = False,
     return_scores: bool = False,
 ) -> tuple[torch.Tensor, torch.Tensor, list[str]] | tuple[torch.Tensor, torch.Tensor, list[str], torch.Tensor]:
     """
@@ -258,14 +259,17 @@ def predict_peptide(
         )
         uncond_conditioner = None
 
-    # 4. Parallel generative decoding loop
+    seq_padding_mask = ~active_mask if mask_self_attention else None
+
+    # 4. Discrete flow matching reverse integration
     last_logits = None
-    for step_idx in range(num_steps):
-        t = time_grid[step_idx].expand(total_samples)
-        delta_t = float(time_grid[step_idx + 1] - time_grid[step_idx])
+    for step in range(num_steps):
+        t_scalar = step / num_steps
+        delta_t = 1.0 / num_steps
+        t = torch.full((total_samples,), t_scalar, device=device)
         kt, kt_derivative = scheduler(t)
 
-        if guidance_scale != 1.0:
+        if guidance_scale > 1.0 and uncond_conditioner is not None:
             cond_logits = decoder(
                 t,
                 precursor_mass_exp,
@@ -274,7 +278,7 @@ def predict_peptide(
                 x_t,
                 cand_lengths_flat,
                 peak_mask_exp,
-                ~active_mask,
+                seq_padding_mask,
             )
             uncond_logits = decoder(
                 t,
@@ -284,7 +288,7 @@ def predict_peptide(
                 x_t,
                 cand_lengths_flat,
                 peak_mask_exp,
-                ~active_mask,
+                seq_padding_mask,
             )
             logits = uncond_logits + guidance_scale * (cond_logits - uncond_logits)
         else:
@@ -296,12 +300,12 @@ def predict_peptide(
                 x_t,
                 cand_lengths_flat,
                 peak_mask_exp,
-                ~active_mask,
+                seq_padding_mask,
             )
 
         last_logits = logits
         if noising_scheme == "mask":
-            x_t = sample_step(
+            x_t = inference_sample_mask(
                 kt,
                 kt_derivative,
                 x_t,

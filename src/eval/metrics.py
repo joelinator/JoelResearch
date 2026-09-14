@@ -167,6 +167,8 @@ def compute_precision_coverage_curve(
         cov_50 = cov_points[mask50]
         prec_50 = prec_points[mask50]
         pauc50 = _integrate_trapz(prec_50, cov_50)
+    else:
+        pauc50 = 0.0
     return coverages, precisions, thresholds, auc, pauc80, pauc50
 
 
