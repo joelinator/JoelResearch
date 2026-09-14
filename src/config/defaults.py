@@ -60,6 +60,14 @@ class TrainDefaults:
     length_noising_prob: float = 0.1
     top_k_lengths: int = 3
     length_beam_alpha: float = 0.01
+    use_ema: bool = True
+    ema_decay: float = 0.999
+    label_smoothing: float = 0.05
+    peak_dropout: float = 0.15
+    decoding_strategy: str = "confidence"
+    decoding_temperature: float = 0.0
+    fragment_matching_weight: float = 0.5
+    trypsin_prior: bool = True
 
 
 @dataclass(frozen=True)
@@ -72,6 +80,10 @@ class EvalDefaults:
     guidance_scale: float = 1.0
     top_k_lengths: int = 3
     length_beam_alpha: float = 0.01
+    decoding_strategy: str = "confidence"
+    decoding_temperature: float = 0.0
+    fragment_matching_weight: float = 0.5
+    trypsin_prior: bool = True
     compile: bool = False
     amp: bool = True
     max_batches: int | None = None  # None = full split

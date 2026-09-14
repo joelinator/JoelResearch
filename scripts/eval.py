@@ -65,6 +65,38 @@ def parse_args():
         help="Weight for mass mismatch penalty in length beam score (default: 0.01).",
     )
     parser.add_argument(
+        "--fragment-matching-weight",
+        type=float,
+        default=float(os.environ.get("FRAGMENT_MATCHING_WEIGHT", eval_cfg.fragment_matching_weight)),
+        help="Weight beta for theoretical b/y fragment ion matching in beam scoring (default: 0.5).",
+    )
+    parser.add_argument(
+        "--decoding-strategy",
+        type=str,
+        default=os.environ.get("DECODING_STRATEGY", eval_cfg.decoding_strategy),
+        choices=["confidence", "random"],
+        help="Discrete flow matching unmasking strategy during inference (default: confidence).",
+    )
+    parser.add_argument(
+        "--decoding-temperature",
+        type=float,
+        default=float(os.environ.get("DECODING_TEMPERATURE", eval_cfg.decoding_temperature)),
+        help="Sampling temperature during inference (default: 0.0 for greedy argmax).",
+    )
+    parser.add_argument(
+        "--trypsin-prior",
+        dest="trypsin_prior",
+        action="store_true",
+        default=bool(int(os.environ.get("TRYPSIN_PRIOR", 1 if eval_cfg.trypsin_prior else 0))),
+        help="Apply enzymatic C-terminal cleavage prior bonus (K/R) in candidate scoring (default: True).",
+    )
+    parser.add_argument(
+        "--no-trypsin-prior",
+        dest="trypsin_prior",
+        action="store_false",
+        help="Disable enzymatic C-terminal cleavage prior bonus.",
+    )
+    parser.add_argument(
         "--max-batches",
         type=int,
         default=int(os.environ["MAX_BATCHES"]) if os.environ.get("MAX_BATCHES") else eval_cfg.max_batches,
@@ -169,6 +201,10 @@ def main():
         guidance_scale=args.guidance_scale,
         top_k_lengths=args.top_k_lengths,
         alpha=args.length_beam_alpha,
+        beta=args.fragment_matching_weight,
+        decoding_strategy=args.decoding_strategy,
+        temperature=args.decoding_temperature,
+        trypsin_prior=args.trypsin_prior,
         aa_mass_tolerance=DEFAULTS.eval.aa_mass_tolerance,
         prefix_mass_tolerance=DEFAULTS.eval.prefix_mass_tolerance,
         amp=args.amp,
