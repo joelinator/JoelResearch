@@ -389,6 +389,7 @@ class DenovoMetrics:
             "length_accuracy": self.length_accuracy,
             # Exact sequence metrics
             "exact_peptide_accuracy": self.exact_peptide_accuracy,
+            "exact_peptide_accuracy_il": self.exact_peptide_accuracy_il,
             "peptide_precision_exact": self.peptide_precision_exact,
             "peptide_recall_exact": self.peptide_recall_exact,
             "peptide_f1_exact": self.peptide_f1_exact,

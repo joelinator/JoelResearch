@@ -367,7 +367,8 @@ class DFMLightningModule(pl.LightningModule):
 
             print(
                 f"\n[Val Generative Proxy ({len(predictions)} spectra)] "
-                f"ExactAcc={metrics.exact_peptide_accuracy * 100:.2f}%, "
+                f"Exact(Strict)={metrics.exact_peptide_accuracy * 100:.2f}%, "
+                f"Exact(I/L)={metrics.exact_peptide_accuracy_il * 100:.2f}%, "
                 f"MassAcc={metrics.mass_peptide_accuracy * 100:.2f}%, "
                 f"Calibrated Thresh={calibrated_threshold:.2f} -> "
                 f"MassPrec={metrics.peptide_precision_mass * 100:.2f}%, "
