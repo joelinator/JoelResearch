@@ -43,6 +43,7 @@ def _run_epoch(
     amp=True,
     length_noising=length_noiser,
     length_noising_prob=0.1,
+    mask_self_attention=False,
 ):
     if train:
         spectrum_encoder.train()
@@ -168,6 +169,7 @@ def _run_epoch(
             else:
                 length_for_decoder = length
 
+            seq_padding_mask = ~active_mask if mask_self_attention else None
             peptide_logits = decoder(
                 time,
                 precursor_mass,
@@ -176,7 +178,7 @@ def _run_epoch(
                 x_t,
                 length_for_decoder,
                 peak_mask,
-                ~active_mask,
+                seq_padding_mask,
             )
 
             decoder_loss = peptide_loss(
