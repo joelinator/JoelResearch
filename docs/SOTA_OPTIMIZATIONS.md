@@ -153,7 +153,7 @@ All optimizations are exposed as command-line arguments in [`scripts/train_light
 | `--decoding-strategy` | `str` | `confidence` | Reverse flow unmasking strategy (`confidence` or `random`) |
 | `--decoding-temperature`| `float` | `0.0` | Sampling temperature ($0.0 = $ greedy argmax MAP) |
 | `--fragment-matching-weight` | `float` | `0.5` | Weight $\beta$ for theoretical $b/y$ fragment ion matching in beam scoring |
-| `--trypsin-prior` | `flag` | `False` | Apply +0.2 candidate bonus for tryptic C-terminal residues (K/R) |
+| `--trypsin-prior` / `--no-trypsin-prior` | `bool` | `True` | Apply +0.2 candidate bonus for tryptic C-terminal residues (K/R) |
 
 ---
 

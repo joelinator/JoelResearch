@@ -274,7 +274,7 @@ class DFMLightningModule(pl.LightningModule):
                         beta=self.args.get("fragment_matching_weight", 0.5),
                         decoding_strategy=self.args.get("decoding_strategy", "confidence"),
                         temperature=self.args.get("decoding_temperature", 0.0),
-                        trypsin_prior=self.args.get("trypsin_prior", False),
+                        trypsin_prior=self.args.get("trypsin_prior", True),
                         return_scores=True,
                     )
 

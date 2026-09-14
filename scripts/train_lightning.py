@@ -149,9 +149,16 @@ def parse_args():
     )
     parser.add_argument(
         "--trypsin-prior",
+        dest="trypsin_prior",
         action="store_true",
-        default=False,
-        help="Apply enzymatic C-terminal cleavage prior bonus (K/R) in candidate scoring.",
+        default=bool(int(os.environ.get("TRYPSIN_PRIOR", 1))),
+        help="Apply enzymatic C-terminal cleavage prior bonus (K/R) in candidate scoring (default: True).",
+    )
+    parser.add_argument(
+        "--no-trypsin-prior",
+        dest="trypsin_prior",
+        action="store_false",
+        help="Disable enzymatic C-terminal cleavage prior bonus.",
     )
     parser.add_argument(
         "--seed",

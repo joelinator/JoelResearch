@@ -155,7 +155,7 @@ def predict_peptide(
     beta: float = 0.5,
     decoding_strategy: str = "confidence",
     temperature: float = 0.0,
-    trypsin_prior: bool = False,
+    trypsin_prior: bool = True,
     tolerance_ppm: float = 20.0,
     tolerance_da: float = 0.05,
     return_scores: bool = False,

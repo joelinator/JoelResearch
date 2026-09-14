@@ -30,6 +30,10 @@ def evaluate_generative(
     guidance_scale: float = 1.0,
     top_k_lengths: int = 3,
     alpha: float = 0.1,
+    beta: float = 0.5,
+    decoding_strategy: str = "confidence",
+    temperature: float = 0.0,
+    trypsin_prior: bool = True,
     aa_mass_tolerance: float = 0.1,
     prefix_mass_tolerance: float = 0.5,
     amp: bool = True,
@@ -90,6 +94,10 @@ def evaluate_generative(
                 guidance_scale=guidance_scale,
                 top_k_lengths=top_k_lengths,
                 alpha=alpha,
+                beta=beta,
+                decoding_strategy=decoding_strategy,
+                temperature=temperature,
+                trypsin_prior=trypsin_prior,
                 return_scores=True,
             )
 
