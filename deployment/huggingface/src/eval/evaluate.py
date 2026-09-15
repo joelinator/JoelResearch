@@ -25,11 +25,11 @@ def evaluate_generative(
     device: torch.device,
     *,
     max_batches: int | None = None,
-    num_steps: int = 25,
+    num_steps: int = 20,
     noising_scheme: str = "mask",
-    guidance_scale: float = 1.8,
-    top_k_lengths: int = 5,
-    alpha: float = 0.5,
+    guidance_scale: float = 1.0,
+    top_k_lengths: int = 3,
+    alpha: float = 0.1,
     beta: float = 0.5,
     decoding_strategy: str = "confidence",
     temperature: float = 0.0,
@@ -40,9 +40,6 @@ def evaluate_generative(
     amp: bool = True,
     score_threshold: float | None = None,
     return_details: bool = False,
-    use_knapsack_filter: bool = True,
-    knapsack_tol_da: float = 1.0,
-    num_samples_per_length: int = 1,
 ) -> DenovoMetrics | tuple[DenovoMetrics, dict]:
     """Decode peptides with the full DFM inference loop and score against labels."""
     predictions: list[str] = []
@@ -104,9 +101,6 @@ def evaluate_generative(
                 trypsin_prior=trypsin_prior,
                 mask_self_attention=mask_self_attention,
                 return_scores=True,
-                use_knapsack_filter=use_knapsack_filter,
-                knapsack_tol_da=knapsack_tol_da,
-                num_samples_per_length=num_samples_per_length,
             )
 
         predictions.extend(pred_sequences)

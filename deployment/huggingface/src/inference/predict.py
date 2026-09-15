@@ -133,53 +133,6 @@ def compute_fragment_matching_scores(
     return (matched_intensity / total_spec_intensity).clamp(0.0, 1.0)
 
 
-def knapsack_filter_logits_vectorized(
-    logits: torch.Tensor,
-    x_t: torch.Tensor,
-    target_residue_mass: torch.Tensor,
-    active_mask: torch.Tensor,
-    mask_id: int,
-    mass_table: torch.Tensor,
-    full_mass_table: torch.Tensor,
-    tol: float = 1.0,
-) -> torch.Tensor:
-    """
-    Vectorized precursor mass-budget (knapsack) constraint for discrete flow matching.
-
-    When a candidate sequence has reached the final masked residue (num_masked == 1),
-    prunes physically impossible amino acid residues whose masses deviate from
-    the exact remaining mass budget (M_prec - M_H2O - M_unmasked) by more than `tol` Da.
-    If no residue falls within `tol` Da, logits are penalized smoothly by mass distance.
-    """
-    is_masked = (x_t == mask_id) & active_mask
-    num_masked = is_masked.sum(dim=-1, keepdim=True)  # (B_total, 1)
-
-    current_mass = (
-        full_mass_table[x_t.clamp(0, len(full_mass_table) - 1)]
-        * (~is_masked & active_mask).float()
-    ).sum(dim=-1, keepdim=True)  # (B_total, 1)
-
-    rem_mass = target_residue_mass.unsqueeze(-1) - current_mass  # (B_total, 1)
-
-    single_rem_mask = (num_masked == 1) & is_masked  # (B_total, L)
-
-    if single_rem_mask.any():
-        target_m = rem_mass.unsqueeze(-1)  # (B_total, 1, 1)
-        mass_diffs = (mass_table.view(1, 1, -1) - target_m).abs()  # (B_total, 1, V)
-
-        valid_aa = (mass_diffs <= tol) & (mass_table.view(1, 1, -1) > 0)  # (B_total, 1, V)
-        has_valid = valid_aa.any(dim=-1, keepdim=True)  # (B_total, 1, 1)
-
-        modified_logits = torch.where(
-            has_valid,
-            torch.where(valid_aa, logits, torch.full_like(logits, -1e9)),
-            logits - mass_diffs * 5.0,
-        )
-        logits = torch.where(single_rem_mask.unsqueeze(-1), modified_logits, logits)
-
-    return logits
-
-
 @torch.no_grad()
 def predict_peptide(
     mz_array: torch.Tensor,
@@ -194,11 +147,11 @@ def predict_peptide(
     decoder,
     guidance,
     scheduler,
-    num_steps: int = 25,
+    num_steps: int = 20,
     noising_scheme: str = "mask",
-    guidance_scale: float = 1.8,
-    top_k_lengths: int = 5,
-    alpha: float = 0.5,
+    guidance_scale: float = 1.0,
+    top_k_lengths: int = 3,
+    alpha: float = 0.1,
     beta: float = 0.5,
     decoding_strategy: str = "confidence",
     temperature: float = 0.0,
@@ -207,15 +160,12 @@ def predict_peptide(
     tolerance_da: float = 0.05,
     mask_self_attention: bool = False,
     return_scores: bool = False,
-    use_knapsack_filter: bool = True,
-    knapsack_tol_da: float = 1.0,
-    num_samples_per_length: int = 1,
 ) -> tuple[torch.Tensor, torch.Tensor, list[str]] | tuple[torch.Tensor, torch.Tensor, list[str], torch.Tensor]:
     """
-    Run de novo inference with Top-k Length Beam Decoding, Dynamic Knapsack Filtering, and SOTA scoring.
+    Run de novo inference with Top-k Length Beam Decoding and SOTA scoring.
 
     Predicts the top-k most likely peptide lengths from the length classifier,
-    runs discrete flow matching integration with dynamic mass budget logit masking,
+    runs the peptide decoder on all candidate lengths in parallel across the batch,
     and scores candidate sequences based on:
         Score(Y) = log P(L|S) + mean log P(Y_i|S,L) - alpha * MassError + beta * FragMatch + Prior
     and selects the optimal sequence per spectrum.
@@ -228,7 +178,6 @@ def predict_peptide(
     device = mz_array.device
     batch_size = mz_array.shape[0]
     pad_id = vocabulary["<pad>"]
-    mask_token_id = vocabulary.get("<mask_token>", vocabulary.get("<mask" + ">"))
 
     # 1. Encode spectra (computed once per spectrum)
     spectrum_emb_cls, spectrum_emb_peaks, peak_mask = spectrum_encoder(
@@ -277,39 +226,9 @@ def predict_peptide(
         intensity_array_exp = intensity_array.repeat_interleave(K, dim=0)
         spectrum_mask_exp = spectrum_mask.repeat_interleave(K, dim=0)
 
-    S = max(1, int(num_samples_per_length))
-    if S > 1:
-        cand_lengths_flat = cand_lengths_flat.repeat_interleave(S, dim=0)
-        cand_length_log_probs = cand_length_log_probs.repeat_interleave(S, dim=0)
-        precursor_mass_exp = precursor_mass_exp.repeat_interleave(S, dim=0)
-        precursor_charge_exp = precursor_charge_exp.repeat_interleave(S, dim=0)
-        spectrum_emb_peaks_exp = spectrum_emb_peaks_exp.repeat_interleave(S, dim=0)
-        peak_mask_exp = peak_mask_exp.repeat_interleave(S, dim=0)
-        mz_array_exp = mz_array_exp.repeat_interleave(S, dim=0)
-        intensity_array_exp = intensity_array_exp.repeat_interleave(S, dim=0)
-        spectrum_mask_exp = spectrum_mask_exp.repeat_interleave(S, dim=0)
-        K_total = K * S
-    else:
-        K_total = K
-
-    total_samples = batch_size * K_total
+    total_samples = batch_size * K
     max_len = int(cand_lengths_flat.max().item())
     active_mask = length_to_active_mask(cand_lengths_flat, max_len)
-    target_residue_mass_exp = (precursor_mass_exp - M_H2O).clamp(min=0.0)
-
-    # Build mass lookup tables
-    num_classes = decoder.head.weight.shape[0] if hasattr(decoder, "head") else 30
-    mass_table = torch.zeros(num_classes, device=device, dtype=torch.float32)
-    for token, idx in vocabulary.items():
-        if token in AA_MASSES_DICT and idx < num_classes:
-            mass_table[idx] = AA_MASSES_DICT[token]
-
-    full_mass_table = torch.zeros(
-        max(vocabulary.values()) + 1, device=device, dtype=torch.float32
-    )
-    for token, idx in vocabulary.items():
-        if token in AA_MASSES_DICT:
-            full_mass_table[idx] = AA_MASSES_DICT[token]
 
     # 3. Initialize noisy candidate sequences
     x_t = _initialize_noisy_sequence(
@@ -385,18 +304,6 @@ def predict_peptide(
             )
 
         last_logits = logits
-        if use_knapsack_filter:
-            logits = knapsack_filter_logits_vectorized(
-                logits=logits,
-                x_t=x_t,
-                target_residue_mass=target_residue_mass_exp,
-                active_mask=active_mask,
-                mask_id=mask_token_id,
-                mass_table=mass_table,
-                full_mass_table=full_mass_table,
-                tol=knapsack_tol_da,
-            )
-
         if noising_scheme == "mask":
             x_t = inference_sample_mask(
                 kt,
@@ -427,28 +334,21 @@ def predict_peptide(
     if mask_token_id is not None and last_logits is not None:
         rem_mask = (x_t == mask_token_id) & active_mask
         if rem_mask.any():
-            if use_knapsack_filter:
-                final_logits = knapsack_filter_logits_vectorized(
-                    logits=last_logits.clone(),
-                    x_t=x_t,
-                    target_residue_mass=target_residue_mass_exp,
-                    active_mask=active_mask,
-                    mask_id=mask_token_id,
-                    mass_table=mass_table,
-                    full_mass_table=full_mass_table,
-                    tol=knapsack_tol_da,
-                )
-                x_t[rem_mask] = final_logits.argmax(dim=-1)[rem_mask]
-            else:
-                x_t[rem_mask] = last_logits.argmax(dim=-1)[rem_mask]
+            x_t[rem_mask] = last_logits.argmax(dim=-1)[rem_mask]
 
     # 5. Candidate scoring & beam selection
     if last_logits is not None:
+        # Build mass lookup table on device
+        mass_table = torch.zeros(
+            max(vocabulary.values()) + 1, device=device, dtype=torch.float32
+        )
+        for token, idx in vocabulary.items():
+            if token in AA_MASSES_DICT:
+                mass_table[idx] = AA_MASSES_DICT[token]
+
         # Mass error: |sum m(aa) - (M_prec - M_H2O)|
-        seq_masses = (
-            full_mass_table[x_t.clamp(0, len(full_mass_table) - 1)] * active_mask.float()
-        ).sum(dim=-1)
-        target_residue_mass = target_residue_mass_exp
+        seq_masses = (mass_table[x_t] * active_mask.float()).sum(dim=-1)
+        target_residue_mass = (precursor_mass_exp - M_H2O).clamp(min=0.0)
         delta_m = (seq_masses - target_residue_mass).abs()
 
         # Relative PPM mass error (in 100 ppm units)
@@ -500,12 +400,12 @@ def predict_peptide(
     else:
         score = torch.zeros(total_samples, device=device)
 
-    if K_total > 1:
-        score_2d = score.view(batch_size, K_total)
+    if K > 1:
+        score_2d = score.view(batch_size, K)
         best_k = score_2d.argmax(dim=-1)  # (B,)
 
         batch_idx = torch.arange(batch_size, device=device)
-        best_indices = batch_idx * K_total + best_k
+        best_indices = batch_idx * K + best_k
 
         selected_x_t = x_t[best_indices]
         selected_lengths = cand_lengths_flat[best_indices]

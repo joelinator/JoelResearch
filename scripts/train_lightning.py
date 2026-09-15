@@ -47,6 +47,7 @@ def parse_args():
     parser.add_argument("--accumulate-grad-batches", type=int, default=1, help="Gradient accumulation steps")
     parser.add_argument("--no-amp", dest="amp", action="store_false", default=train_cfg.amp)
     parser.add_argument("--eval-every", type=int, default=int(os.environ.get("EVAL_EVERY", 1)))
+    parser.add_argument("--limit-train-batches", type=int, default=int(os.environ.get("TRAIN_MAX_BATCHES", 0)))
     parser.add_argument("--limit-val-batches", type=int, default=int(os.environ.get("EVAL_MAX_BATCHES", 0)))
     parser.add_argument(
         "--gen-eval-proxy-batches",
@@ -106,8 +107,8 @@ def parse_args():
     parser.add_argument(
         "--weights-only",
         action="store_true",
-        default=False,
-        help="Only load model weights from checkpoint, resetting epoch/step counters to 0.",
+        default=bool(int(os.environ.get("WEIGHTS_ONLY", 0))),
+        help="Load model weights only, ignoring saved optimizer/scheduler states and epoch counter.",
     )
     parser.add_argument(
         "--use-ema",
@@ -186,6 +187,19 @@ def parse_args():
         help="Disable enzymatic C-terminal cleavage prior bonus.",
     )
     parser.add_argument(
+        "--use-ptm",
+        dest="use_ptm",
+        action="store_true",
+        default=bool(int(os.environ.get("USE_PTM", 1))),
+        help="Include post-translational modifications (PTMs) in vocabulary (default: True).",
+    )
+    parser.add_argument(
+        "--no-ptm",
+        dest="use_ptm",
+        action="store_false",
+        help="Exclude PTMs and use standard 20 amino acids vocabulary.",
+    )
+    parser.add_argument(
         "--seed",
         type=int,
         default=int(os.environ.get("SEED", 42)),
@@ -211,8 +225,8 @@ def main():
     train_ds = get_dataset(split=args.train_split, cache_dir=args.cache_dir)
     valid_ds = get_dataset(split=args.valid_split, cache_dir=args.cache_dir)
 
-    vocabulary = build_vocabulary(train_ds)
-    print(f"Vocabulary size: {len(vocabulary)}")
+    vocabulary = build_vocabulary(train_ds, include_ptms=args.use_ptm)
+    print(f"Vocabulary size: {len(vocabulary)} (PTM enabled: {args.use_ptm})")
 
     pin = torch.cuda.is_available()
     train_loader = build_dataloader(
@@ -250,16 +264,58 @@ def main():
 
     resume_ckpt_path = args.resume_from
     if args.resume_from:
+        ckpt = torch.load(args.resume_from, map_location="cpu", weights_only=False)
+        state_dict = ckpt.get("state_dict", ckpt)
+        source_vocab_size = state_dict.get("decoder.peptide_embedding.weight", torch.zeros(0)).shape[0]
+        target_vocab_size = max(vocabulary.values()) + 1
+
+        if source_vocab_size > 0 and source_vocab_size != target_vocab_size:
+            print(f"Vocabulary mismatch detected (source: {source_vocab_size}, target: {target_vocab_size}).")
+            print("Applying automatic checkpoint surgery to transplant weights...")
+            from data.constants import STANDARD_AMINO_ACIDS
+            from train.surgery import transplant_state_dict
+            
+            # Find old vocabulary
+            cand_paths = [
+                Path(args.resume_from).parent.parent / "vocabulary.json",
+                Path(args.resume_from).parent / "vocabulary.json",
+            ]
+            old_vocab = None
+            for p in cand_paths:
+                if p.exists():
+                    with open(p) as f:
+                        old_vocab = json.load(f)
+                    break
+            if old_vocab is None:
+                old_vocab = {aa: idx for idx, aa in enumerate(STANDARD_AMINO_ACIDS)}
+                old_vocab["<pad>"] = 20
+                old_vocab["<mask_token>"] = 21
+                old_vocab["<mask" + ">"] = 21
+
+            state_dict = transplant_state_dict(state_dict, old_vocab, vocabulary)
+            if "ema_shadow_params" in ckpt and ckpt["ema_shadow_params"]:
+                ckpt["ema_shadow_params"] = transplant_state_dict(
+                    ckpt["ema_shadow_params"], old_vocab, vocabulary
+                )
+            ckpt["state_dict"] = state_dict
+            ckpt["optimizer_states"] = []
+            ckpt["lr_schedulers"] = []
+            ckpt["epoch"] = 0
+            ckpt["global_step"] = 0
+
+            transplanted_path = output_dir / args.run_name / "transplanted_init.ckpt"
+            torch.save(ckpt, transplanted_path)
+            print(f"Transplanted checkpoint saved to: {transplanted_path}")
+            resume_ckpt_path = str(transplanted_path)
+
         if args.weights_only:
-            print(f"Loading weights only from checkpoint: {args.resume_from}")
-            ckpt = torch.load(args.resume_from, map_location="cpu", weights_only=False)
-            state_dict = ckpt.get("state_dict", ckpt)
+            print(f"Loading weights only from checkpoint: {resume_ckpt_path or args.resume_from}")
             missing, unexpected = model.load_state_dict(state_dict, strict=False)
             print(f"Loaded weights (missing: {len(missing)}, unexpected: {len(unexpected)}). Starting training at epoch 0.")
             resume_ckpt_path = None
         else:
             mode_desc = f"resetting optimizer with default LR ({args.lr})" if args.reset_lr_on_resume else "preserving saved optimizer state"
-            print(f"Resuming training from checkpoint: {args.resume_from} ({mode_desc})")
+            print(f"Resuming training from checkpoint: {resume_ckpt_path} ({mode_desc})")
 
     csv_logger = CSVLogger(save_dir=args.output_dir, name=args.run_name)
     tb_logger = TensorBoardLogger(save_dir=args.output_dir, name=args.run_name)
@@ -267,44 +323,26 @@ def main():
     
     checkpoint_dir = output_dir / args.run_name / "checkpoints"
 
-    # Tier 1: Checkpoint best models based on true Generative Exact Peptide Match
+    # 1. Best model based strictly on Generative Exact Peptide Match (keep top 1)
     best_gen_cb = ModelCheckpoint(
         dirpath=checkpoint_dir,
         filename="best-gen-exact-epoch={epoch:02d}-exact={valid_gen_exact_match:.4f}",
         monitor="valid_gen_exact_match",
         mode="max",
-        save_top_k=3,
+        save_top_k=1,
         auto_insert_metric_name=False,
     )
 
-    # Tier 2: Unconditional periodic checkpoints every N epochs (e.g. 10 epochs to capture grokking)
-    periodic_cb = ModelCheckpoint(
-        dirpath=checkpoint_dir,
-        filename="periodic-epoch={epoch:02d}",
-        every_n_epochs=args.checkpoint_every_n_epochs,
-        save_top_k=-1,
-        auto_insert_metric_name=False,
-    )
-
-    # Tier 3: Monitored validation loss (continuous loss minimum)
-    best_loss_cb = ModelCheckpoint(
-        dirpath=checkpoint_dir,
-        filename="best-loss-epoch={epoch:02d}-loss={valid_loss:.4f}",
-        monitor="valid_loss",
-        mode="min",
-        save_top_k=2,
-        auto_insert_metric_name=False,
-    )
-
-    # Tier 4: Guaranteed latest snapshot at the end of every training epoch
+    # 2. Latest model snapshot saved at the end of every training epoch
     last_cb = ModelCheckpoint(
         dirpath=checkpoint_dir,
         filename="last",
         save_last=True,
+        save_top_k=0,
         save_on_train_epoch_end=True,
     )
 
-    checkpoint_callbacks = [best_gen_cb, periodic_cb, best_loss_cb, last_cb]
+    checkpoint_callbacks = [best_gen_cb, last_cb]
     callbacks = [*checkpoint_callbacks, LearningRateMonitor(logging_interval="step")]
     if args.use_ema:
         callbacks.append(EMACallback(decay=args.ema_decay))
@@ -316,6 +354,7 @@ def main():
         accumulate_grad_batches=args.accumulate_grad_batches,
         gradient_clip_val=1.0,
         check_val_every_n_epoch=args.eval_every,
+        limit_train_batches=args.limit_train_batches if args.limit_train_batches > 0 else 1.0,
         limit_val_batches=args.limit_val_batches if args.limit_val_batches > 0 else 1.0,
         strategy="ddp_find_unused_parameters_true" if torch.cuda.device_count() > 1 else "auto",
         precision="bf16-mixed" if (args.amp and torch.cuda.is_available() and torch.cuda.is_bf16_supported()) 
@@ -334,7 +373,7 @@ def main():
     )
     print(f"=== Training complete ===")
     print(f"Best generative model: {best_gen_cb.best_model_path} (score={best_gen_cb.best_model_score})")
-    print(f"Best loss model:       {best_loss_cb.best_model_path} (score={best_loss_cb.best_model_score})")
+    print(f"Last model snapshot:   {last_cb.last_model_path}")
 
 
 if __name__ == "__main__":

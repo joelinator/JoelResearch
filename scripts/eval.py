@@ -41,7 +41,7 @@ def parse_args():
     parser.add_argument("--num-workers", type=int, default=int(os.environ.get("NUM_WORKERS", eval_cfg.num_workers)))
     parser.add_argument("--cache-dir", default=os.environ.get("HF_DATASETS_CACHE", "data/cache"))
     parser.add_argument("--device", default=os.environ.get("DEVICE", "cuda" if torch.cuda.is_available() else "cpu"))
-    parser.add_argument("--num-steps", type=int, default=int(os.environ.get("INFERENCE_STEPS", eval_cfg.inference_steps)))
+    parser.add_argument("--num-steps", type=int, default=int(os.environ.get("INFERENCE_STEPS", 25)))
     parser.add_argument(
         "--noising-scheme",
         choices=["uniform", "mask"],
@@ -50,19 +50,44 @@ def parse_args():
     parser.add_argument(
         "--guidance-scale",
         type=float,
-        default=float(os.environ.get("GUIDANCE_SCALE", eval_cfg.guidance_scale)),
+        default=float(os.environ.get("GUIDANCE_SCALE", 1.8)),
     )
     parser.add_argument(
         "--top-k-lengths",
         type=int,
-        default=int(os.environ.get("TOP_K_LENGTHS", eval_cfg.top_k_lengths)),
-        help="Number of top length candidates to decode in parallel (default: 3).",
+        default=int(os.environ.get("TOP_K_LENGTHS", 5)),
+        help="Number of top length candidates to decode in parallel (default: 5).",
     )
     parser.add_argument(
         "--length-beam-alpha",
         type=float,
-        default=float(os.environ.get("LENGTH_BEAM_ALPHA", eval_cfg.length_beam_alpha)),
-        help="Weight for mass mismatch penalty in length beam score (default: 0.01).",
+        default=float(os.environ.get("LENGTH_BEAM_ALPHA", 0.5)),
+        help="Weight for mass mismatch penalty in length beam score (default: 0.5).",
+    )
+    parser.add_argument(
+        "--use-knapsack-filter",
+        dest="use_knapsack_filter",
+        action="store_true",
+        default=True,
+        help="Enable vectorized dynamic knapsack precursor mass filter during flow matching (default: True).",
+    )
+    parser.add_argument(
+        "--no-knapsack-filter",
+        dest="use_knapsack_filter",
+        action="store_false",
+        help="Disable knapsack precursor mass filter.",
+    )
+    parser.add_argument(
+        "--knapsack-tol-da",
+        type=float,
+        default=float(os.environ.get("KNAPSACK_TOL_DA", 1.0)),
+        help="Mass tolerance in Daltons for single remaining residue knapsack filter (default: 1.0 Da).",
+    )
+    parser.add_argument(
+        "--num-samples-per-length",
+        type=int,
+        default=int(os.environ.get("NUM_SAMPLES_PER_LENGTH", 1)),
+        help="Number of stochastic trajectories to sample per length candidate for test-time reranking (default: 1).",
     )
     parser.add_argument(
         "--fragment-matching-weight",
@@ -162,8 +187,6 @@ def main():
     ds = get_dataset(split=args.split, cache_dir=args.cache_dir)
     if vocabulary is None:
         vocabulary = build_vocabulary(ds)
-    elif build_vocabulary(ds) != vocabulary:
-        print("Warning: dataset vocabulary differs from checkpoint vocabulary; using checkpoint vocab.")
 
     loader = build_dataloader(
         ds,
@@ -195,6 +218,8 @@ def main():
     print(f"Inference Steps:  {args.num_steps}")
     print(f"Top-K Lengths:    {args.top_k_lengths}")
     print(f"Alpha:            {args.length_beam_alpha}")
+    print(f"Knapsack Filter:  {args.use_knapsack_filter} (tol={args.knapsack_tol_da} Da)")
+    print(f"Samples/Length:   {args.num_samples_per_length}")
     print(f"Device:           {device}")
     print("==========================================================")
 
@@ -223,6 +248,9 @@ def main():
         prefix_mass_tolerance=DEFAULTS.eval.prefix_mass_tolerance,
         amp=args.amp,
         return_details=True,
+        use_knapsack_filter=args.use_knapsack_filter,
+        knapsack_tol_da=args.knapsack_tol_da,
+        num_samples_per_length=args.num_samples_per_length,
     )
 
     scores = np.asarray(details["scores"], dtype=np.float64)

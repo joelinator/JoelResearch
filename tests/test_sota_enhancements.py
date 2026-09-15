@@ -94,8 +94,8 @@ def test_fragment_ion_matching_scores():
     active_mask = torch.tensor([[True, True, False]])
 
     # Synthetic experimental peaks: exactly match b1 and y1 with high intensity, plus 1 unmatched peak
-    b1_mz = 71.03711 + M_H
-    y1_mz = 103.00919 + M_H2O + M_H
+    b1_mz = AA_MASSES_DICT["A"] + M_H
+    y1_mz = AA_MASSES_DICT["C"] + M_H2O + M_H
     unmatched_mz = 500.0
 
     mz_exp = torch.tensor([[b1_mz, y1_mz, unmatched_mz, 0.0]])
