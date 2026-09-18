@@ -2,6 +2,19 @@
 
 Research Project by Joel Gedeon at AIMS South Africa.
 
+[![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/joelinator/JoelResearch/blob/feature/ptm-support/notebooks/dfm_de_novo_tutorial.ipynb)
+[![Interactive Tutorial Notebook](https://img.shields.io/badge/Jupyter-Interactive_Tutorial-orange?logo=jupyter)](notebooks/dfm_de_novo_tutorial.ipynb)
+[![Comprehensive Supervisor Report](https://img.shields.io/badge/Research_Report-Master's_Thesis-blue)](SUPERVISOR_REPORT_DFM_DE_NOVO.md)
+[![Precomputed Artifacts Bundle](https://img.shields.io/badge/Precomputed_Data-44.5_MB_Zip-green)](dfm_research_analysis_artifacts.zip)
+
+---
+
+## 🚀 Interactive Tutorial & Colab Walkthrough
+For a self-contained, runnable guide covering **exploratory data analysis (EDA)**, **mass spectrometry peak chemistry**, **model architecture**, **mini-batch training**, **pretrained checkpoint loading**, **generative knapsack flow inference**, **qualitative prediction inspection**, and **offline benchmark analysis**, open:
+👉 **[`notebooks/dfm_de_novo_tutorial.ipynb`](notebooks/dfm_de_novo_tutorial.ipynb)**
+
+---
+
 ## 1. Overview
 
 DFLowNovo is a non-autoregressive deep learning framework designed to predict peptide amino acid sequences directly from tandem mass spectrometry (MS/MS) data using Discrete Flow Matching (DFM). 
