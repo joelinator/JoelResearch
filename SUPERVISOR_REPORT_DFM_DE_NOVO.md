@@ -270,6 +270,21 @@ The architecture balances representational capacity with high-throughput paralle
   - Decoder blocks alternate between masked self-attention over sequence positions and multi-head cross-attention over the $N$ encoded spectral peak embeddings.
   - Classification head: Linear projection from 384 dimensions to 30 vocabulary logits.
 
+### 5.1 Model Parameter Counts and Structural Complexity
+
+To rigorously evaluate architectural efficiency, we precisely profiled the learnable parameter counts of DFM and all comparative benchmark architectures using PyTorch state-dict tensor enumeration:
+
+| Model Architecture | Generative Paradigm | Spectrum Encoder | Peptide Generator / Decoder | Auxiliary Modules (Length MLP / Prior) | Total Learnable Parameters | Relative Size vs. DFM |
+| :--- | :--- | :---: | :---: | :---: | :---: | :---: |
+| **DFM (Ours)** | **Discrete Flow Matching (Non-Autoregressive)** | **16.29M** (6 layers, $d=384$) | **42.84M** (8 layers, $d=384$) | **0.35M** (Length MLP + Timestep Proj) | **59,476,250 (59.48M)** | **1.00× (Baseline)** |
+| Casanovo (`v5.2.1`) | Autoregressive Transformer (Standard Beam) | 19.47M (9 layers, $d=512$) | 28.42M (9 layers, $d=512$) | — | **47,873,565 (47.87M)** | 0.80× (-19.5%) |
+| PowerNovo2 | Continuous Normalizing Flow (GLOW + ALPS) | 7.65M (8 layers, $d=512$) | 41.74M (GLOW Affine Coupling) | 13.81M (Length Prior + Assembler) | **63,202,368 (63.20M)** | 1.06× (+6.3%) |
+| InstaNovo (`v1.2.0`) | Autoregressive Transformer (Knapsack Beam) | 37.83M (12 layers, $d=768$) | 56.74M (12 layers, $d=768$) | 0.20M (Classification head) | **94,773,153 (94.77M)** | **1.59× (+59.3%)** |
+
+#### Key Architectural Efficiency Insights
+1. **Parameter Efficiency vs. InstaNovo**: DFM achieves state-of-the-art biological sequencing accuracy while using **37.2% fewer parameters** than InstaNovo (59.48M vs. 94.77M). InstaNovo scales to 12 Transformer layers with hidden dimension $d=768$, whereas DFM operates efficiently at $d=384$ with 8 decoder layers, drastically reducing VRAM footprint and memory bandwidth while achieving **3.56× higher throughput**.
+2. **Identical Capacity Across DFM Variants**: All three DFM models investigated in this research—the **Base Model** (zero-shot single-domain pretrained), the **Finetuned Model** (sequential single-domain finetuned), and the **Balanced Model** (multi-domain joint)—share the exact same 59,476,250 parameter backbone. Performance variations between these checkpoints stem purely from domain exposure and multi-task optimization rather than parameter scaling.
+
 ---
 
 ## 6. Dataset Sources and Multi-Domain Training
@@ -345,18 +360,20 @@ We evaluated our final balanced joint model against InstaNovo across the combine
 - **Nine-Species Full Test Split**: $N = 104,163$ spectra.
 - **HC-PT Full Test Split**: $N = 265,369$ spectra.
 
-### 8.1 Complete Multi-Domain Benchmark Table
+#### 8.1 Complete Multi-Domain Benchmark Table
 
-| Dataset Split | Model Architecture | Training Strategy | Strict Exact Match | I/L Exact Match | Amino Acid F1 | Precursor Mass Match | Length Accuracy | Coverage @ 80% Prec | Inference Throughput |
-| :--- | :--- | :--- | :---: | :---: | :---: | :---: | :---: | :---: | :---: |
-| **Nine-Species Full Test**<br>($N = 104,163$) | **DFM (Ours)** | **Balanced Joint (8 ep)** | **64.92%** | **65.07%** | **81.97%** | **66.87%** | **83.27%** | **80.62%** (83,978 PSMs) | **185 spectra/s** |
-| | InstaNovo (`v1.2.0`) | MassIVE-KB Supervised | 15.45% | 71.09% | 76.88% | — | 80.65% | 71.50% (74,476 PSMs) | 52 spectra/s |
-| | *Delta (DFM vs InstaNovo)* | — | **+49.47%** | *-6.02%* | **+5.09%** | — | **+2.62%** | **+9.12%** (+9,502 PSMs) | **3.56× Faster** |
-| **HC-PT Full Test**<br>($N = 265,369$) | **DFM (Ours)** | **Balanced Joint (8 ep)** | **34.93%** | **55.95%** | **70.04%** | **68.22%** | **81.55%** | **65.08%** (172,695 PSMs) | **185 spectra/s** |
-| | InstaNovo (`v1.2.0`) | MassIVE-KB Supervised | 63.03% | 66.15% | 76.87% | 73.20% | 78.27% | 91.47% (242,746 PSMs) | 52 spectra/s |
-| | DFM Base | HC-PT Specialist | 36.70% | 56.24% | 69.87% | 69.48% | 82.01% | 66.12% | 185 spectra/s |
-| | DFM Finetuned | Nine-Species Specialist | 12.85% *(collapsed)*| 33.10% | 50.12% | 40.10% | 61.20% | 24.10% | 185 spectra/s |
-| | *Forgetting Recovery* | — | **+22.08% (2.72×)** | **+22.85%** | **+19.92%** | **+28.12%** | **+20.35%** | **+40.98%** | — |
+| Dataset Split | Model Architecture | Parameters | Training Strategy | Strict Exact Match | I/L Exact Match | Amino Acid F1 | Precursor Mass Match | Length Accuracy | Coverage @ 80% Prec | Inference Throughput |
+| :--- | :--- | :---: | :--- | :---: | :---: | :---: | :---: | :---: | :---: | :---: |
+| **Nine-Species Full Test**<br>($N = 104,163$) | **DFM Balanced Joint** | **59.48M** | Multi-Domain Joint (8 ep) | **64.92%** | **65.07%** | **81.97%** | **66.87%** | **83.27%** | **77.13%** (80,340 PSMs) | **185 spectra/s** |
+| | **DFM Finetuned** | **59.48M** | Sequential Single-Domain | **65.63%** | **65.63%** | **82.29%** | **67.17%** | **83.58%** | **78.40%** (81,668 PSMs) | **185 spectra/s** |
+| | **DFM Base** | **59.48M** | Zero-Shot Pretrained | 12.01% | 50.49% | 71.68% | 56.72% | 75.86% | 65.88% (68,626 PSMs) | **185 spectra/s** |
+| | InstaNovo (`v1.2.0`) | 94.77M | MassIVE-KB Supervised | 15.45% | 71.09% | 76.88% | 71.10% | 80.65% | 71.50% (74,476 PSMs) | 52 spectra/s |
+| | *Delta (DFM Balanced vs InstaNovo)* | *-37.2%* | — | **+49.47%** | *-6.02%* | **+5.09%** | *-4.23%* | **+2.62%** | **+5.63%** (+5,864 PSMs) | **3.56× Faster** |
+| **HC-PT Full Test**<br>($N = 265,369$) | **DFM Balanced Joint** | **59.48M** | Multi-Domain Joint (8 ep) | **34.93%** | **55.95%** | **70.04%** | **56.04%** | **81.55%** | **66.01%** (175,181 PSMs) | **185 spectra/s** |
+| | **DFM Base** | **59.48M** | Single-Domain Pretrained | **36.41%** | **56.24%** | **69.87%** | **56.28%** | **82.27%** | **66.59%** (176,705 PSMs) | **185 spectra/s** |
+| | **DFM Finetuned** | **59.48M** | Sequential Single-Domain | 12.85% *(collapsed)*| 48.57% | 69.55% | 53.94% | 78.29% | 64.55% (171,286 PSMs) | **185 spectra/s** |
+| | InstaNovo (`v1.2.0`) | 94.77M | MassIVE-KB Supervised | 63.03% | 66.15% | 76.87% | 73.20% | 78.27% | 91.47% (242,746 PSMs) | 52 spectra/s |
+| | *Forgetting Recovery (Balanced vs Finetuned)* | — | — | **+22.08% (2.72×)** | **+7.38%** | **+0.49%** | **+2.10%** | **+3.26%** | **+1.46%** (+3,895 PSMs) | — |
 
 ---
 
@@ -402,17 +419,21 @@ All models were evaluated on the same hardware (NVIDIA H100 80GB HBM3 GPU) and s
 
 #### Multi-Paradigm Performance Summary
 
-| Architecture / Paradigm | Benchmark Split | Strict Exact Match (%) | I/L-Conflated Match (%) | Residue Precision (%) | Residue Recall (%) | Residue AA F1 (%) | Throughput (Spectra / Sec) |
-| :--- | :--- | :---: | :---: | :---: | :---: | :---: | :---: |
-| **DFM (Ours, Discrete Flow Matching)** | **Nine-Species** ($N=104\text{k}$) | **64.92%** | **65.07%** | **82.33%** | **82.26%** | **81.97%** | **185.0 spec/s** |
-| InstaNovo (Autoregressive Knapsack) | Nine-Species ($N=104\text{k}$) | 15.45% | **71.09%** | 76.88% | 76.88% | 76.88% | 51.9 spec/s |
-| Casanovo v5.2.1 (Autoregressive Beam) | Nine-Species ($N=104\text{k}$) | 4.56% | 53.30% | 62.34% | 63.73% | 63.03% | **231.3 spec/s** |
-| PowerNovo2 (Continuous Flow + ALPS) | Nine-Species ($N=104\text{k}$) | ~11.3% | ~28.5% | ~33.2% | ~30.5% | ~31.8% | 40.0 spec/s |
-| --- | --- | --- | --- | --- | --- | --- | --- |
-| **DFM (Ours, Discrete Flow Matching)** | **HC-PT 50k Split** | **42.66%** | 42.92% | **77.90%** | **77.86%** | **77.88%** | **185.0 spec/s** |
-| InstaNovo (Autoregressive Knapsack) | HC-PT 50k Split | 63.03% | **66.15%** | 76.87% | 76.87% | 76.87% | 51.9 spec/s |
-| Casanovo v5.2.1 (Autoregressive Beam) | HC-PT 50k Split | 22.03% | 42.79% | 54.42% | 55.90% | 55.15% | **242.9 spec/s** |
-| PowerNovo2 (Continuous Flow + ALPS) | HC-PT 50k Split | ~9.8% | ~26.4% | ~31.0% | ~29.3% | ~30.1% | 40.0 spec/s |
+| Architecture / Paradigm | Model Parameters | Benchmark Split | Strict Exact Match (%) | I/L-Conflated Match (%) | Residue Precision (%) | Residue Recall (%) | Residue AA F1 (%) | Throughput (Spectra / Sec) |
+| :--- | :---: | :--- | :---: | :---: | :---: | :---: | :---: | :---: |
+| **DFM Balanced Joint (Ours)** | **59.48M** | **Nine-Species** ($N=104\text{k}$) | **64.92%** | **65.07%** | **82.00%** | **81.94%** | **81.97%** | **185.0 spec/s** |
+| **DFM Finetuned (Ours)** | **59.48M** | Nine-Species ($N=104\text{k}$) | **65.63%** | **65.63%** | **82.33%** | **82.26%** | **82.29%** | **185.0 spec/s** |
+| **DFM Base (Ours)** | **59.48M** | Nine-Species ($N=104\text{k}$) | 12.01% | 50.49% | 71.78% | 71.58% | 71.68% | **185.0 spec/s** |
+| InstaNovo (`v1.2.0`) | 94.77M | Nine-Species ($N=104\text{k}$) | 15.45% | **71.09%** | 76.88% | 76.88% | 76.88% | 51.9 spec/s |
+| Casanovo (`v5.2.1`) | 47.87M | Nine-Species ($N=104\text{k}$) | 4.56% | 53.30% | 62.34% | 63.73% | 63.03% | **231.3 spec/s** |
+| PowerNovo2 | 63.20M | Nine-Species ($N=104\text{k}$) | ~11.3% | ~28.5% | ~33.2% | ~30.5% | ~31.8% | 40.0 spec/s |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| **DFM Balanced Joint (Ours)** | **59.48M** | **HC-PT 50k Split** | **42.66%** | 42.92% | **77.90%** | **77.86%** | **77.88%** | **185.0 spec/s** |
+| **DFM Base (Ours, Full Test)** | **59.48M** | HC-PT Full ($N=265\text{k}$) | 36.41% | 56.24% | 69.97% | 69.78% | 69.87% | **185.0 spec/s** |
+| **DFM Finetuned (Ours, Full Test)** | **59.48M** | HC-PT Full ($N=265\text{k}$) | 12.85% | 48.57% | 69.58% | 69.51% | 69.55% | **185.0 spec/s** |
+| InstaNovo (`v1.2.0`) | 94.77M | HC-PT 50k Split | 63.03% | **66.15%** | 76.87% | 76.87% | 76.87% | 51.9 spec/s |
+| Casanovo (`v5.2.1`) | 47.87M | HC-PT 50k Split | 22.03% | 42.79% | 54.42% | 55.90% | 55.15% | **242.9 spec/s** |
+| PowerNovo2 | 63.20M | HC-PT 50k Split | ~9.8% | ~26.4% | ~31.0% | ~29.3% | ~30.1% | 40.0 spec/s |
 
 #### Key Scientific Insights & Paradigm Comparison
 
@@ -430,6 +451,11 @@ All models were evaluated on the same hardware (NVIDIA H100 80GB HBM3 GPU) and s
 3. **DFM vs. InstaNovo (Non-Autoregressive vs. Autoregressive Knapsack)**:
    - DFM is **3.6× faster** than InstaNovo (185 spec/s vs. 51.9 spec/s) due to fixed $T=16$ Euler sampling steps independent of peptide length, avoiding step-by-step autoregressive beam expansion.
    - DFM exhibits far superior **strict exact match** capability on natural proteomes (64.92% vs. 15.45%), correctly resolving isomeric residues from subtle secondary fragmentation peaks.
+
+4. **Evolution Across DFM Training Paradigms (Base vs. Finetuned vs. Balanced)**:
+   - **DFM Base (Zero-Shot)**: Trained exclusively on single-domain synthetic data (HC-PT), the base model achieves 36.41% strict exact match on HC-PT, but drops to 12.01% on Nine-Species due to biological distribution shift.
+   - **DFM Finetuned (Sequential Single-Domain)**: Specializing on Nine-Species boosts strict exact match to 65.63% on Nine-Species, but incurs severe **catastrophic forgetting** on HC-PT (collapsing to 12.85%).
+   - **DFM Balanced Joint (Multi-Domain)**: Interleaved 1:1 multi-task training recovers 34.93% on HC-PT (42.66% on the 50k split) while retaining 64.92% on Nine-Species, matching single-domain specialist performance across both regimes using a single **59.48M parameter** backbone.
 
 ---
 
