@@ -512,14 +512,27 @@ To understand the mechanistic behavior of Discrete Flow Matching in comparison w
 
 ## 12. Verification and Reproducibility
 
-All code, checkpoints, and benchmark scripts are committed to the repository:
+### 12.1 Precomputed Research Artifacts Archive
+To facilitate immediate verification, offline analysis, metric recomputation, and plotting without requiring GPU hardware, model checkpoints, or re-running inference:
+All **84 evaluation JSONs, test prediction CSVs across 369,532 spectra, training logs, ground truths, and vocabularies** have been packaged into a self-contained archive committed directly to the repository root: `dfm_research_analysis_artifacts.zip` (44.53 MB).
+
+```bash
+# Unpack all test predictions, metric JSONs, and training logs
+unzip dfm_research_analysis_artifacts.zip
+
+# View the full schema, directory breakdown, and Python loading examples
+cat ARTIFACTS_MANIFEST.md
+```
+
+### 12.2 Live Evaluation with Detailed Balance Stochasticity
+To re-run inference directly from model checkpoints on an NVIDIA GPU:
 ```bash
 # Clone repository and checkout branch
 git clone https://github.com/joelinator/JoelResearch.git
 cd JoelResearch
 git checkout feature/ptm-support
 
-# Run full evaluation with Detailed Balance stochasticity
+# Run full evaluation with Detailed Balance stochasticity (eta=0.2, Best-of-4)
 python scripts/eval.py \
   --checkpoint artifacts/dfm_joint_balanced_8ep/checkpoints/best-joint-gen-exact-epoch=04-exact=0.4695.ckpt \
   --dataset InstaDeepAI/ms_ninespecies_benchmark \
