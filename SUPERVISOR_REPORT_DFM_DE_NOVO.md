@@ -540,3 +540,16 @@ python scripts/eval.py \
   --eta 0.2 \
   --num-samples-per-length 4
 ```
+
+### 12.3 Interactive Tutorial Notebook
+For a self-contained walkthrough that runs both locally and in Google Colab:  
+👉 **[`notebooks/dfm_de_novo_tutorial.ipynb`](notebooks/dfm_de_novo_tutorial.ipynb)**
+
+This notebook provides an end-to-end interactive workflow:
+1. **Exploratory Data Analysis (EDA)**: Mass spectrometry peak chemistry, precursor mass calculation, and interactive $b$-/$y$-ion peak series annotation.
+2. **Vocabulary & Modifications**: 30-token discrete alphabet, isotopic mass calculations, and post-translational modification accounting.
+3. **Model Construction & Training**: Instantiating Transformer encoders/decoders and running a mini-batch flow matching optimization step.
+4. **Checkpoint Loading & Inference**: Loading trained weights and running generative reverse flow matching with Dynamic Knapsack budgeting and Detailed Balance stochasticity ($\eta = 0.2$).
+5. **Prediction Visualization**: Side-by-side inspection of ground truth vs predicted sequences across the 4 error quadrants.
+6. **Benchmark Metrics**: Computing strict exact match, I/L exact match, residue precision/recall/F1, and precursor mass matches.
+7. **Offline Analysis & Plotting**: Loading the 84 precomputed artifact files from `dfm_research_analysis_artifacts.zip` to produce publication-grade benchmark figures in seconds without GPU hardware.
