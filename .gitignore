@@ -225,5 +225,6 @@ report.md
 data/
 lightning_logs/
 scratch/
-
-
+artifacts/
+*.log
+.env

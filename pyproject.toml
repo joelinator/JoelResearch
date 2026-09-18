@@ -1,0 +1,58 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "dfm-denovo"
+version = "0.1.0"
+description = "Discrete Flow Matching for De Novo Peptide Sequencing"
+readme = "README.md"
+requires-python = ">=3.10"
+license = {text = "MIT"}
+authors = [
+    {name = "Joel Gedeon"}
+]
+keywords = [
+    "de novo peptide sequencing",
+    "discrete flow matching",
+    "mass spectrometry",
+    "proteomics",
+    "continuous-time markov chains",
+    "deep learning"
+]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Science/Research",
+    "Topic :: Scientific/Engineering :: Bio-Informatics",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+]
+dependencies = [
+    "torch>=2.1.0",
+    "pytorch-lightning>=2.1.0",
+    "numpy>=1.24.0",
+    "pandas>=2.0.0",
+    "polars>=0.20.0",
+    "pyarrow>=14.0.0",
+    "datasets>=2.18.0",
+    "huggingface-hub>=0.22.0",
+    "matplotlib>=3.8.0",
+    "tqdm>=4.66.0",
+    "pyyaml>=6.0",
+    "python-dotenv>=1.0.0"
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0.0"
+]
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+pythonpath = ["src"]
+testpaths = ["tests"]
