@@ -46,6 +46,53 @@ def cosine_scheduler(time: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
     return kt, kt_derivative
 
 
+def power1_5_scheduler(time: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
+    """Convex power law: κ(t) = t^1.5. Delayed initial unmasking, rapid convergence."""
+    kt = time.clamp(min=0.0).pow(1.5)
+    kt_derivative = (1.5 * time.clamp(min=1e-5).pow(0.5)).clamp(min=0.0)
+    return kt, kt_derivative
+
+
+def power2_scheduler(time: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
+    """Quadratic schedule: κ(t) = t². Slow start, fast crystallization."""
+    kt = time.clamp(min=0.0).pow(2)
+    kt_derivative = (2.0 * time.clamp(min=0.0)).clamp(min=0.0)
+    return kt, kt_derivative
+
+
+def sigmoid_scheduler(time: torch.Tensor, k: float = 6.0) -> tuple[torch.Tensor, torch.Tensor]:
+    """Smooth S-curve sigmoid schedule: slow start, fast middle, smooth landing."""
+    s_t = torch.sigmoid(k * (time - 0.5))
+    s_0 = torch.sigmoid(torch.tensor(-0.5 * k, device=time.device, dtype=time.dtype))
+    s_1 = torch.sigmoid(torch.tensor(0.5 * k, device=time.device, dtype=time.dtype))
+    norm = (s_1 - s_0).clamp(min=1e-6)
+    kt = (s_t - s_0) / norm
+    kt_derivative = (k * s_t * (1.0 - s_t)) / norm
+    return kt.clamp(0.0, 1.0), kt_derivative.clamp(min=0.0)
+
+
+SCHEDULER_REGISTRY: dict[str, Callable[[torch.Tensor], tuple[torch.Tensor, torch.Tensor]]] = {
+    "linear": linear_scheduler,
+    "cosine": cosine_scheduler,
+    "power1_5": power1_5_scheduler,
+    "power2": power2_scheduler,
+    "sigmoid": sigmoid_scheduler,
+}
+
+
+def get_scheduler(
+    scheduler: str | Callable[[torch.Tensor], tuple[torch.Tensor, torch.Tensor]],
+) -> Callable[[torch.Tensor], tuple[torch.Tensor, torch.Tensor]]:
+    """Resolve a scheduler name or return the callable directly."""
+    if callable(scheduler):
+        return scheduler
+    name = scheduler.lower().strip()
+    if name not in SCHEDULER_REGISTRY:
+        raise ValueError(f"Unknown scheduler '{scheduler}'. Available: {list(SCHEDULER_REGISTRY.keys())}")
+    return SCHEDULER_REGISTRY[name]
+
+
+
 def clean_weight_denominator(kt: torch.Tensor, eps: float = SCHEDULER_EPS) -> torch.Tensor:
     """Clamp 1 - κ(t) for reverse-step denominators."""
     return (1.0 - kt).clamp(min=eps)

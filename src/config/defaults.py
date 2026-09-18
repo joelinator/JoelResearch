@@ -72,18 +72,21 @@ class TrainDefaults:
 
 @dataclass(frozen=True)
 class EvalDefaults:
-    # 256 batch is safe with AMP + no_grad on A100 (4× the VRAM headroom vs training).
-    batch_size: int = 256
-    num_workers: int = 4
-    inference_steps: int = 20
+    # Tuned for high throughput and optimal accuracy on modern GPUs (e.g. A100 / H100)
+    batch_size: int = 2048
+    num_workers: int = 8
+    inference_steps: int = 25
     noising_scheme: str = "mask"
-    guidance_scale: float = 1.0
+    guidance_scale: float = 1.8
     top_k_lengths: int = 3
-    length_beam_alpha: float = 0.01
+    length_beam_alpha: float = 0.5
     decoding_strategy: str = "confidence"
     decoding_temperature: float = 0.0
     fragment_matching_weight: float = 0.5
     trypsin_prior: bool = True
+    use_knapsack_filter: bool = True
+    knapsack_tol_da: float = 1.0
+    num_samples_per_length: int = 1
     compile: bool = False
     amp: bool = True
     max_batches: int | None = None  # None = full split

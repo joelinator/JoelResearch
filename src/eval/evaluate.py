@@ -43,6 +43,7 @@ def evaluate_generative(
     use_knapsack_filter: bool = True,
     knapsack_tol_da: float = 1.0,
     num_samples_per_length: int = 1,
+    eta: float = 0.0,
 ) -> DenovoMetrics | tuple[DenovoMetrics, dict]:
     """Decode peptides with the full DFM inference loop and score against labels."""
     predictions: list[str] = []
@@ -107,6 +108,7 @@ def evaluate_generative(
                 use_knapsack_filter=use_knapsack_filter,
                 knapsack_tol_da=knapsack_tol_da,
                 num_samples_per_length=num_samples_per_length,
+                eta=eta,
             )
 
         predictions.extend(pred_sequences)

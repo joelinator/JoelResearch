@@ -109,11 +109,15 @@ class DecoderBlock(nn.Module):
 
         # 2. Cross-Attention with AdaLN modulation and residual gate
         norm_x2 = modulate(self.norm2(x), shift_cross, scale_cross)
+        cross_mask = full_mask
+        if cross_mask is not None and cross_mask.all(dim=-1).any():
+            cross_mask = cross_mask.clone()
+            cross_mask[cross_mask.all(dim=-1), 0] = False
         cross_out, _ = self.cross_attention(
             query=norm_x2,
             key=y,
             value=y,
-            key_padding_mask=full_mask,
+            key_padding_mask=cross_mask,
         )
         x = x + gate_cross.unsqueeze(1) * cross_out
 

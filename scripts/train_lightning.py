@@ -20,6 +20,9 @@ from pytorch_lightning.loggers import CSVLogger, TensorBoardLogger
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / "src"))
 
+from dotenv import load_dotenv
+load_dotenv(ROOT / ".env", override=False)
+
 from config.defaults import DEFAULTS
 from data.data import build_dataloader, build_vocabulary, get_dataset
 from train.callbacks import EMACallback
@@ -30,6 +33,7 @@ def parse_args():
     data_cfg = DEFAULTS.data
     train_cfg = DEFAULTS.train
     parser = argparse.ArgumentParser(description="Train DFM de novo peptide sequencing models with PyTorch Lightning.")
+    parser.add_argument("--dataset-name", default=os.environ.get("DATASET_NAME", "InstaDeepAI/ms_ninespecies_benchmark"))
     parser.add_argument("--train-split", default=os.environ.get("TRAIN_SPLIT", data_cfg.train_split))
     parser.add_argument("--valid-split", default=os.environ.get("VALID_SPLIT", data_cfg.valid_split))
     parser.add_argument("--batch-size", type=int, default=int(os.environ.get("BATCH_SIZE", train_cfg.batch_size)))
@@ -222,10 +226,13 @@ def main():
     print(f"Effective Batch Size: {args.batch_size * args.accumulate_grad_batches} (Batch: {args.batch_size}, Accumulate: {args.accumulate_grad_batches})")
     pl.seed_everything(args.seed, workers=True)
 
-    train_ds = get_dataset(split=args.train_split, cache_dir=args.cache_dir)
-    valid_ds = get_dataset(split=args.valid_split, cache_dir=args.cache_dir)
+    if torch.cuda.is_available():
+        torch.set_float32_matmul_precision("high")
 
-    vocabulary = build_vocabulary(train_ds, include_ptms=args.use_ptm)
+    train_ds = get_dataset(repo_id=args.dataset_name, split=args.train_split, cache_dir=args.cache_dir)
+    valid_ds = get_dataset(repo_id=args.dataset_name, split=args.valid_split, cache_dir=args.cache_dir)
+
+    vocabulary = build_vocabulary(include_ptms=args.use_ptm)
     print(f"Vocabulary size: {len(vocabulary)} (PTM enabled: {args.use_ptm})")
 
     pin = torch.cuda.is_available()

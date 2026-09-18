@@ -36,7 +36,18 @@ def parse_args():
 
     parser = argparse.ArgumentParser(description="Evaluate DFM de novo peptide sequencing.")
     parser.add_argument("--checkpoint", default=os.environ.get("CHECKPOINT"))
+    parser.add_argument(
+        "--dataset-name",
+        default=os.environ.get("DATASET_NAME", data_cfg.dataset_repo),
+        help="Hugging Face dataset repository (e.g. InstaDeepAI/ms_ninespecies_benchmark or InstaDeepAI/ms_proteometools).",
+    )
     parser.add_argument("--split", default=os.environ.get("EVAL_SPLIT", data_cfg.test_split))
+    parser.add_argument(
+        "--scheduler",
+        default=os.environ.get("SCHEDULER", "linear"),
+        choices=["linear", "cosine", "power1_5", "power2", "sigmoid"],
+        help="Noise scheduler for flow matching (default: linear).",
+    )
     parser.add_argument("--batch-size", type=int, default=int(os.environ.get("BATCH_SIZE", eval_cfg.batch_size)))
     parser.add_argument("--num-workers", type=int, default=int(os.environ.get("NUM_WORKERS", eval_cfg.num_workers)))
     parser.add_argument("--cache-dir", default=os.environ.get("HF_DATASETS_CACHE", "data/cache"))
@@ -55,20 +66,20 @@ def parse_args():
     parser.add_argument(
         "--top-k-lengths",
         type=int,
-        default=int(os.environ.get("TOP_K_LENGTHS", 5)),
-        help="Number of top length candidates to decode in parallel (default: 5).",
+        default=int(os.environ.get("TOP_K_LENGTHS", eval_cfg.top_k_lengths)),
+        help="Number of top length candidates to decode in parallel (default: 3).",
     )
     parser.add_argument(
         "--length-beam-alpha",
         type=float,
-        default=float(os.environ.get("LENGTH_BEAM_ALPHA", 0.5)),
+        default=float(os.environ.get("LENGTH_BEAM_ALPHA", eval_cfg.length_beam_alpha)),
         help="Weight for mass mismatch penalty in length beam score (default: 0.5).",
     )
     parser.add_argument(
         "--use-knapsack-filter",
         dest="use_knapsack_filter",
         action="store_true",
-        default=True,
+        default=eval_cfg.use_knapsack_filter,
         help="Enable vectorized dynamic knapsack precursor mass filter during flow matching (default: True).",
     )
     parser.add_argument(
@@ -80,14 +91,20 @@ def parse_args():
     parser.add_argument(
         "--knapsack-tol-da",
         type=float,
-        default=float(os.environ.get("KNAPSACK_TOL_DA", 1.0)),
+        default=float(os.environ.get("KNAPSACK_TOL_DA", eval_cfg.knapsack_tol_da)),
         help="Mass tolerance in Daltons for single remaining residue knapsack filter (default: 1.0 Da).",
     )
     parser.add_argument(
         "--num-samples-per-length",
         type=int,
-        default=int(os.environ.get("NUM_SAMPLES_PER_LENGTH", 1)),
+        default=int(os.environ.get("NUM_SAMPLES_PER_LENGTH", eval_cfg.num_samples_per_length)),
         help="Number of stochastic trajectories to sample per length candidate for test-time reranking (default: 1).",
+    )
+    parser.add_argument(
+        "--eta",
+        type=float,
+        default=float(os.environ.get("ETA", 0.0)),
+        help="Detailed Balance stochasticity parameter (Campbell et al., arXiv:2402.04997). Default 0.0.",
     )
     parser.add_argument(
         "--fragment-matching-weight",
@@ -158,6 +175,7 @@ def parse_args():
         help="Explicit score threshold cutoff",
     )
     parser.add_argument("--output-json", default=os.environ.get("EVAL_OUTPUT_JSON"))
+    parser.add_argument("--save-predictions", default=os.environ.get("SAVE_PREDICTIONS"), help="Path to save predictions CSV")
     parser.add_argument("--save-plot", default=os.environ.get("SAVE_PLOT"))
     parser.add_argument("--no-amp", dest="amp", action="store_false", default=True, help="Disable automatic mixed precision (FP16/BF16)")
     return parser.parse_args()
@@ -184,9 +202,9 @@ def main():
                     vocabulary = json.load(f)
                 break
 
-    ds = get_dataset(split=args.split, cache_dir=args.cache_dir)
+    ds = get_dataset(repo_id=args.dataset_name, split=args.split, cache_dir=args.cache_dir)
     if vocabulary is None:
-        vocabulary = build_vocabulary(ds)
+        vocabulary = build_vocabulary(include_ptms=True)
 
     loader = build_dataloader(
         ds,
@@ -231,7 +249,7 @@ def main():
         length_predictor,
         decoder,
         guidance,
-        cosine_scheduler,
+        args.scheduler,
         device,
         max_batches=args.max_batches,
         num_steps=args.num_steps,
@@ -251,6 +269,7 @@ def main():
         use_knapsack_filter=args.use_knapsack_filter,
         knapsack_tol_da=args.knapsack_tol_da,
         num_samples_per_length=args.num_samples_per_length,
+        eta=args.eta,
     )
 
     scores = np.asarray(details["scores"], dtype=np.float64)
@@ -367,14 +386,31 @@ def main():
         output_path.write_text(json.dumps(results, indent=2) + "\n")
         print(f"\nSaved metrics to {output_path}")
 
-    # 6. Save PAUC Plot
+    # 6. Save Predictions CSV
+    if args.save_predictions:
+        import pandas as pd
+        pred_df = pd.DataFrame({
+            "target": details["targets"],
+            "prediction": details["predictions"],
+            "score": scores,
+            "exact_match": exact_matches,
+            "mass_match": mass_matches,
+            "target_length": details["target_lengths"],
+            "pred_length": details["predicted_lengths"],
+        })
+        pred_path = Path(args.save_predictions)
+        pred_path.parent.mkdir(parents=True, exist_ok=True)
+        pred_df.to_csv(pred_path, index=False)
+        print(f"Saved predictions to {pred_path}")
+
+    # 7. Save PAUC Plot
     if args.save_plot:
         plot_pauc_curve(
             scores=scores,
             exact_matches=exact_matches,
             mass_matches=mass_matches,
             output_path=args.save_plot,
-            title=f"Full Validation Split Precision-Recall & Precision-Coverage Analysis (N={len(scores):,})",
+            title=f"{args.dataset_name.split('/')[-1]} ({args.split}) PR & Precision-Coverage Analysis (N={len(scores):,})",
             calibrated_threshold=primary_threshold,
             calibrated_coverage=metrics_primary.coverage,
             calibrated_precision=metrics_primary.peptide_precision_mass,

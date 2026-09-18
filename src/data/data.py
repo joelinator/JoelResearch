@@ -68,6 +68,41 @@ def get_dataset(
     ]
     existing = [column for column in keep_columns if column in ds.column_names]
     ds = ds.select_columns(existing)
+    return filter_valid_peptide_lengths(ds)
+
+
+def filter_valid_peptide_lengths(ds):
+    """Filter dataset to peptides within supported [MIN_PEPTIDE_LENGTH, MAX_PEPTIDE_LENGTH] range."""
+    import numpy as np
+    import pyarrow.compute as pc
+    from .lengths import MAX_PEPTIDE_LENGTH, MIN_PEPTIDE_LENGTH
+
+    if hasattr(ds, "data") and hasattr(ds.data, "table"):
+        table = ds.data.table
+    elif hasattr(ds, "table"):
+        table = ds.table
+    else:
+        return ds
+
+    col = "modified_sequence" if "modified_sequence" in table.column_names else "sequence"
+    if col not in table.column_names:
+        return ds
+
+    seqs = table[col]
+    lens = pc.utf8_length(seqs).to_numpy()
+    valid_mask = (lens >= MIN_PEPTIDE_LENGTH) & (lens <= MAX_PEPTIDE_LENGTH)
+
+    candidates = (~valid_mask).nonzero()[0]
+    for idx in candidates:
+        seq_str = seqs[idx].as_py()
+        if seq_str:
+            num_toks = len(parse_peptide(seq_str))
+            if MIN_PEPTIDE_LENGTH <= num_toks <= MAX_PEPTIDE_LENGTH:
+                valid_mask[idx] = True
+
+    if not valid_mask.all():
+        valid_indices = np.where(valid_mask)[0]
+        ds = ds.select(valid_indices)
     return ds
 
 TOKEN_REGEX = re.compile(
@@ -255,8 +290,15 @@ class SpectrumDataSet(Dataset):
         if self.remove_precursor_peak:
             precursor_mz = float(row.get("precursor_mz") or ((precursor_mass + precursor_charge * M_H) / max(precursor_charge, 1)))
             keep = (mz_array - precursor_mz).abs() > 1.5
-            mz_array = mz_array[keep]
-            intensity_array = intensity_array[keep]
+            if keep.any():
+                mz_array = mz_array[keep]
+                intensity_array = intensity_array[keep]
+
+        # Guarantee at least one valid peak so spectrum_mask is never entirely padded
+        if mz_array.numel() == 0:
+            precursor_mz = float(row.get("precursor_mz") or ((precursor_mass + precursor_charge * M_H) / max(precursor_charge, 1)))
+            mz_array = torch.tensor([precursor_mz], dtype=torch.float32)
+            intensity_array = torch.tensor([1.0], dtype=torch.float32)
 
         if self.top_k is not None:
             k = min(self.top_k, intensity_array.shape[0])
