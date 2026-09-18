@@ -426,11 +426,11 @@ All models were evaluated on the same hardware (NVIDIA H100 80GB HBM3 GPU) and s
 | **DFM Base (Ours)** | **59.48M** | Nine-Species ($N=104\text{k}$) | 12.01% | 50.49% | 71.78% | 71.58% | 71.68% | **185.0 spec/s** |
 | InstaNovo (`v1.2.0`) | 94.77M | Nine-Species ($N=104\text{k}$) | 15.45% | **71.09%** | 76.88% | 76.88% | 76.88% | 51.9 spec/s |
 | Casanovo (`v5.2.1`) | 47.87M | Nine-Species ($N=104\text{k}$) | 4.56% | 53.30% | 62.34% | 63.73% | 63.03% | **231.3 spec/s** |
-| PowerNovo2 | 63.20M | Nine-Species ($N=104\text{k}$) | ~11.3% | ~28.5% | ~33.2% | ~30.5% | ~31.8% | 40.0 spec/s |
+| PowerNovo2 | 63.20M | Nine-Species ($N=104\text{k}$) | 3.16% | 33.43% | 37.78% | 38.34% | 38.06% | 45.0 spec/s |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| **DFM Balanced Joint (Ours)** | **59.48M** | **HC-PT 50k Split** | **42.66%** | 42.92% | **77.90%** | **77.86%** | **77.88%** | **185.0 spec/s** |
-| **DFM Base (Ours, Full Test)** | **59.48M** | HC-PT Full ($N=265\text{k}$) | 36.41% | 56.24% | 69.97% | 69.78% | 69.87% | **185.0 spec/s** |
-| **DFM Finetuned (Ours, Full Test)** | **59.48M** | HC-PT Full ($N=265\text{k}$) | 12.85% | 48.57% | 69.58% | 69.51% | 69.55% | **185.0 spec/s** |
+| **DFM Balanced Joint (Ours)** | **59.48M** | **HC-PT 50k Split** | **35.25%** | 56.46% | **70.49%** | **70.31%** | **70.40%** | **185.0 spec/s** |
+| **DFM Base (Ours)** | **59.48M** | **HC-PT 50k Split** | **36.58%** | **56.74%** | 70.29% | 70.10% | 70.19% | **185.0 spec/s** |
+| **DFM Finetuned (Ours)** | **59.48M** | **HC-PT 50k Split** | 12.73% | 48.79% | 69.85% | 69.78% | 69.81% | **185.0 spec/s** |
 | InstaNovo (`v1.2.0`) | 94.77M | HC-PT 50k Split | 63.03% | **66.15%** | 76.87% | 76.87% | 76.87% | 51.9 spec/s |
 | Casanovo (`v5.2.1`) | 47.87M | HC-PT 50k Split | 22.03% | 42.79% | 54.42% | 55.90% | 55.15% | **242.9 spec/s** |
 | PowerNovo2 | 63.20M | HC-PT 50k Split | ~9.8% | ~26.4% | ~31.0% | ~29.3% | ~30.1% | 40.0 spec/s |
@@ -439,23 +439,23 @@ All models were evaluated on the same hardware (NVIDIA H100 80GB HBM3 GPU) and s
 
 1. **DFM vs. Casanovo (Autoregressive Beam Search)**:
    - **Strict Exact Match Breakdown**: Casanovo collapses to **4.56%** strict exact match on Nine-Species because it forces Leucine substitution (`replace_isoleucine_with_leucine: true`) in its tokenizer. While this simplifies the search space, it fundamentally cannot recover the biological sequence.
-   - **I/L-Conflated Match**: Even when I/L ambiguity is ignored, DFM achieves **65.07%** vs. Casanovo's **53.30%** on Nine-Species (+11.77% absolute improvement), and matches Casanovo on HC-PT (42.92% vs 42.79%).
-   - **Residue-Level Accuracy**: DFM substantially outperforms Casanovo in amino-acid F1 across both datasets: **81.97% vs. 63.03%** on Nine-Species (+18.94% absolute) and **77.88% vs. 55.15%** on HC-PT (+22.73% absolute). Casanovo's lack of knapsack guidance causes unrecoverable prefix drift on complex spectra.
+   - **I/L-Conflated Match**: Even when I/L ambiguity is ignored, DFM Balanced achieves **65.07%** vs. Casanovo's **53.30%** on Nine-Species (+11.77% absolute improvement), and outperforms Casanovo on HC-PT (**56.46% vs. 42.79%**, +13.67% absolute improvement).
+   - **Residue-Level Accuracy**: DFM substantially outperforms Casanovo in amino-acid F1 across both datasets: **81.97% vs. 63.03%** on Nine-Species (+18.94% absolute) and **70.40% vs. 55.15%** on HC-PT (+15.25% absolute). Casanovo's lack of knapsack guidance causes unrecoverable prefix drift on complex spectra.
 
 2. **DFM vs. PowerNovo2 (Continuous Normalizing Flow vs. Discrete Flow Matching)**:
    - PowerNovo2 embeds peptide sequences into a continuous latent space using continuous normalizing flows (GLOW affine coupling layers) and then solves an integer linear program (CyLP / ALPS) to assemble residues matching the precursor mass.
-   - **The Discretization Gap**: Projecting continuous latent states onto discrete amino acid tokens introduces massive rounding and boundary distortion. As a result, PowerNovo2 achieves only ~28.5% I/L precision and ~31.8% residue F1 on Nine-Species.
-   - **The CTMC Advantage**: Discrete Flow Matching (DFM) avoids continuous relaxation entirely. By defining probability trajectories directly on the discrete probability simplex $\Delta^{|\mathcal{V}|-1}$ via continuous-time Markov chains, DFM maintains sharp token identities throughout the entire reverse process, outperforming continuous flow modeling by **+36.6%** in peptide precision and **+50.2%** in residue F1.
-   - **Throughput Advantage**: DFM's GPU tensorized Dynamic Knapsack mask evaluates in parallel during sampling, achieving **185 spectra/second**, which is **4.6× faster** than PowerNovo2's CPU integer programming knapsack solver (~40 spec/s).
+   - **The Discretization Gap**: Projecting continuous latent states onto discrete amino acid tokens introduces massive rounding and boundary distortion. As a result, PowerNovo2 achieves only 33.43% I/L precision and 38.06% residue F1 on Nine-Species.
+   - **The CTMC Advantage**: Discrete Flow Matching (DFM) avoids continuous relaxation entirely. By defining probability trajectories directly on the discrete probability simplex $\Delta^{|\mathcal{V}|-1}$ via continuous-time Markov chains, DFM maintains sharp token identities throughout the entire reverse process, outperforming continuous flow modeling by **+31.6%** in peptide precision and **+43.9%** in residue F1.
+   - **Throughput Advantage**: DFM's GPU tensorized Dynamic Knapsack mask evaluates in parallel during sampling, achieving **185 spectra/second**, which is **4.1× faster** than PowerNovo2's CPU integer programming knapsack solver (45.0 spec/s).
 
 3. **DFM vs. InstaNovo (Non-Autoregressive vs. Autoregressive Knapsack)**:
    - DFM is **3.6× faster** than InstaNovo (185 spec/s vs. 51.9 spec/s) due to fixed $T=16$ Euler sampling steps independent of peptide length, avoiding step-by-step autoregressive beam expansion.
    - DFM exhibits far superior **strict exact match** capability on natural proteomes (64.92% vs. 15.45%), correctly resolving isomeric residues from subtle secondary fragmentation peaks.
 
 4. **Evolution Across DFM Training Paradigms (Base vs. Finetuned vs. Balanced)**:
-   - **DFM Base (Zero-Shot)**: Trained exclusively on single-domain synthetic data (HC-PT), the base model achieves 36.41% strict exact match on HC-PT, but drops to 12.01% on Nine-Species due to biological distribution shift.
-   - **DFM Finetuned (Sequential Single-Domain)**: Specializing on Nine-Species boosts strict exact match to 65.63% on Nine-Species, but incurs severe **catastrophic forgetting** on HC-PT (collapsing to 12.85%).
-   - **DFM Balanced Joint (Multi-Domain)**: Interleaved 1:1 multi-task training recovers 34.93% on HC-PT (42.66% on the 50k split) while retaining 64.92% on Nine-Species, matching single-domain specialist performance across both regimes using a single **59.48M parameter** backbone.
+   - **DFM Base (Pretrained on HC-PT)**: Trained exclusively on single-domain synthetic data (HC-PT), the base model achieves 36.58% strict exact match (56.74% I/L match) on HC-PT 50k, but drops to 12.01% on Nine-Species due to biological distribution shift.
+   - **DFM Finetuned (Sequential Single-Domain)**: Specializing on Nine-Species boosts strict exact match to 65.63% on Nine-Species, but incurs severe **catastrophic forgetting** on HC-PT (collapsing to 12.73% strict match on HC-PT 50k).
+   - **DFM Balanced Joint (Multi-Domain)**: Interleaved 1:1 multi-task training recovers 35.25% strict match and 56.46% I/L match on HC-PT 50k while retaining 64.92% on Nine-Species, matching single-domain specialist performance across both regimes using a single **59.48M parameter** backbone.
 
 ---
 
