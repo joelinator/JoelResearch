@@ -433,7 +433,7 @@ All models were evaluated on the same hardware (NVIDIA H100 80GB HBM3 GPU) and s
 | **DFM Finetuned (Ours)** | **59.48M** | **HC-PT 50k Split** | 12.73% | 48.79% | 69.85% | 69.78% | 69.81% | **185.0 spec/s** |
 | InstaNovo (`v1.2.0`) | 94.77M | HC-PT 50k Split | 63.03% | **66.15%** | 76.87% | 76.87% | 76.87% | 51.9 spec/s |
 | Casanovo (`v5.2.1`) | 47.87M | HC-PT 50k Split | 22.03% | 42.79% | 54.42% | 55.90% | 55.15% | **242.9 spec/s** |
-| PowerNovo2 | 63.20M | HC-PT 50k Split | ~9.8% | ~26.4% | ~31.0% | ~29.3% | ~30.1% | 40.0 spec/s |
+| PowerNovo2 | 63.20M | HC-PT 50k Split | 15.06% | 29.62% | 38.19% | 40.27% | 39.20% | 33.9 spec/s |
 
 #### Key Scientific Insights & Paradigm Comparison
 
@@ -444,9 +444,9 @@ All models were evaluated on the same hardware (NVIDIA H100 80GB HBM3 GPU) and s
 
 2. **DFM vs. PowerNovo2 (Continuous Normalizing Flow vs. Discrete Flow Matching)**:
    - PowerNovo2 embeds peptide sequences into a continuous latent space using continuous normalizing flows (GLOW affine coupling layers) and then solves an integer linear program (CyLP / ALPS) to assemble residues matching the precursor mass.
-   - **The Discretization Gap**: Projecting continuous latent states onto discrete amino acid tokens introduces massive rounding and boundary distortion. As a result, PowerNovo2 achieves only 33.43% I/L precision and 38.06% residue F1 on Nine-Species.
-   - **The CTMC Advantage**: Discrete Flow Matching (DFM) avoids continuous relaxation entirely. By defining probability trajectories directly on the discrete probability simplex $\Delta^{|\mathcal{V}|-1}$ via continuous-time Markov chains, DFM maintains sharp token identities throughout the entire reverse process, outperforming continuous flow modeling by **+31.6%** in peptide precision and **+43.9%** in residue F1.
-   - **Throughput Advantage**: DFM's GPU tensorized Dynamic Knapsack mask evaluates in parallel during sampling, achieving **185 spectra/second**, which is **4.1× faster** than PowerNovo2's CPU integer programming knapsack solver (45.0 spec/s).
+   - **The Discretization Gap**: Projecting continuous latent states onto discrete amino acid tokens introduces massive rounding and boundary distortion. As a result, PowerNovo2 achieves only 33.43% I/L precision and 38.06% residue F1 on Nine-Species, and 29.62% I/L precision and 39.20% residue F1 on HC-PT.
+   - **The CTMC Advantage**: Discrete Flow Matching (DFM) avoids continuous relaxation entirely. By defining probability trajectories directly on the discrete probability simplex $\Delta^{|\mathcal{V}|-1}$ via continuous-time Markov chains, DFM maintains sharp token identities throughout the entire reverse process, outperforming continuous flow modeling by **+31.6%** in peptide precision and **+43.9%** in residue F1 on Nine-Species, and by **+26.8%** in peptide precision and **+31.2%** in residue F1 on HC-PT.
+   - **Throughput Advantage**: DFM's GPU tensorized Dynamic Knapsack mask evaluates in parallel during sampling, achieving **185 spectra/second**, which is **4.1× to 5.5× faster** than PowerNovo2's CPU integer programming knapsack solver (33.9 to 45.0 spec/s).
 
 3. **DFM vs. InstaNovo (Non-Autoregressive vs. Autoregressive Knapsack)**:
    - DFM is **3.6× faster** than InstaNovo (185 spec/s vs. 51.9 spec/s) due to fixed $T=16$ Euler sampling steps independent of peptide length, avoiding step-by-step autoregressive beam expansion.
