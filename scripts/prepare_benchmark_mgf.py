@@ -76,16 +76,19 @@ def prepare_hcpt(output_dir: Path, num_samples: int = 50000, seed: int = 42) -> 
         print(f"HC-PT files already exist in {output_dir}")
         return mgf_path, gt_path
 
-    # Locate cached test parquet
-    hub_dir = Path("/home/joelgedeon_aims_ac_za/.cache/huggingface/hub/datasets--InstaDeepAI--ms_proteometools/snapshots")
-    candidates = list(hub_dir.glob("*/data/test-*.parquet"))
-    if not candidates:
-        raise FileNotFoundError(f"Could not locate cached test parquet in {hub_dir}")
-    src_parquet = candidates[0]
-    print(f"Loading HC-PT test split from {src_parquet}...")
+    # Locate cached test parquet or load via datasets
+    cache_hub = Path(os.environ.get("HF_HOME", Path.home() / ".cache/huggingface")) / "hub"
+    hub_dir = cache_hub / "datasets--InstaDeepAI--ms_proteometools/snapshots"
+    candidates = list(hub_dir.glob("*/data/test-*.parquet")) if hub_dir.exists() else []
+    if candidates:
+        src_parquet = candidates[0]
+        print(f"Loading HC-PT test split from {src_parquet}...")
+        table = pq.read_table(src_parquet, columns=["precursor_mz", "precursor_charge", "mz_array", "intensity_array", "modified_sequence", "sequence"])
+    else:
+        print("Loading HC-PT test split via load_dataset...")
+        ds_hc = load_dataset("InstaDeepAI/ms_proteometools", split="test")
+        table = ds_hc.data.table
 
-    # Read needed columns
-    table = pq.read_table(src_parquet, columns=["precursor_mz", "precursor_charge", "mz_array", "intensity_array", "modified_sequence", "sequence"])
     total_len = len(table)
     print(f"Total HC-PT test spectra: {total_len}")
 
@@ -109,9 +112,18 @@ def prepare_hcpt(output_dir: Path, num_samples: int = 50000, seed: int = 42) -> 
     return mgf_path, gt_path
 
 
+def parse_args():
+    import argparse
+    parser = argparse.ArgumentParser(description="Prepare standardized MGF benchmark files.")
+    parser.add_argument("--output-dir", type=Path, default=Path("/dev/shm/benchmark_inputs"), help="Directory for output files.")
+    parser.add_argument("--hcpt-samples", type=int, default=50000, help="Number of HC-PT test spectra to sample.")
+    parser.add_argument("--seed", type=int, default=42, help="Random seed for sampling.")
+    return parser.parse_args()
+
+
 if __name__ == "__main__":
-    shm_dir = Path("/dev/shm/benchmark_inputs")
-    print(f"Preparing benchmark data in {shm_dir}...")
-    ns_mgf, ns_gt = prepare_ninespecies(shm_dir)
-    hc_mgf, hc_gt = prepare_hcpt(shm_dir, num_samples=50000, seed=42)
+    args = parse_args()
+    print(f"Preparing benchmark data in {args.output_dir}...")
+    ns_mgf, ns_gt = prepare_ninespecies(args.output_dir)
+    hc_mgf, hc_gt = prepare_hcpt(args.output_dir, num_samples=args.hcpt_samples, seed=args.seed)
     print("All benchmark data prepared successfully!")

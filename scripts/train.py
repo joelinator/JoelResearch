@@ -7,9 +7,11 @@ import argparse
 import os
 from pathlib import Path
 
-from bootstrap import setup_src_path
+import sys
 
-setup_src_path()
+REPO_ROOT = Path(__file__).resolve().parents[1]
+if str(REPO_ROOT / "src") not in sys.path:
+    sys.path.insert(0, str(REPO_ROOT / "src"))
 
 import torch
 from torch.optim import AdamW

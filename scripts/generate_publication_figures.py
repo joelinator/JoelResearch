@@ -27,16 +27,19 @@ plt.rcParams.update({
     "figure.titleweight": "bold",
 })
 
+import os
+
 DOCS_DIR = Path("docs/figures")
 DOCS_DIR.mkdir(parents=True, exist_ok=True)
-ARTIFACT_DIR = Path("/home/joelgedeon_aims_ac_za/.gemini/antigravity-cli/brain/ee9cf031-b0c5-4740-b963-40c81c13ea78")
+_artifact_env = os.environ.get("ANTIGRAVITY_ARTIFACT_DIR")
+ARTIFACT_DIR = Path(_artifact_env) if _artifact_env else None
 
 def save_fig(fig, filename):
-    for d in [DOCS_DIR, ARTIFACT_DIR]:
-        if d.exists():
-            out_p = d / filename
-            fig.savefig(out_p, dpi=300, bbox_inches="tight")
-            print(f"Saved: {out_p}")
+    out_p = DOCS_DIR / filename
+    fig.savefig(out_p, dpi=300, bbox_inches="tight")
+    print(f"Saved: {out_p}")
+    if ARTIFACT_DIR and ARTIFACT_DIR.exists():
+        fig.savefig(ARTIFACT_DIR / filename, dpi=300, bbox_inches="tight")
 
 
 # =========================================================================
@@ -430,7 +433,15 @@ def generate_fig6_case_studies():
     plt.close(fig)
 
 
+def parse_args():
+    import argparse
+    parser = argparse.ArgumentParser(description="Generate all publication-quality figures.")
+    parser.add_argument("--output-dir", type=Path, default=DOCS_DIR, help="Directory to save generated figures.")
+    return parser.parse_args()
+
+
 if __name__ == "__main__":
+    args = parse_args()
     print("Regenerating all publication figures with 300 DPI and exact ground truth values...")
     generate_fig1_multidomain()
     generate_fig2_knapsack()

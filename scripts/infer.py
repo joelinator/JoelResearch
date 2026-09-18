@@ -6,9 +6,19 @@ from __future__ import annotations
 import argparse
 import os
 
-from bootstrap import move_batch_to_device, setup_src_path
+import sys
+from pathlib import Path
 
-setup_src_path()
+REPO_ROOT = Path(__file__).resolve().parents[1]
+if str(REPO_ROOT / "src") not in sys.path:
+    sys.path.insert(0, str(REPO_ROOT / "src"))
+
+
+def move_batch_to_device(batch, device: torch.device):
+    return tuple(
+        tensor.to(device) if torch.is_tensor(tensor) else tensor
+        for tensor in batch
+    )
 
 import torch
 

@@ -6,9 +6,12 @@ from __future__ import annotations
 import argparse
 import os
 
-from bootstrap import setup_src_path
+import sys
+from pathlib import Path
 
-setup_src_path()
+REPO_ROOT = Path(__file__).resolve().parents[1]
+if str(REPO_ROOT / "src") not in sys.path:
+    sys.path.insert(0, str(REPO_ROOT / "src"))
 
 from data.data import DEFAULT_DATASET, get_dataset  # noqa: E402
 
