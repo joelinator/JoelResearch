@@ -367,10 +367,10 @@ The balanced joint training paradigm recovered performance on HC-PT while mainta
 
 ![Multi-Domain Generalization](./docs/figures/joint_balanced_multi_domain_comparison.png)
 
-#### Multi-Step Knapsack Guidance Benchmark
+#### Multi-Step Dynamic Knapsack Guidance Benchmark
 Enforcing dynamic mass budget bounds during reverse flow integration yielded consistent improvements across all metrics:
 
-![Multi-Step Knapsack Guidance](./docs/figures/strategy_a_full_benchmark_comparison.png)
+![Multi-Step Knapsack Guidance](./docs/figures/dynamic_knapsack_benchmark_comparison.png)
 
 #### Head-to-Head Comparison on Nine-Species Full Test (DFM vs InstaNovo)
 DFM dramatically outpaces InstaNovo on strict exact sequence match, residue accuracy (AA F1), and high-confidence coverage:
@@ -382,11 +382,18 @@ Benchmarking on the synthetic peptide benchmark illustrates the domain differenc
 
 ![DFM vs InstaNovo HC-PT](./docs/figures/instanovo_vs_dfm_hcpt_full_test_comparison.png)
 
+#### Cross-Domain Summary Across All 369,532 Held-Out Test Spectra
+Direct comparison of sequencing accuracy and residue F1 across both full benchmarks:
+
+![Cross-Domain Benchmark Summary](./docs/figures/full_test_splits_comparison.png)
+
 ---
 
 ## 9. Qualitative Prediction Analysis: Four Case Studies
 
 To understand the mechanistic behavior of Discrete Flow Matching in comparison with Autoregressive Beam Search, we extracted and analyzed concrete spectrum predictions across four performance quadrants:
+
+![Qualitative Prediction Case Studies](./docs/figures/qualitative_prediction_cases.png)
 
 ```
                             Prediction Overlap Matrix
