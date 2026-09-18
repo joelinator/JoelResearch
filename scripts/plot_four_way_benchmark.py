@@ -261,5 +261,13 @@ def build_plots():
     print(f"Copied to {docs_path}")
 
 
+def parse_args():
+    import argparse
+    parser = argparse.ArgumentParser(description="Generate publication-quality multi-paradigm benchmark figures.")
+    parser.add_argument("--output-dir", type=Path, default=DOCS_FIG_DIR, help="Output directory for generated figure.")
+    return parser.parse_args()
+
+
 if __name__ == "__main__":
+    args = parse_args()
     build_plots()

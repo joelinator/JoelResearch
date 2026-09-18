@@ -1,1 +1,0 @@
-comands.sh
