@@ -223,5 +223,7 @@ __marimo__/
 # Custom
 report.md
 data/
+lightning_logs/
+scratch/
 
 

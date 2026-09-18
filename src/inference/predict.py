@@ -11,6 +11,7 @@ from flow_matching.sampling import (
     inference_sample_uniform,
     sample_uniform_noise,
 )
+from flow_matching.scheduler import get_scheduler
 
 
 def decode_tokens(token_ids: torch.Tensor, vocab: dict[str, int]) -> list[str]:
@@ -142,14 +143,21 @@ def knapsack_filter_logits_vectorized(
     mass_table: torch.Tensor,
     full_mass_table: torch.Tensor,
     tol: float = 1.0,
+    valid_aa_masses: torch.Tensor | None = None,
+    pairs_2: torch.Tensor | None = None,
+    min_aa_mass: float = 57.021464,
+    max_aa_mass: float = 186.079313,
 ) -> torch.Tensor:
     """
-    Vectorized precursor mass-budget (knapsack) constraint for discrete flow matching.
+    Multi-step dynamic precursor mass-budget (knapsack) constraint for discrete flow matching.
 
-    When a candidate sequence has reached the final masked residue (num_masked == 1),
-    prunes physically impossible amino acid residues whose masses deviate from
-    the exact remaining mass budget (M_prec - M_H2O - M_unmasked) by more than `tol` Da.
-    If no residue falls within `tol` Da, logits are penalized smoothly by mass distance.
+    Enforces physical mass-budget constraints at all flow matching stages:
+    - K == 1 (final unmasked residue): Restricts choices to AAs matching remaining mass within `tol` Da.
+    - K == 2 (two residues remaining): Restricts choices such that (rem_mass - m_aa) matches a valid single AA mass.
+    - K == 3 (three residues remaining): Restricts choices such that (rem_mass - m_aa) matches a valid 2-mer sum.
+    - K >= 4: Enforces dynamic interval bounds:
+        (K - 1) * min_aa_mass - tol <= rem_mass - m_aa <= (K - 1) * max_aa_mass + tol
+      pruning tokens that would guarantee a dead-end mass budget violation.
     """
     is_masked = (x_t == mask_id) & active_mask
     num_masked = is_masked.sum(dim=-1, keepdim=True)  # (B_total, 1)
@@ -161,12 +169,11 @@ def knapsack_filter_logits_vectorized(
 
     rem_mass = target_residue_mass.unsqueeze(-1) - current_mass  # (B_total, 1)
 
+    # 1. Single remaining residue (exact mass match)
     single_rem_mask = (num_masked == 1) & is_masked  # (B_total, L)
-
     if single_rem_mask.any():
         target_m = rem_mass.unsqueeze(-1)  # (B_total, 1, 1)
         mass_diffs = (mass_table.view(1, 1, -1) - target_m).abs()  # (B_total, 1, V)
-
         valid_aa = (mass_diffs <= tol) & (mass_table.view(1, 1, -1) > 0)  # (B_total, 1, V)
         has_valid = valid_aa.any(dim=-1, keepdim=True)  # (B_total, 1, 1)
 
@@ -176,6 +183,57 @@ def knapsack_filter_logits_vectorized(
             logits - mass_diffs * 5.0,
         )
         logits = torch.where(single_rem_mask.unsqueeze(-1), modified_logits, logits)
+
+    # 2. Two remaining residues (complement single AA check)
+    two_rem_mask = (num_masked == 2) & is_masked  # (B_total, L)
+    if two_rem_mask.any() and valid_aa_masses is not None:
+        R = rem_mass.unsqueeze(-1) - mass_table.view(1, 1, -1)  # (B_total, 1, V)
+        dist_to_single = (R.unsqueeze(-1) - valid_aa_masses.view(1, 1, 1, -1)).abs().min(dim=-1).values
+        valid_2 = (dist_to_single <= tol) & (mass_table.view(1, 1, -1) > 0)
+        has_valid_2 = valid_2.any(dim=-1, keepdim=True)
+        mod_2 = torch.where(
+            has_valid_2,
+            torch.where(valid_2, logits, torch.full_like(logits, -1e9)),
+            logits - dist_to_single * 5.0,
+        )
+        logits = torch.where(two_rem_mask.unsqueeze(-1), mod_2, logits)
+
+    # 3. Three remaining residues (complement pairwise sum check)
+    three_rem_mask = (num_masked == 3) & is_masked  # (B_total, L)
+    if three_rem_mask.any() and pairs_2 is not None:
+        R = rem_mass.unsqueeze(-1) - mass_table.view(1, 1, -1)  # (B_total, 1, V)
+        dist_to_pair = (R.unsqueeze(-1) - pairs_2.view(1, 1, 1, -1)).abs().min(dim=-1).values
+        valid_3 = (dist_to_pair <= tol) & (mass_table.view(1, 1, -1) > 0)
+        has_valid_3 = valid_3.any(dim=-1, keepdim=True)
+        mod_3 = torch.where(
+            has_valid_3,
+            torch.where(valid_3, logits, torch.full_like(logits, -1e9)),
+            logits - dist_to_pair * 5.0,
+        )
+        logits = torch.where(three_rem_mask.unsqueeze(-1), mod_3, logits)
+
+    # 4. Four or more residues (interval mass bounds)
+    multi_rem_mask = (num_masked >= 4) & is_masked  # (B_total, L)
+    if multi_rem_mask.any():
+        rem_count = (num_masked - 1).float()
+        m_lower = rem_mass - rem_count * max_aa_mass - tol
+        m_upper = rem_mass - rem_count * min_aa_mass + tol
+        in_interval = (
+            (mass_table.view(1, 1, -1) >= m_lower.unsqueeze(-1))
+            & (mass_table.view(1, 1, -1) <= m_upper.unsqueeze(-1))
+            & (mass_table.view(1, 1, -1) > 0)
+        )
+        has_interval = in_interval.any(dim=-1, keepdim=True)
+        interval_penalty = (
+            torch.clamp(m_lower.unsqueeze(-1) - mass_table.view(1, 1, -1), min=0.0)
+            + torch.clamp(mass_table.view(1, 1, -1) - m_upper.unsqueeze(-1), min=0.0)
+        )
+        mod_multi = torch.where(
+            has_interval,
+            torch.where(in_interval, logits, torch.full_like(logits, -1e9)),
+            logits - interval_penalty * 5.0,
+        )
+        logits = torch.where(multi_rem_mask.unsqueeze(-1), mod_multi, logits)
 
     return logits
 
@@ -210,6 +268,7 @@ def predict_peptide(
     use_knapsack_filter: bool = True,
     knapsack_tol_da: float = 1.0,
     num_samples_per_length: int = 1,
+    eta: float = 0.0,
 ) -> tuple[torch.Tensor, torch.Tensor, list[str]] | tuple[torch.Tensor, torch.Tensor, list[str], torch.Tensor]:
     """
     Run de novo inference with Top-k Length Beam Decoding, Dynamic Knapsack Filtering, and SOTA scoring.
@@ -224,6 +283,7 @@ def predict_peptide(
     length_predictor.eval()
     decoder.eval()
     guidance.eval()
+    scheduler = get_scheduler(scheduler)
 
     device = mz_array.device
     batch_size = mz_array.shape[0]
@@ -311,6 +371,24 @@ def predict_peptide(
         if token in AA_MASSES_DICT:
             full_mass_table[idx] = AA_MASSES_DICT[token]
 
+    # Precompute valid single and pairwise AA masses for multi-step knapsack guidance
+    valid_masses_list = sorted(set([v for k, v in AA_MASSES_DICT.items() if len(k) == 1 and v > 0]))
+    valid_aa_masses = torch.tensor(valid_masses_list, dtype=torch.float32, device=device)
+    min_aa_mass = float(valid_aa_masses.min().item())
+    max_aa_mass = float(valid_aa_masses.max().item())
+    pairs_2 = (valid_aa_masses.unsqueeze(0) + valid_aa_masses.unsqueeze(1)).view(-1).unique()
+
+    # Multi-candidate sampling temperatures: candidate 0 is greedy MAP, 1..S-1 are stochastic
+    if S > 1:
+        sample_idx = torch.arange(total_samples, device=device) % S
+        sample_temperature = torch.where(
+            sample_idx == 0,
+            torch.tensor(temperature, device=device),
+            torch.tensor(0.7 if temperature <= 0.05 else temperature, device=device),
+        ).view(-1, 1)
+    else:
+        sample_temperature = temperature
+
     # 3. Initialize noisy candidate sequences
     x_t = _initialize_noisy_sequence(
         total_samples,
@@ -349,6 +427,8 @@ def predict_peptide(
         delta_t = 1.0 / num_steps
         t = torch.full((total_samples,), t_scalar, device=device)
         kt, kt_derivative = scheduler(t)
+        t_next = torch.full((total_samples,), min(1.0, (step + 1) / num_steps), device=device)
+        kt_next, _ = scheduler(t_next)
 
         if guidance_scale > 1.0 and uncond_conditioner is not None:
             cond_logits = decoder(
@@ -395,6 +475,10 @@ def predict_peptide(
                 mass_table=mass_table,
                 full_mass_table=full_mass_table,
                 tol=knapsack_tol_da,
+                valid_aa_masses=valid_aa_masses,
+                pairs_2=pairs_2,
+                min_aa_mass=min_aa_mass,
+                max_aa_mass=max_aa_mass,
             )
 
         if noising_scheme == "mask":
@@ -406,8 +490,11 @@ def predict_peptide(
                 vocabulary,
                 delta_t,
                 active_mask=active_mask,
-                temperature=temperature,
+                temperature=sample_temperature,
                 strategy=decoding_strategy,
+                kt_next=kt_next,
+                eta=eta,
+                is_final_step=(step == num_steps - 1),
             )
         else:
             x_t = sample_step(
@@ -437,6 +524,10 @@ def predict_peptide(
                     mass_table=mass_table,
                     full_mass_table=full_mass_table,
                     tol=knapsack_tol_da,
+                    valid_aa_masses=valid_aa_masses,
+                    pairs_2=pairs_2,
+                    min_aa_mass=min_aa_mass,
+                    max_aa_mass=max_aa_mass,
                 )
                 x_t[rem_mask] = final_logits.argmax(dim=-1)[rem_mask]
             else:

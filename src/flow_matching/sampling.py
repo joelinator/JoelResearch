@@ -91,6 +91,9 @@ def inference_sample_mask(
     active_mask=None,
     temperature: float = 0.0,
     strategy: str = "confidence",
+    kt_next: torch.Tensor | None = None,
+    eta: float = 0.0,
+    is_final_step: bool = False,
 ):
     """
     Reverse mask step for discrete flow matching. Only active positions may change.
@@ -108,8 +111,22 @@ def inference_sample_mask(
             - 'confidence': Top-confidence unmasking (MaskGIT / MDLM style) where positions
                             with highest prediction certainty are unmasked first.
             - 'random': Stochastic uniform unmasking according to rate dt * k'(t) / (1 - k(t)).
+        kt_next: Optional scheduler state at time t + dt, shape (B,). When provided,
+                 uses cumulative unmasking matching the scheduler curve κ(t).
+        eta: Detailed Balance stochasticity parameter (Campbell et al., arXiv:2402.04997).
+             When eta > 0, introduces reversible transitions (re-masking and boosted unmasking)
+             satisfying detailed balance, enabling error correction and diverse stochastic paths.
+        is_final_step: If True, disables re-masking on the final integration step so sequences
+                       terminate clean.
     """
-    if temperature <= 0.05:
+    if isinstance(temperature, torch.Tensor):
+        t_clamped = temperature.view(-1, 1, 1).clamp(min=1e-3)
+        probs = F.softmax(logits / t_clamped, dim=-1)
+        greedy = logits.argmax(dim=-1)
+        stochastic = Categorical(probs).sample()
+        is_greedy = (temperature.view(-1, 1) <= 0.05).expand(-1, logits.shape[1])
+        x_1 = torch.where(is_greedy, greedy, stochastic)
+    elif temperature <= 0.05:
         probs = F.softmax(logits, dim=-1)
         x_1 = logits.argmax(dim=-1)
     else:
@@ -122,7 +139,12 @@ def inference_sample_mask(
         is_masked = is_masked & active_mask
 
     denom = clean_weight_denominator(kt).view(-1, 1)
-    prob_unmask = (kt_derivative.view(-1, 1) * delta_t / denom).clamp(0.0, 1.0)
+    if eta > 0.0:
+        # Boosted unmasking rate under Detailed Balance: (1 + eta * kt) / (1 - kt) * k'(t) * dt
+        boost = 1.0 + eta * kt.view(-1, 1)
+        prob_unmask = (kt_derivative.view(-1, 1) * delta_t * boost / denom).clamp(0.0, 1.0)
+    else:
+        prob_unmask = (kt_derivative.view(-1, 1) * delta_t / denom).clamp(0.0, 1.0)
 
     if strategy == "confidence":
         # Confidence is maximum predicted probability across classes
@@ -137,15 +159,40 @@ def inference_sample_mask(
                 (x_t.shape[0], 1), x_t.shape[1], device=x_t.device, dtype=torch.float32
             )
 
-        num_to_unmask = torch.clamp(torch.ceil(num_active * prob_unmask).long(), min=1)
+        if kt_next is not None:
+            # Cumulative unmasking with optional Detailed Balance boost
+            if eta > 0.0:
+                target_clean = torch.round(num_active * (kt_next.view(-1, 1) + eta * kt.view(-1, 1) * delta_t)).long()
+            else:
+                target_clean = torch.round(num_active * kt_next.view(-1, 1)).long()
+            act = active_mask if active_mask is not None else torch.ones_like(is_masked)
+            current_clean = (~is_masked & act).sum(dim=-1, keepdim=True)
+            num_to_unmask = torch.clamp(target_clean - current_clean, min=0)
+        else:
+            num_to_unmask = torch.clamp(torch.ceil(num_active * prob_unmask).long(), min=1)
+
         # Vectorized top-k selection via double argsort (rank 0 is highest confidence)
-        ranks = torch.argsort(torch.argsort(confidence, dim=-1, descending=True), dim=-1)
+        if isinstance(temperature, torch.Tensor):
+            stoch_mask = (temperature.view(-1, 1) > 0.05).float()
+            conf_noise = torch.rand_like(confidence) * stoch_mask * 0.05
+            ranks = torch.argsort(torch.argsort(confidence + conf_noise, dim=-1, descending=True), dim=-1)
+        else:
+            ranks = torch.argsort(torch.argsort(confidence, dim=-1, descending=True), dim=-1)
         will_unmask = (ranks < num_to_unmask) & is_masked
     else:
         will_unmask = (torch.rand_like(x_t, dtype=torch.float32) < prob_unmask) & is_masked
 
     updated = x_t.clone()
     updated[will_unmask] = x_1[will_unmask]
+
+    # Detailed Balance Re-Masking (stochastic jump back to mask state, Campbell et al. 2024)
+    if eta > 0.0 and not is_final_step:
+        prob_remask = min(1.0, float(delta_t * eta))
+        act = active_mask if active_mask is not None else torch.ones_like(is_masked)
+        is_unmasked = (~is_masked) & act
+        will_remask = (torch.rand_like(x_t, dtype=torch.float32) < prob_remask) & is_unmasked
+        updated[will_remask] = mask_id
+
     return updated
 
 
