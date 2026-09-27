@@ -25,6 +25,7 @@ def evaluate_generative(
     device: torch.device,
     *,
     max_batches: int | None = None,
+    max_samples: int | None = None,
     num_steps: int = 25,
     noising_scheme: str = "mask",
     guidance_scale: float = 1.8,
@@ -124,6 +125,15 @@ def evaluate_generative(
         predicted_lengths.extend(int(value) for value in pred_lengths.tolist())
         target_lengths.extend(int(value) for value in length.tolist())
         scores.extend(float(s) for s in pred_scores.tolist())
+
+        if max_samples is not None and len(predictions) >= max_samples:
+            predictions = predictions[:max_samples]
+            targets = targets[:max_samples]
+            predicted_lengths = predicted_lengths[:max_samples]
+            target_lengths = target_lengths[:max_samples]
+            scores = scores[:max_samples]
+            print(f"[Done] Reached requested max_samples ({max_samples:,} spectra).", flush=True)
+            break
 
         total_batches = len(loader) if hasattr(loader, "__len__") else None
         if (batch_idx + 1) % 10 == 0 or (total_batches is not None and (batch_idx + 1) == total_batches):
