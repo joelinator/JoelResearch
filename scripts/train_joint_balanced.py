@@ -117,11 +117,11 @@ def get_recommended_batch_size(target_vram_pct: float = 0.85) -> int:
 def parse_args():
     parser = argparse.ArgumentParser(description="Train DFM on balanced Nine-Species + HC-PT dataset.")
     parser.add_argument("--cache-dir", default=os.environ.get("HF_DATASETS_CACHE", "data/cache"))
-    parser.add_argument("--output-dir", default="artifacts/dfm_joint_balanced_8ep")
+    parser.add_argument("--output-dir", default="artifacts/dfm_joint_balanced_30ep")
     parser.add_argument("--run-name", default=None)
     parser.add_argument(
         "--resume-from",
-        default="artifacts/dfm_pl_ninespecies_finetune_phase2_10ep/checkpoints/best-gen-exact-epoch=02-exact=0.6270.ckpt",
+        default="artifacts/dfm_joint_balanced_8ep/checkpoints/dfm_balanced_best.ckpt",
         help="Checkpoint to initialize model weights from.",
     )
     parser.add_argument(
