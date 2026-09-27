@@ -142,8 +142,8 @@ def parse_args():
         "--mask-self-attention",
         dest="mask_self_attention",
         action="store_true",
-        default=bool(int(os.environ.get("MASK_SELF_ATTENTION", "0"))),
-        help="Apply sequence padding mask to decoder self-attention (default: False for trained checkpoints).",
+        default=bool(int(os.environ.get("MASK_SELF_ATTENTION", "1"))),
+        help="Apply sequence padding mask to decoder self-attention (default: True).",
     )
     parser.add_argument(
         "--no-mask-self-attention",
@@ -177,6 +177,37 @@ def parse_args():
     parser.add_argument("--output-json", default=os.environ.get("EVAL_OUTPUT_JSON"))
     parser.add_argument("--save-predictions", default=os.environ.get("SAVE_PREDICTIONS"), help="Path to save predictions CSV")
     parser.add_argument("--save-plot", default=os.environ.get("SAVE_PLOT"))
+    parser.add_argument(
+        "--use-exact-dp-knapsack",
+        dest="use_exact_dp_knapsack",
+        action="store_true",
+        default=True,
+        help="Use exact reachability dynamic programming knapsack table (default: True).",
+    )
+    parser.add_argument(
+        "--no-exact-dp-knapsack",
+        dest="use_exact_dp_knapsack",
+        action="store_false",
+        help="Disable exact DP knapsack table and fall back to interval bounds.",
+    )
+    parser.add_argument(
+        "--enzyme",
+        default="trypsin",
+        help="Digestion enzyme for evidence-conditioned cleavage prior ('trypsin' or 'none', default: trypsin).",
+    )
+    parser.add_argument(
+        "--use-composite-ladders",
+        dest="use_composite_ladders",
+        action="store_true",
+        default=True,
+        help="Use multi-feature composite fragment ladder scoring (default: True).",
+    )
+    parser.add_argument(
+        "--no-composite-ladders",
+        dest="use_composite_ladders",
+        action="store_false",
+        help="Use simple explained intensity fragment scoring.",
+    )
     parser.add_argument("--no-amp", dest="amp", action="store_false", default=True, help="Disable automatic mixed precision (FP16/BF16)")
     return parser.parse_args()
 
@@ -267,9 +298,12 @@ def main():
         amp=args.amp,
         return_details=True,
         use_knapsack_filter=args.use_knapsack_filter,
+        use_exact_dp_knapsack=args.use_exact_dp_knapsack,
         knapsack_tol_da=args.knapsack_tol_da,
         num_samples_per_length=args.num_samples_per_length,
         eta=args.eta,
+        enzyme=args.enzyme,
+        use_composite_ladders=args.use_composite_ladders,
     )
 
     scores = np.asarray(details["scores"], dtype=np.float64)
@@ -350,6 +384,10 @@ def main():
     print(f"Precision-Coverage AUC (Mass-Based):  {metrics_unthresh.auc_mass:.4f}")
     print(f"pAUPCC80 (Mass-Based >= 80% P):       {metrics_unthresh.pauc80_mass:.4f}")
     print(f"Precision-Coverage AUC (Exact Match): {metrics_unthresh.auc_exact:.4f}")
+    if metrics_unthresh.coverage_at_80 > 0:
+        print(f"Coverage @ 80% Precision:             {metrics_unthresh.coverage_at_80 * 100:.2f}%")
+        print(f"Coverage @ 90% Precision:             {metrics_unthresh.coverage_at_90 * 100:.2f}%")
+        print(f"Coverage @ 95% Precision:             {metrics_unthresh.coverage_at_95 * 100:.2f}%")
     print("-" * 65)
     print(f"Mass-Calibrated Threshold (tau={primary_threshold:.3f}):")
     print(f"  Coverage:                           {metrics_primary.coverage * 100:.2f}% ({metrics_primary.num_predicted_above_threshold}/{len(scores)})")
@@ -361,6 +399,12 @@ def main():
     print(f"  Exact Match F1:                     {metrics_primary.peptide_f1_exact * 100:.2f}%")
     print("=" * 65)
 
+    # Stratified breakdown display
+    if "stratified_breakdown" in details:
+        print("\n=== Stratified Performance Breakdown ===")
+        for group, vals in details["stratified_breakdown"].items():
+            print(f"  {group:18s} | N={vals['count']:5d} | Exact(I=L): {vals['exact_acc']:.2%} | AA F1: {vals['aa_f1']:.4f}")
+
     # 5. Save output JSON
     if args.output_json:
         output_path = Path(args.output_json)
@@ -369,6 +413,7 @@ def main():
             "metrics": metrics_primary.to_dict(),
             "unthresholded_metrics": metrics_unthresh.to_dict(),
             "exact_calibrated_metrics": metrics_exact_calib.to_dict(),
+            "stratified_breakdown": details.get("stratified_breakdown"),
             "subset_calibration_exact": calib_exact,
             "subset_calibration_mass": calib_mass,
             "config": {
@@ -381,6 +426,9 @@ def main():
                 "length_beam_alpha": args.length_beam_alpha,
                 "target_precision": args.target_precision,
                 "score_threshold": primary_threshold,
+                "use_exact_dp_knapsack": args.use_exact_dp_knapsack,
+                "enzyme": args.enzyme,
+                "use_composite_ladders": args.use_composite_ladders,
             },
         }
         output_path.write_text(json.dumps(results, indent=2) + "\n")
