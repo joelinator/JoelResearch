@@ -26,7 +26,7 @@ from eval.evaluate import evaluate_generative
 from eval.metrics import calibrate_score_threshold, compute_denovo_metrics, format_metrics
 from eval.plots import plot_pauc_curve
 from flow_matching.scheduler import cosine_scheduler
-from train.io import load_checkpoint, load_models_from_checkpoint
+from train.io import infer_model_config_from_checkpoint, load_checkpoint, load_models_from_checkpoint
 from train.factory import build_models
 
 
@@ -38,6 +38,8 @@ def parse_args():
     parser.add_argument("--checkpoint", default=os.environ.get("CHECKPOINT"))
     parser.add_argument(
         "--dataset-name",
+        "--dataset",
+        dest="dataset_name",
         default=os.environ.get("DATASET_NAME", data_cfg.dataset_repo),
         help="Hugging Face dataset repository (e.g. InstaDeepAI/ms_ninespecies_benchmark or InstaDeepAI/ms_proteometools).",
     )
@@ -247,7 +249,8 @@ def main():
     )
     loader.dataset.top_k = DEFAULTS.data.top_k_peaks
 
-    spectrum_encoder, length_predictor, decoder, guidance = build_models(vocabulary, device)
+    model_cfg = infer_model_config_from_checkpoint(checkpoint)
+    spectrum_encoder, length_predictor, decoder, guidance = build_models(vocabulary, device, model_cfg=model_cfg)
     load_models_from_checkpoint(
         checkpoint,
         spectrum_encoder,
@@ -255,11 +258,13 @@ def main():
         decoder,
         guidance,
     )
+    total_params = sum(p.numel() for p in spectrum_encoder.parameters()) + sum(p.numel() for p in length_predictor.parameters()) + sum(p.numel() for p in decoder.parameters()) + sum(p.numel() for p in guidance.parameters())
 
     print("==========================================================")
     print("  DFM De Novo Sequencing Generative Evaluation")
     print("==========================================================")
     print(f"Checkpoint:       {args.checkpoint}")
+    print(f"Model Parameters: {total_params/1e6:.2f}M (Enc: {model_cfg.get('encoder_layers', 6)}L, Dec: {model_cfg.get('decoder_blocks', 6)}L, Dim: {model_cfg.get('model_dim', 512)})")
     print(f"Split:            {args.split} (total batches: {len(loader)})")
     print(f"Batch Size:       {args.batch_size}")
     print(f"Workers:          {args.num_workers}")

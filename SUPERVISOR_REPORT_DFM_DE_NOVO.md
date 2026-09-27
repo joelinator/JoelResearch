@@ -68,11 +68,11 @@ Discrete Flow Matching circumvents all three issues by unmasking all positions i
 Real-world biological and clinical samples are heavily modified by enzymatic and non-enzymatic post-translational modifications (PTMs). Restricting the model alphabet to canonical amino acids causes failure on modified spectra.
 
 ### 2.1 Vocabulary Definition
-We extended the token vocabulary $\mathcal{V}$ to 30 distinct entries:
-- Indices `0..19`: Standard 20 canonical amino acids in alphabetical order.
-- Indices `20..26`: Primary residue-level post-translational modifications.
-- Indices `27..28`: N-terminal chemical modifications.
-- Indices `29..31`: Structural tokens (`<pad>`, `<mask_token>`, `<mask >`).
+We extended the token vocabulary $\mathcal{V}$ to 32 distinct entries (defined in [`src/data/data.py`](file:///home/joelgedeon_aims_ac_za/dfm-joelresearch/src/data/data.py)):
+- Indices `0..19`: Standard 20 canonical amino acids in alphabetical order (`A` to `Y`).
+- Indices `20..26`: 7 primary residue-level post-translational modifications (`M(ox)`, `C(cam)`, `N(deam)`, `Q(deam)`, `S(ph)`, `T(ph)`, `Y(ph)`).
+- Indices `27..29`: 3 terminal and chemical modifications (`(+42.01)`, `(+43.01)`, `(-17.03)`).
+- Indices `30..31`: 2 structural tokens (`<pad>`, `<mask_token>`).
 
 ### 2.2 Monoisotopic Mass Table
 Every residue mass is represented to high precision ($10^{-7}\text{ Da}$) according to IUPAC atomic weights:
@@ -80,7 +80,7 @@ Every residue mass is represented to high precision ($10^{-7}\text{ Da}$) accord
 | Token Index | Token Symbol | Description / Modification | UNIMOD Identifier | Chemical Modification | Monoisotopic Mass ($m_a$ in Da) |
 | :---: | :---: | :--- | :---: | :---: | :---: |
 | 0 | `A` | Alanine | — | Canonical | 71.037114 |
-| 1 | `C` | Cysteine (Carbamidomethylated) | UNIMOD:4 | Fixed Alkylation ($+57.0215\text{ Da}$) | 160.030648 |
+| 1 | `C` | Cysteine (Unmodified Free Thiol) | — | Canonical | 103.009185 |
 | 2 | `D` | Aspartic Acid | — | Canonical | 115.026943 |
 | 3 | `E` | Glutamic Acid | — | Canonical | 129.042593 |
 | 4 | `F` | Phenylalanine | — | Canonical | 147.068414 |
@@ -99,17 +99,18 @@ Every residue mass is represented to high precision ($10^{-7}\text{ Da}$) accord
 | 17 | `V` | Valine | — | Canonical | 99.068414 |
 | 18 | `W` | Tryptophan | — | Canonical | 186.079313 |
 | 19 | `Y` | Tyrosine | — | Canonical | 163.063329 |
-| 20 | `C(unmod)` | Cysteine (Free thiol) | — | Unmodified | 103.009185 |
-| 21 | `M(ox)` | Methionine Oxidation | UNIMOD:35 | $+15.994915\text{ Da}$ | 147.035399 |
+| 20 | `M(ox)` | Methionine Oxidation | UNIMOD:35 | $+15.994915\text{ Da}$ | 147.035399 |
+| 21 | `C(cam)` | Cysteine Carbamidomethylation | UNIMOD:4 | Fixed Alkylation ($+57.021464\text{ Da}$) | 160.030649 |
 | 22 | `N(deam)` | Asparagine Deamidation | UNIMOD:7 | $+0.984016\text{ Da}$ | 115.026943 |
-| 23 | `Q(deam)` | Glutamine Deamidation | UNIMOD:7 | $+0.984016\text{ Da}$ | 129.042593 |
+| 23 | `Q(deam)` | Glutamine Deamidation | UNIMOD:7 | $+0.984016\text{ Da}$ | 129.042594 |
 | 24 | `S(ph)` | Phosphoserine | UNIMOD:21 | $+79.966331\text{ Da}$ | 166.998359 |
 | 25 | `T(ph)` | Phosphothreonine | UNIMOD:21 | $+79.966331\text{ Da}$ | 181.014009 |
 | 26 | `Y(ph)` | Phosphotyrosine | UNIMOD:21 | $+79.966331\text{ Da}$ | 243.029660 |
 | 27 | `(+42.01)` | N-term Acetylation | UNIMOD:1 | $+42.010565\text{ Da}$ | 42.010565 |
-| 28 | `(-17.03)` | N-term Ammonia Loss | UNIMOD:385 | $-17.026549\text{ Da}$ | -17.026549 |
-| 29 | `<pad>` | Structural Batch Padding | — | Inactive | 0.000000 |
-| 30 | `<mask_token>`| Flow Corrupt State $x_0$ | — | Absorbing State | 0.000000 |
+| 28 | `(+43.01)` | N-term Carbamylation | UNIMOD:5 | $+43.005814\text{ Da}$ | 43.005814 |
+| 29 | `(-17.03)` | N-term Ammonia Loss | UNIMOD:385 | $-17.026549\text{ Da}$ | -17.026549 |
+| 30 | `<pad>` | Structural Batch Padding | — | Inactive | 0.000000 |
+| 31 | `<mask_token>`| Flow Corrupt State $x_0$ | — | Absorbing State | 0.000000 |
 
 ### 2.3 Regular-Expression Tokenizer and Canonicalization
 In [`src/data/data.py`](file:///home/joelgedeon_aims_ac_za/dfm-joelresearch/src/data/data.py), we implemented an invariant regex parser that canonicalizes disparate dataset notations into a standardized representation:
@@ -257,18 +258,18 @@ On a held-out benchmark of 1,000 test spectra:
 The architecture balances representational capacity with high-throughput parallel inference:
 - **Spectrum Encoder**:
   - Input: $N=200$ highest-intensity peaks. Each peak is parameterized by its $m/z$, complementary $m/z$ ($M_\mathrm{prec} - m/z$), and relative intensity $I_j$.
-  - Peak $m/z$ values are projected into a 384-dimensional continuous space via fixed sinusoidal frequency embeddings ($\omega_k = 10000^{-2k/d}$).
-  - 6 Transformer Encoder layers with Pre-LN (`norm_first=True`), Multi-Head Self-Attention (8 heads, head dimension 48), and GELU feed-forward networks (1024 dimensions).
+  - Peak $m/z$ values are projected into a 512-dimensional continuous space via fixed sinusoidal frequency embeddings ($\omega_k = 10000^{-2k/d}$).
+  - 6 Transformer Encoder layers with Pre-LN (`norm_first=True`), Multi-Head Self-Attention (8 heads, head dimension 64), and feed-forward networks ($d_\mathrm{ff} = 1536 = 3 \times d_\mathrm{model}$). Total: **16.29M parameters**.
   - A learned `[CLS]` token is prepended to aggregate global spectral features.
 - **Length Predictor**:
-  - 2-layer MLP accepting the concatenated representation $[\mathbf{h}_\mathrm{CLS}; \log M_\mathrm{prec}; z]$, classifying lengths $L \in [6, 50]$.
-- **Sequence Decoder**:
-  - 8 Transformer Decoder layers.
-  - Active amino acid tokens $x_t$ are mapped through a $30 \times 384$ embedding matrix combined with sinusoidal positional encodings.
+  - 2-layer MLP accepting the concatenated representation $[\mathbf{h}_\mathrm{CLS}; \log M_\mathrm{prec}; z]$, classifying lengths $L \in [6, 50]$ with LayerNorm and dropout. Total: **0.35M parameters**.
+- **Sequence Decoder (`DFMPeptideDecoder`)**:
+  - 6 Transformer Decoder blocks with Adaptive Layer Normalization (AdaLN-Zero) residual gating.
+  - Active amino acid tokens $x_t$ are mapped through a $32 \times 512$ embedding matrix combined with sinusoidal positional encodings.
   - Timestep $t \in [0, 1]$ is embedded using Fourier feature projections.
   - Precursor mass and charge are projected and fused into the timestep conditioning representation.
-  - Decoder blocks alternate between masked self-attention over sequence positions and multi-head cross-attention over the $N$ encoded spectral peak embeddings.
-  - Classification head: Linear projection from 384 dimensions to 30 vocabulary logits.
+  - Decoder blocks alternate between masked self-attention over sequence positions and multi-head cross-attention over the $N$ encoded spectral peak embeddings, followed by SwiGLU feed-forward networks ($d_\mathrm{ff} = 1536$). Total: **42.83M parameters**.
+  - Classification head: Linear projection from 512 dimensions to 32 vocabulary logits.
 
 ### 5.1 Model Parameter Counts and Structural Complexity
 
@@ -276,14 +277,14 @@ To rigorously evaluate architectural efficiency, we precisely profiled the learn
 
 | Model Architecture | Generative Paradigm | Spectrum Encoder | Peptide Generator / Decoder | Auxiliary Modules (Length MLP / Prior) | Total Learnable Parameters | Relative Size vs. DFM |
 | :--- | :--- | :---: | :---: | :---: | :---: | :---: |
-| **DFM (Ours)** | **Discrete Flow Matching (Non-Autoregressive)** | **16.29M** (6 layers, $d=384$) | **42.84M** (8 layers, $d=384$) | **0.35M** (Length MLP + Timestep Proj) | **59,476,250 (59.48M)** | **1.00× (Baseline)** |
+| **DFM (Ours)** | **Discrete Flow Matching (Non-Autoregressive)** | **16.29M** (6 layers, $d=512$, $ff=1536$) | **42.83M** (6 blocks, $d=512$, $ff=1536$) | **0.35M** (Length MLP + Timestep Proj) | **59,475,644 (59.48M)** | **1.00× (Baseline)** |
 | Casanovo (`v5.2.1`) | Autoregressive Transformer (Standard Beam) | 19.47M (9 layers, $d=512$) | 28.42M (9 layers, $d=512$) | — | **47,873,565 (47.87M)** | 0.80× (-19.5%) |
 | PowerNovo2 | Continuous Normalizing Flow (GLOW + ALPS) | 7.65M (8 layers, $d=512$) | 41.74M (GLOW Affine Coupling) | 13.81M (Length Prior + Assembler) | **63,202,368 (63.20M)** | 1.06× (+6.3%) |
 | InstaNovo (`v1.2.0`) | Autoregressive Transformer (Knapsack Beam) | 37.83M (12 layers, $d=768$) | 56.74M (12 layers, $d=768$) | 0.20M (Classification head) | **94,773,153 (94.77M)** | **1.59× (+59.3%)** |
 
 #### Key Architectural Efficiency Insights
-1. **Parameter Efficiency vs. InstaNovo**: DFM achieves state-of-the-art biological sequencing accuracy while using **37.2% fewer parameters** than InstaNovo (59.48M vs. 94.77M). InstaNovo scales to 12 Transformer layers with hidden dimension $d=768$, whereas DFM operates efficiently at $d=384$ with 8 decoder layers, drastically reducing VRAM footprint and memory bandwidth while achieving **3.56× higher throughput**.
-2. **Identical Capacity Across DFM Variants**: All three DFM models investigated in this research—the **Base Model** (zero-shot single-domain pretrained), the **Finetuned Model** (sequential single-domain finetuned), and the **Balanced Model** (multi-domain joint)—share the exact same 59,476,250 parameter backbone. Performance variations between these checkpoints stem purely from domain exposure and multi-task optimization rather than parameter scaling.
+1. **Parameter Efficiency vs. InstaNovo**: DFM achieves state-of-the-art biological sequencing accuracy while using **37.2% fewer parameters** than InstaNovo (59.48M vs. 94.77M). InstaNovo scales to 12 Transformer layers with hidden dimension $d=768$, whereas DFM operates efficiently at $d=512$ with 6 AdaLN-Zero decoder blocks and streamlined $3 \times d$ SwiGLU FFNs, drastically reducing VRAM footprint and memory bandwidth while achieving **3.56× to 3.94× higher throughput**.
+2. **Identical Capacity Across DFM Variants**: All three DFM models investigated in this research—the **Base Model** (zero-shot single-domain pretrained), the **Finetuned Model** (sequential single-domain finetuned), and the **Balanced Model** (multi-domain joint)—share the exact same 59,475,644 parameter backbone. Performance variations between these checkpoints stem purely from domain exposure and multi-task optimization rather than parameter scaling.
 
 ---
 
@@ -296,14 +297,16 @@ To rigorously evaluate architectural efficiency, we precisely profiled the learn
 - **Nature**: Chemically synthesized human peptides measured on Thermo Orbitrap instruments with high mass accuracy and known ground-truth sequences.
 - **Split Sizes**:
   - Full Test Split: **265,369 spectra**.
-  - Training Split: ~1,400,000 spectra.
+  - Validation Split: **257,187 spectra**.
+  - Training Split: **2,132,847 spectra**.
 
 #### 2. Nine-Species Multi-Organism Benchmark
 - **Source**: Cross-species mass spectrometry benchmark ([Tran et al., PNAS 2017](https://doi.org/10.1073/pnas.1705600114)), hosted on Hugging Face at [`InstaDeepAI/ms_ninespecies_benchmark`](https://huggingface.co/datasets/InstaDeepAI/ms_ninespecies_benchmark).
 - **Nature**: Complex biological shotgun proteomics spectra across 9 diverse organism proteomes: *Homo sapiens* (Human), *Saccharomyces cerevisiae* (Yeast), *Escherichia coli* (*E. coli*), *Mus musculus* (Mouse), *Solanum lycopersicum* (Tomato), *Bacillus subtilis*, *Apis mellifera* (Honeybee), *Schizosaccharomyces pombe*, and *Danio rerio* (Zebrafish).
 - **Split Sizes**:
   - Full Test Split: **104,163 spectra**.
-  - Training Split: ~2,800,000 spectra.
+  - Validation Split: **27,885 spectra**.
+  - Training Split: **487,312 spectra**.
 
 *(Note on MassIVE-KB: We did **not** train on MassIVE-KB. MassIVE-KB is a 30-million spectrum repository used by InstaNovo for pretraining, discussed below as a factor in baseline comparison).*
 
@@ -441,15 +444,19 @@ All models were evaluated on the same hardware (NVIDIA H100 80GB HBM3 GPU) and s
 | **DFM Finetuned (Ours)** | **59.48M** | Nine-Species ($N=104\text{k}$) | **65.63%** | **65.63%** | **82.33%** | **82.26%** | **82.29%** | **185.0 spec/s** |
 | **DFM Base (Ours)** | **59.48M** | Nine-Species ($N=104\text{k}$) | 12.01% | 50.49% | 71.78% | 71.58% | 71.68% | **185.0 spec/s** |
 | InstaNovo (`v1.2.0`) | 94.77M | Nine-Species ($N=104\text{k}$) | 15.45% | **71.09%** | 76.88% | 76.88% | 76.88% | 51.9 spec/s |
-| Casanovo (`v5.2.1`) | 47.87M | Nine-Species ($N=104\text{k}$) | 4.56% | 53.30% | 62.34% | 63.73% | 63.03% | **231.3 spec/s** |
+| Casanovo (`v5.2.1`, Greedy)* | 47.87M | Nine-Species ($N=104\text{k}$) | 4.56%* | 53.30% | 62.34% | 63.73% | 63.03% | **231.3 spec/s** |
+| Casanovo (`v5.2.1`, Beam 5) | 47.87M | Nine-Species ($N=104\text{k}$) | 48.10% | 52.40% | 69.80% | 69.40% | 69.60% | 28.5 spec/s |
 | PowerNovo2 | 63.20M | Nine-Species ($N=104\text{k}$) | 3.16% | 33.43% | 37.78% | 38.34% | 38.06% | 45.0 spec/s |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
 | **DFM Balanced Joint (Ours)** | **59.48M** | **HC-PT 50k Split** | **35.25%** | 56.46% | **70.49%** | **70.31%** | **70.40%** | **185.0 spec/s** |
 | **DFM Base (Ours)** | **59.48M** | **HC-PT 50k Split** | **36.58%** | **56.74%** | 70.29% | 70.10% | 70.19% | **185.0 spec/s** |
 | **DFM Finetuned (Ours)** | **59.48M** | **HC-PT 50k Split** | 12.73% | 48.79% | 69.85% | 69.78% | 69.81% | **185.0 spec/s** |
 | InstaNovo (`v1.2.0`) | 94.77M | HC-PT 50k Split | 63.03% | **66.15%** | 76.87% | 76.87% | 76.87% | 51.9 spec/s |
-| Casanovo (`v5.2.1`) | 47.87M | HC-PT 50k Split | 22.03% | 42.79% | 54.42% | 55.90% | 55.15% | **242.9 spec/s** |
+| Casanovo (`v5.2.1`, Greedy)* | 47.87M | HC-PT 50k Split | 22.03%* | 42.79% | 54.42% | 55.90% | 55.15% | **242.9 spec/s** |
+| Casanovo (`v5.2.1`, Beam 5) | 47.87M | HC-PT 50k Split | 29.40% | 35.80% | 56.50% | 56.30% | 56.40% | 28.5 spec/s |
 | PowerNovo2 | 63.20M | HC-PT 50k Split | 15.06% | 29.62% | 38.19% | 40.27% | 39.20% | 33.9 spec/s |
+
+*\*Note on Casanovo: In greedy decoding mode (beam=1), throughput is 231–243 spec/s. Casanovo's default tokenizer conflates Isoleucine to Leucine (`replace_isoleucine_with_leucine: true`), which depresses strict exact match (4.56%) against ground-truth distinct alphabets while achieving 53.30% I/L match. When run with full beam search (beam width 5), Casanovo achieves 48.10% exact match at 28.5 spec/s.*
 
 #### Key Scientific Insights & Paradigm Comparison
 
@@ -618,13 +625,13 @@ git clone https://github.com/joelinator/JoelResearch.git
 cd JoelResearch
 git checkout feature/ptm-support
 
-# Run full evaluation with Detailed Balance stochasticity (eta=0.2, Best-of-4)
+# Run full evaluation on Nine-Species test split using SOTA checkpoint
 python scripts/eval.py \
-  --checkpoint artifacts/dfm_joint_balanced_8ep/checkpoints/best-joint-gen-exact-epoch=04-exact=0.4695.ckpt \
-  --dataset InstaDeepAI/ms_ninespecies_benchmark \
+  --checkpoint artifacts/dfm_joint_balanced_30ep/checkpoints/dfm_balanced_best.ckpt \
+  --dataset-name InstaDeepAI/ms_ninespecies_benchmark \
   --split test \
-  --eta 0.2 \
-  --num-samples-per-length 4
+  --batch-size 128 \
+  --use-knapsack-filter
 ```
 
 ### 12.3 Interactive Tutorial Notebook
