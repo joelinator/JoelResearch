@@ -11,6 +11,7 @@ from .layers import (
     SwiGLUFFN,
     modulate,
 )
+from config.defaults import MODEL_CONFIG
 from data.lengths import MAX_PEPTIDE_LENGTH, MIN_PEPTIDE_LENGTH, NUM_LENGTH_CLASSES
 
 
@@ -271,6 +272,8 @@ class DFMPeptideDecoder(nn.Module):
                 full_mask=full_mask,
                 sequence_padding_mask=sequence_padding_mask,
             )
+            if sequence_padding_mask is not None:
+                x = x.masked_fill(sequence_padding_mask.unsqueeze(-1), 0.0)
 
         shift_final, scale_final = self.ada_final(precursor_m_c_t_l).chunk(2, dim=-1)
         x = modulate(self.norm(x), shift_final, scale_final)
