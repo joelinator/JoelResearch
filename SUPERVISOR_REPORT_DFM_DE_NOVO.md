@@ -371,6 +371,7 @@ We evaluated our final balanced joint model against InstaNovo across the combine
 | | InstaNovo (`v1.2.0` Latest) | 94.77M | MassIVE-KB Supervised | 15.45% | **71.09%** | 76.88% | 71.10% | 80.65% | 71.50% (74,476 PSMs) | 52 spectra/s |
 | | InstaNovo (`v1.0.0` First) | 94.77M | ACPT Supervised Base | 53.20% | 58.40% | 71.90% | 62.10% | 74.30% | 52.80% (55,000 PSMs) | 44 spectra/s |
 | | Casanovo (`v5.2.1`) | 47.0M | Cross-Entropy Autoregressive | 48.10% | 52.40% | 69.60% | 53.50% | 71.20% | 48.20% (50,206 PSMs) | 28 spectra/s |
+| | PowerNovo2 | 63.2M | Continuous Normalizing Flow | 3.16% | 33.43% | 38.06% | 34.30% | 35.10% | 28.50% (29,686 PSMs) | 45 spectra/s |
 | | PointNovo | 32.1M | Order-Invariant Continuous | 48.00% | 51.80% | 70.40% | 52.90% | 70.80% | 46.50% (48,435 PSMs) | 18 spectra/s |
 | | *Delta (DFlowNovo vs InstaNovo v1.2.0)* | *-37.2%* | — | **+49.63%** | *-5.80%* | **+4.92%** | *-4.08%* | **+2.97%** | **+6.72%** (+6,554 PSMs) | **3.35× Faster** |
 | | *Delta (DFlowNovo vs InstaNovo v1.0.0)* | *-37.2%* | — | **+11.88%** | **+6.89%** | **+9.90%** | **+4.92%** | **+9.32%** | **+25.42%** (+26,030 PSMs)| **3.94× Faster** |
@@ -381,6 +382,7 @@ We evaluated our final balanced joint model against InstaNovo across the combine
 | | InstaNovo (`v1.2.0` Latest) | 94.77M | MassIVE-KB Supervised | 63.03% | 66.15% | 76.87% | 73.20% | 78.27% | 91.47% (242,746 PSMs) | 52 spectra/s |
 | | InstaNovo (`v1.0.0` First) | 94.77M | ACPT Supervised Base | 58.10% | 63.53% | 68.96% | 69.40% | 72.80% | 68.20% (180,980 PSMs) | 44 spectra/s |
 | | Casanovo (`v5.2.1`) | 47.0M | Cross-Entropy Autoregressive | 29.40% | 35.80% | 56.40% | 38.20% | 64.10% | 34.50% (91,552 PSMs) | 28 spectra/s |
+| | PowerNovo2 | 63.2M | Continuous Normalizing Flow | 15.06% | 29.62% | 39.20% | 29.69% | 36.80% | 26.40% (70,057 PSMs) | 34 spectra/s |
 | | PointNovo | 32.1M | Order-Invariant Continuous | 26.10% | 32.40% | 52.80% | 34.60% | 60.50% | 30.10% (79,876 PSMs) | 18 spectra/s |
 | | *Forgetting Recovery (Balanced vs Finetuned)* | — | — | **+21.99% (2.71×)** | **+7.31%** | **+0.19%** | **+2.01%** | **+3.55%** | **+1.44%** (+4,097 PSMs) | — |
 

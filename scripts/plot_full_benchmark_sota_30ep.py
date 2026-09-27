@@ -144,6 +144,28 @@ def main():
                 "cov_80": 34.50,
             },
         },
+        "PowerNovo2": {
+            "color": "#9467BD",  # Slate Purple
+            "hatch": "--",
+            "params": "63.2M",
+            "speed": 45.0,
+            "ns": {
+                "strict_exact": 3.16,
+                "il_exact": 33.43,
+                "aa_f1": 38.06,
+                "mass_match": 34.30,
+                "length_acc": 35.10,
+                "cov_80": 28.50,
+            },
+            "hc": {
+                "strict_exact": 15.06,
+                "il_exact": 29.62,
+                "aa_f1": 39.20,
+                "mass_match": 29.69,
+                "length_acc": 36.80,
+                "cov_80": 26.40,
+            },
+        },
         "PointNovo": {
             "color": "#7CB342",  # Light Green
             "hatch": "xx",

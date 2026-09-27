@@ -44,6 +44,7 @@ The framework was benchmarked against the leading paradigms in computational mas
 | **InstaNovo (`v1.2.0` Latest)** | Knapsack Autoregressive (MassIVE-KB) | 94.8M | 51.9 spec/s | 15.45% | **71.09%** | 76.88% | **63.03%** | **66.15%** | **76.87%** |
 | **InstaNovo (`v1.0.0` First)** | Knapsack Autoregressive (ACPT Base) | 94.8M | 44.2 spec/s | 53.20% | 58.40% | 71.90% | 58.10% | 63.53% | 68.96% |
 | **Casanovo (`v5.2.1`)** | Autoregressive Transformer | 47.0M | 28.5 spec/s | 48.10% | 52.40% | 69.60% | 29.40% | 35.80% | 56.40% |
+| **PowerNovo2** | Continuous Normalizing Flow (GLOW+ALPS) | 63.2M | 45.0 spec/s | 3.16% | 33.43% | 38.06% | 15.06% | 29.62% | 39.20% |
 | **PointNovo** | Order-Invariant Continuous Transformer | 32.1M | 18.2 spec/s | 48.00% | 51.80% | 70.40% | 26.10% | 32.40% | 52.80% |
 | **DeepNovo** | Bidirectional LSTM + Beam Search | 28.4M | 14.5 spec/s | 42.80% | 45.20% | 66.60% | 22.30% | 28.10% | 49.50% |
 
