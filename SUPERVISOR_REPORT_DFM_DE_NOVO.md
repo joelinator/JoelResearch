@@ -283,7 +283,7 @@ To rigorously evaluate architectural efficiency, we precisely profiled the learn
 | InstaNovo (`v1.2.0`) | Autoregressive Transformer (Knapsack Beam) | 37.83M (12 layers, $d=768$) | 56.74M (12 layers, $d=768$) | 0.20M (Classification head) | **94,773,153 (94.77M)** | **1.59× (+59.3%)** |
 
 #### Key Architectural Efficiency Insights
-1. **Parameter Efficiency vs. InstaNovo**: DFM achieves state-of-the-art biological sequencing accuracy while using **37.2% fewer parameters** than InstaNovo (59.48M vs. 94.77M). InstaNovo scales to 12 Transformer layers with hidden dimension $d=768$, whereas DFM operates efficiently at $d=512$ with 6 AdaLN-Zero decoder blocks and streamlined $3 \times d$ SwiGLU FFNs, drastically reducing VRAM footprint and memory bandwidth while achieving **3.56× to 3.94× higher throughput**.
+1. **Parameter Efficiency vs. InstaNovo**: DFM achieves strong biological sequencing accuracy while using **37.2% fewer parameters** than InstaNovo (59.48M vs. 94.77M). InstaNovo scales to 12 Transformer layers with hidden dimension $d=768$, whereas DFM operates efficiently at $d=512$ with 6 AdaLN-Zero decoder blocks and streamlined $3 \times d$ SwiGLU FFNs, lowering GPU memory overhead and bandwidth demands while achieving **3.56× to 3.94× higher throughput**.
 2. **Identical Capacity Across DFM Variants**: All three DFM models investigated in this research—the **Base Model** (zero-shot single-domain pretrained), the **Finetuned Model** (sequential single-domain finetuned), and the **Balanced Model** (multi-domain joint)—share the exact same 59,475,644 parameter backbone. Performance variations between these checkpoints stem purely from domain exposure and multi-task optimization rather than parameter scaling.
 
 ---
@@ -409,7 +409,7 @@ Enforcing dynamic mass budget bounds during reverse flow integration yielded con
 ![Multi-Step Knapsack Guidance](./docs/figures/dynamic_knapsack_benchmark_comparison.png)
 
 #### Head-to-Head Comparison on Nine-Species Full Test (DFM vs InstaNovo)
-DFM dramatically outpaces InstaNovo on strict exact sequence match, residue accuracy (AA F1), and high-confidence coverage:
+DFM shows substantial gains over InstaNovo on strict exact sequence match, residue accuracy (AA F1), and high-confidence coverage:
 
 ![DFM vs InstaNovo Nine-Species](./docs/figures/instanovo_vs_dfm_full_test_comparison.png)
 
