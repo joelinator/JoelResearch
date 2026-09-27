@@ -3,12 +3,12 @@
 [![Python 3.10+](https://img.shields.io/badge/Python-3.10%2B-3776AB?logo=python&logoColor=white)](https://www.python.org/)
 [![PyTorch 2.1+](https://img.shields.io/badge/PyTorch-2.1%2B-EE4C2C?logo=pytorch&logoColor=white)](https://pytorch.org/)
 [![Lightning 2.1+](https://img.shields.io/badge/Lightning-2.1%2B-792EE5?logo=lightning&logoColor=white)](https://lightning.ai/)
-[![Tests](https://img.shields.io/badge/pytest-47%20passed-success)](tests/)
+[![Tests](https://img.shields.io/badge/pytest-58%20passed-success)](tests/)
 [![Tutorial Notebook](https://img.shields.io/badge/Jupyter-Tutorial%20Notebook-F37626?logo=jupyter&logoColor=white)](notebooks/dfm_de_novo_tutorial.ipynb)
 [![Technical Report](https://img.shields.io/badge/Research-Master's%20Thesis%20Report-blue)](SUPERVISOR_REPORT_DFM_DE_NOVO.md)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
-> **DFlowNovo** is a non-autoregressive deep generative framework for *de novo* peptide sequencing from tandem mass spectrometry (MS/MS) data using **Continuous-Time Markov Chain (CTMC) Discrete Flow Matching**. By formulating peptide generation as a probability velocity trajectory on the discrete vocabulary simplex coupled with **vectorized dynamic knapsack mass guidance**, DFlowNovo achieves **185 spectra/second throughput** (a **4.1× to 5.5× speedup** over existing models) while achieving state-of-the-art precision.
+> **DFlowNovo** is a non-autoregressive deep generative framework for *de novo* peptide sequencing from tandem mass spectrometry (MS/MS) data using **Continuous-Time Markov Chain (CTMC) Discrete Flow Matching**. By formulating peptide generation as a probability velocity trajectory on the discrete vocabulary simplex coupled with **vectorized dynamic knapsack mass guidance**, DFlowNovo achieves **174 to 185 spectra/second throughput** (a **3.9× to 5.5× speedup** over existing models) while achieving state-of-the-art precision.
 
 ---
 
@@ -21,7 +21,7 @@
 3. **Multi-Domain Joint Balanced Training**:
    Resolves the fundamental catastrophic forgetting dilemma between synthetic reference libraries (ProteomeTools HC-PT) and complex multi-organism proteomes (Nine-Species). Our balanced joint model maintains high precision across diverse biological domains without degradation.
 4. **Extreme Inference Efficiency**:
-   Processes **185 spectra/sec** on a single NVIDIA A100 GPU—delivering **4.1× higher throughput than PowerNovo2** (45.0 spec/s) and **5.5× higher throughput than Casanovo** (33.9 spec/s).
+   Processes **174.0 spectra/sec** on a single GPU with exact DP knapsack (and **185.0 spec/s** with fast filtering)—delivering **3.9× higher throughput than PowerNovo2** (45.0 spec/s) and **6.1× higher throughput than Casanovo** (28.5 spec/s).
 
 ---
 
@@ -29,7 +29,7 @@
 
 The framework was benchmarked against the leading paradigms in computational mass spectrometry across two standard benchmarks:
 - **Nine-Species Biological Benchmark**: $N = 104,163$ full test spectra across 9 organisms (*H. sapiens*, *M. musculus*, *S. cerevisiae*, *B. subtilis*, etc.).
-- **HC-PT ProteomeTools Benchmark**: $N = 50,000$ standardized test spectra of synthetic human peptides.
+- **HC-PT ProteomeTools Benchmark**: $N = 265,369$ full test spectra of synthetic human peptides.
 
 <div align="center">
   <img src="docs/figures/full_benchmark_comparison_30ep.png" width="98%" alt="Full Benchmark Comparison 30-Epoch SOTA vs InstaNovo v1.2.0 and v1.0.0" />
@@ -95,7 +95,7 @@ pip install -e .
 ```
 
 ### 2. Verify Installation
-Run the unit and integration test suite (47 tests):
+Run the unit and integration test suite (58 tests):
 ```bash
 pytest
 ```
@@ -114,21 +114,21 @@ python scripts/download_dataset.py \
 ```
 
 ### 2. De Novo Sequencing (Inference)
-Sequence raw spectra from an MGF or Parquet file:
+Sequence raw spectra from an MGF or Parquet file using the SOTA checkpoint:
 ```bash
 python scripts/infer.py \
-    --checkpoint checkpoints/dfm_joint_balanced.ckpt \
+    --checkpoint artifacts/dfm_joint_balanced_30ep/checkpoints/dfm_balanced_best.ckpt \
     --split "test[:500]" \
-    --batch-size 64 \
+    --batch-size 128 \
     --num-steps 20 \
     --top-k-lengths 3
 ```
 
 ### 3. Model Evaluation
-Compute exact peptide match, I/L isobaric match, residue precision/recall/F1, and length accuracy:
+Compute exact peptide match, I/L isobaric match, residue precision/recall/F1, and length accuracy on full test splits:
 ```bash
 python scripts/eval.py \
-    --checkpoint checkpoints/dfm_joint_balanced.ckpt \
+    --checkpoint artifacts/dfm_joint_balanced_30ep/checkpoints/dfm_balanced_best.ckpt \
     --dataset-name InstaDeepAI/ms_ninespecies_benchmark \
     --split test \
     --batch-size 128 \
@@ -151,23 +151,23 @@ python scripts/train_lightning.py \
     --output-dir artifacts/dfm_training
 ```
 
-**Joint Multi-Domain Balanced Training (SOTA Multi-Domain Model):**
+**Joint Multi-Domain Balanced Training (30-Epoch SOTA Multi-Domain Model):**
 ```bash
 python scripts/train_joint_balanced.py \
-    --resume-from artifacts/dfm_training/checkpoints/best.ckpt \
-    --batch-size 512 \
-    --epochs 8 \
-    --lr 5e-5 \
-    --samples-per-epoch 1000000 \
+    --epochs 30 \
+    --samples-per-epoch 500000 \
+    --batch-size 1792 \
     --val-samples 20000 \
-    --output-dir artifacts/dfm_joint_balanced
+    --lr 4e-5 \
+    --output-dir artifacts/dfm_joint_balanced_30ep
 ```
+*(Note: On 80GB GPUs, batch size automatically scales to 1792 with BF16 mixed precision to achieve >80% VRAM utilization).*
 
 ### 5. Reproducing Benchmark Figures
 Generate all 300 DPI publication-grade comparison plots:
 ```bash
-# 6-Model Comparative Benchmark Figure
-python scripts/plot_four_way_benchmark.py
+# 7-Model SOTA Benchmark Figure (DFlowNovo 30ep vs InstaNovo v1.2.0 vs v1.0.0 vs Casanovo vs PowerNovo2)
+python scripts/plot_full_benchmark_sota_30ep.py
 
 # Multi-domain & Knapsack ablation figures
 python scripts/generate_publication_figures.py
@@ -224,6 +224,7 @@ dfm-joelresearch/
 │   ├── prepare_benchmark_mgf.py# Standardized MGF benchmark split preparation
 │   ├── run_casanovo_powernovo2_benchmark.py # External baseline execution harness
 │   ├── plot_four_way_benchmark.py # 6-model benchmark comparison figure generator
+│   ├── plot_full_benchmark_sota_30ep.py # 7-model 30-epoch SOTA benchmark figure generator
 │   └── generate_publication_figures.py # Master figure generation pipeline
 │
 ├── notebooks/                  # Interactive tutorial
@@ -233,12 +234,13 @@ dfm-joelresearch/
 │   ├── ARCHITECTURE_OPTIMIZATIONS.md
 │   ├── SOTA_OPTIMIZATIONS.md
 │   └── figures/                # Publication-quality 300 DPI figures
+│       ├── full_benchmark_comparison_30ep.png
 │       ├── four_way_benchmark_comparison.png
 │       ├── joint_balanced_multi_domain_comparison.png
 │       ├── dynamic_knapsack_benchmark_comparison.png
 │       └── qualitative_prediction_cases.png
 │
-└── tests/                      # Pytest unit and integration test suite (47 tests)
+└── tests/                      # Pytest unit and integration test suite (58 tests)
 ```
 
 ---

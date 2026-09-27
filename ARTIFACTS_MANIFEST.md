@@ -42,7 +42,12 @@ Contains per-spectrum predictions across all **369,532 held-out test spectra**:
 ### B. Benchmark Evaluation Metrics (JSON)
 Complete summary metrics (strict exact match, I/L exact match, residue precision/recall/F1, length accuracy, precursor mass match, coverage @ 80% precision):
 
-- **Joint Balanced Model**:
+- **30-Epoch SOTA Multi-Domain Model**:
+  - `artifacts/eval_dfm_30ep_ninespecies_test_metrics.json`: Nine-Species full test metrics (65.08% strict exact match).
+  - `artifacts/eval_dfm_30ep_hcpt_test_metrics.json`: HC-PT full test metrics (55.88% I/L exact match).
+  - `artifacts/full_benchmark_comparison_sota_30ep.json`: 7-model cross-paradigm benchmark summary metrics.
+  - `docs/figures/full_benchmark_comparison_30ep.png`: Publication-grade comparative figure.
+- **Joint Balanced Model (8ep)**:
   - `artifacts/eval_joint_balanced/joint_ninespecies_full_test_metrics.json`
   - `artifacts/eval_joint_balanced/joint_hcpt_full_test_metrics.json`
 - **InstaNovo Baseline**:
@@ -65,6 +70,7 @@ Complete summary metrics (strict exact match, I/L exact match, residue precision
 - **Validation Checkpoint Metrics**:
   - `artifacts/val_metrics/metrics_val_epoch_*.json` (epochs 00 to 49)
   - `artifacts/dfm_joint_balanced_8ep/val_metrics/metrics_val_epoch_*.json`
+  - `artifacts/dfm_joint_balanced_30ep/val_metrics/pauc_val_epoch_*.png`
 
 ---
 
@@ -76,6 +82,7 @@ Complete summary metrics (strict exact match, I/L exact match, residue precision
 
 ### D. Training Logs (CSV)
 Epoch-by-epoch and step-by-step training losses, learning rates, and validation curves:
+- `artifacts/dfm_joint_balanced_30ep/logs_csv/version_0/metrics.csv`
 - `artifacts/dfm_joint_balanced_8ep/logs_csv/version_0/metrics.csv`
 - `artifacts/dfm_pl_ninespecies_finetune_phase2_10ep/version_0/metrics.csv`
 - `artifacts/dfm_pl_ninespecies_finetune_10ep/version_0/metrics.csv`
@@ -86,7 +93,8 @@ Epoch-by-epoch and step-by-step training losses, learning rates, and validation 
 ---
 
 ### E. Vocabularies (JSON)
-Token-to-index mappings defining the 30-token alphabet (including PTMs and structural tokens):
+Token-to-index mappings defining the 32-token alphabet (including PTMs and structural tokens):
+- `artifacts/dfm_joint_balanced_30ep/vocabulary.json`
 - `artifacts/dfm_joint_balanced_8ep/vocabulary.json`
 - `artifacts/ptm_extended_baseline_val40_exact=0.3557.vocabulary.json`
 - `artifacts/dfm_pl_ninespecies_finetune_10ep/vocabulary.json`

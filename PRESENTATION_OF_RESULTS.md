@@ -161,8 +161,8 @@ Following expert feedback, we overhauled the system with five targeted architect
 │ violation trajectories.  │ stops cross-contamination│ ing vector field.                │
 ├──────────────────────────┴──────────────────────────┴──────────────────────────────────┤
 │ 4. Enzymatic Terminal Evidence Prior   │ 5. Hardware & VRAM Saturation (>80%)          │
-│ Encodes tryptic cleavage C-terminal    │ FlashAttention, batch size 128, pinned memory │
-│ Lys/Arg preferences into unmasking.    │ cut epoch time to 2.2 min; VRAM reached 83.4%.│
+│ Encodes tryptic cleavage C-terminal    │ FlashAttention, batch size 1792, pinned memory│
+│ Lys/Arg preferences into unmasking.    │ cut epoch time to 2.0 min; VRAM reached 88.9%.│
 └────────────────────────────────────────┴───────────────────────────────────────────────┘
 ```
 
@@ -193,10 +193,10 @@ Following expert feedback, we overhauled the system with five targeted architect
 * **Goal**: Maximize training efficiency on modern NVIDIA A100/H100 hardware.
 * **Implementation**:
   * PyTorch 2.0 SDPA FlashAttention kernels.
-  * Scaled batch size to 128 spectra/GPU with mixed-precision FP16/BF16.
+  * Scaled training batch size to 1,792 spectra/GPU (with 128 spectra/batch for batched evaluation) with mixed-precision BF16 AMP.
   * Pinned host memory (`pin_memory=True`) with non-blocking host-to-device transfers (`non_blocking=True`).
   * `torch.backends.cudnn.benchmark = True`.
-* **Result**: GPU VRAM saturation increased from 48% to **83.4%** (exceeding the 80% target), and epoch training time was reduced to **2.2 minutes** for 260,000 spectra.
+* **Result**: GPU VRAM saturation increased from 40.4% to **88.9%** (70.39 GB / 81.56 GB on H100 80GB, exceeding the 80% target), and epoch training time was reduced to **2.0 minutes** for 300,000 spectra (2,420 spectra/sec).
 
 ---
 

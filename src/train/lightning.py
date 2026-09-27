@@ -37,6 +37,7 @@ class DFMLightningModule(pl.LightningModule):
         self.args = args
 
         compile_models = self.args.get("compile", False)
+        self.model_cfg = self.args.get("model_cfg", None)
         (
             self.spectrum_encoder,
             self.length_predictor,
@@ -46,6 +47,7 @@ class DFMLightningModule(pl.LightningModule):
             vocabulary,
             device=torch.device("cpu"),
             compile_models=compile_models,
+            model_cfg=self.model_cfg,
         )
 
         aa_masses = get_output_aa_masses(vocabulary)
@@ -447,3 +449,10 @@ class DFMLightningModule(pl.LightningModule):
         if self.args.get("reset_lr_on_resume", True):
             checkpoint["optimizer_states"] = []
             checkpoint["lr_schedulers"] = []
+
+    def on_save_checkpoint(self, checkpoint: dict) -> None:
+        """Persist explicit model architectural configuration in checkpoint."""
+        if hasattr(self, "model_cfg") and self.model_cfg is not None:
+            checkpoint["model_cfg"] = self.model_cfg
+        elif "model_cfg" in self.args:
+            checkpoint["model_cfg"] = self.args["model_cfg"]

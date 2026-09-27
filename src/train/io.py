@@ -100,6 +100,57 @@ def _clean_state_dict_keys(state_dict: dict[str, torch.Tensor], prefix: str = ""
     return result
 
 
+def infer_model_config_from_checkpoint(checkpoint: dict) -> dict:
+    """Automatically infer model architectural dimensions from checkpoint tensor keys and shapes."""
+    if "model_cfg" in checkpoint and isinstance(checkpoint["model_cfg"], dict):
+        return dict(checkpoint["model_cfg"])
+    
+    sd = checkpoint.get("state_dict", checkpoint.get("spectrum_encoder_state_dict", checkpoint))
+    cfg = {}
+    
+    # 1. Count encoder layers
+    enc_layer_indices = []
+    for k in sd.keys():
+        clean_k = k.replace("_orig_mod.", "")
+        if "transformer_encoder.layers." in clean_k:
+            parts = clean_k.split("transformer_encoder.layers.")[1].split(".")
+            if parts[0].isdigit():
+                enc_layer_indices.append(int(parts[0]))
+    if enc_layer_indices:
+        cfg["encoder_layers"] = max(enc_layer_indices) + 1
+        
+    # 2. Count decoder blocks
+    dec_block_indices = []
+    for k in sd.keys():
+        clean_k = k.replace("_orig_mod.", "")
+        if "decoder_blocks." in clean_k:
+            parts = clean_k.split("decoder_blocks.")[1].split(".")
+            if parts[0].isdigit():
+                dec_block_indices.append(int(parts[0]))
+    if dec_block_indices:
+        cfg["decoder_blocks"] = max(dec_block_indices) + 1
+
+    # 3. Model dimension
+    for k in sd.keys():
+        if "cls_token" in k:
+            cfg["model_dim"] = sd[k].squeeze().shape[-1]
+            break
+
+    # 4. Encoder feedforward dimension
+    for k in sd.keys():
+        if "transformer_encoder.layers.0.linear1.weight" in k:
+            cfg["encoder_ff_dim"] = sd[k].shape[0]
+            break
+
+    # 5. Decoder MLP hidden dimension
+    for k in sd.keys():
+        if "decoder_blocks.0.mlp.0.weight" in k or "decoder_blocks.0.mlp.linear1.weight" in k:
+            cfg["mlp_hidden_dim"] = sd[k].shape[0]
+            break
+
+    return cfg
+
+
 def load_models_from_checkpoint(
     checkpoint: dict,
     spectrum_encoder,
@@ -108,6 +159,7 @@ def load_models_from_checkpoint(
     guidance,
     optimizer=None,
     use_ema: bool = True,
+    strict: bool = True,
 ) -> dict:
     """Load model (and optionally optimizer) weights from a checkpoint dict (supports both custom and PyTorch Lightning checkpoints)."""
     if "state_dict" in checkpoint:
@@ -115,19 +167,34 @@ def load_models_from_checkpoint(
         pl_sd = dict(checkpoint["state_dict"])
         if use_ema and checkpoint.get("ema_shadow_params"):
             pl_sd.update(checkpoint["ema_shadow_params"])
-        spectrum_encoder.load_state_dict(_clean_state_dict_keys(pl_sd, "spectrum_encoder"))
-        length_predictor.load_state_dict(_clean_state_dict_keys(pl_sd, "length_predictor"))
-        decoder.load_state_dict(_clean_state_dict_keys(pl_sd, "decoder"))
-        guidance.load_state_dict(_clean_state_dict_keys(pl_sd, "guidance"))
+        enc_sd = _clean_state_dict_keys(pl_sd, "spectrum_encoder")
+        lp_sd = _clean_state_dict_keys(pl_sd, "length_predictor")
+        dec_sd = _clean_state_dict_keys(pl_sd, "decoder")
+        guid_sd = _clean_state_dict_keys(pl_sd, "guidance")
     else:
         # Custom training loop checkpoint format
-        spectrum_encoder.load_state_dict(_clean_state_dict_keys(checkpoint["spectrum_encoder_state_dict"]))
-        length_predictor.load_state_dict(_clean_state_dict_keys(checkpoint["length_predictor_state_dict"]))
-        decoder.load_state_dict(_clean_state_dict_keys(checkpoint["decoder_state_dict"]))
-        guidance.load_state_dict(_clean_state_dict_keys(checkpoint["guidance_state_dict"]))
+        enc_sd = _clean_state_dict_keys(checkpoint["spectrum_encoder_state_dict"])
+        lp_sd = _clean_state_dict_keys(checkpoint["length_predictor_state_dict"])
+        dec_sd = _clean_state_dict_keys(checkpoint["decoder_state_dict"])
+        guid_sd = _clean_state_dict_keys(checkpoint["guidance_state_dict"])
+
+    if not strict:
+        # Filter to keys with exact matching shapes for safe architecture scaling
+        enc_sd = {k: v for k, v in enc_sd.items() if k in spectrum_encoder.state_dict() and spectrum_encoder.state_dict()[k].shape == v.shape}
+        lp_sd = {k: v for k, v in lp_sd.items() if k in length_predictor.state_dict() and length_predictor.state_dict()[k].shape == v.shape}
+        dec_sd = {k: v for k, v in dec_sd.items() if k in decoder.state_dict() and decoder.state_dict()[k].shape == v.shape}
+        guid_sd = {k: v for k, v in guid_sd.items() if k in guidance.state_dict() and guidance.state_dict()[k].shape == v.shape}
+
+    spectrum_encoder.load_state_dict(enc_sd, strict=strict)
+    length_predictor.load_state_dict(lp_sd, strict=strict)
+    decoder.load_state_dict(dec_sd, strict=strict)
+    guidance.load_state_dict(guid_sd, strict=strict)
 
     if optimizer is not None and "optimizer_state_dict" in checkpoint:
-        optimizer.load_state_dict(checkpoint["optimizer_state_dict"])
+        try:
+            optimizer.load_state_dict(checkpoint["optimizer_state_dict"])
+        except Exception as e:
+            print(f"Notice: optimizer state could not be loaded ({e}); continuing with fresh optimizer.")
     return checkpoint
 
 

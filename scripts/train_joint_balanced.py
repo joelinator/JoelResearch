@@ -100,17 +100,19 @@ class JointResampleCallback(pl.Callback):
             print(f"\n[JointResampleCallback] Resampled 1:1 indices for epoch {trainer.current_epoch} (total samples={len(ds):,})")
 
 
-def get_recommended_batch_size(target_vram_pct: float = 0.85) -> int:
-    """Calculates recommended batch size to reach >=80% VRAM based on available GPU capacity."""
+def get_recommended_batch_size(target_vram_pct: float = 0.85, encoder_layers: int = 6, decoder_blocks: int = 6) -> int:
+    """Calculates recommended batch size to reach >=80% VRAM based on available GPU capacity and model depth."""
     if not torch.cuda.is_available():
         return 64
     total_gb = torch.cuda.get_device_properties(0).total_memory / (1024**3)
-    if total_gb >= 70:  # 80GB H100 / A100: 1792 achieves 70.4 GB (88.9% VRAM)
+    if total_gb >= 70:  # 80GB H100 / A100: 1152 for deep 9L, 1792 for 6L achieves ~80-85% VRAM
+        if encoder_layers >= 8 or decoder_blocks >= 8:
+            return 1152 if target_vram_pct >= 0.80 else 896
         return 1792 if target_vram_pct >= 0.80 else 1024
     elif total_gb >= 35:  # 40GB A100
-        return 896
+        return 512 if (encoder_layers >= 8 or decoder_blocks >= 8) else 896
     elif total_gb >= 20:  # 24GB RTX 3090 / 4090 / A10G
-        return 448
+        return 256 if (encoder_layers >= 8 or decoder_blocks >= 8) else 448
     return 128
 
 
@@ -164,6 +166,13 @@ def parse_args():
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--use-ema", action="store_true", default=True)
     parser.add_argument("--ema-decay", type=float, default=0.999)
+    parser.add_argument("--model-dim", type=int, default=512, help="Hidden embedding dimension (default: 512)")
+    parser.add_argument("--encoder-layers", type=int, default=6, help="Number of SpectrumEncoder layers (default: 6)")
+    parser.add_argument("--encoder-heads", type=int, default=8, help="Number of encoder attention heads (default: 8)")
+    parser.add_argument("--encoder-ff-dim", type=int, default=1536, help="Encoder FFN dimension (default: 1536)")
+    parser.add_argument("--decoder-blocks", type=int, default=6, help="Number of AdaLN decoder blocks (default: 6)")
+    parser.add_argument("--decoder-heads", type=int, default=8, help="Number of decoder attention heads (default: 8)")
+    parser.add_argument("--mlp-hidden-dim", type=int, default=1536, help="Decoder SwiGLU MLP dimension (default: 1536)")
     parser.add_argument("--limit-train-batches", type=int, default=0)
     parser.add_argument("--limit-val-batches", type=int, default=0)
     return parser.parse_args()
@@ -180,7 +189,11 @@ def main():
     output_dir.mkdir(parents=True, exist_ok=True)
 
     if args.batch_size is None:
-        args.batch_size = get_recommended_batch_size(args.target_vram_pct)
+        args.batch_size = get_recommended_batch_size(
+            args.target_vram_pct,
+            encoder_layers=args.encoder_layers,
+            decoder_blocks=args.decoder_blocks,
+        )
         print(f"[VRAM Optimization] Auto-tuned batch_size={args.batch_size} targeting >={int(args.target_vram_pct*100)}% VRAM on device.")
 
     if args.run_name is None:
@@ -192,6 +205,7 @@ def main():
     print("==================================================================")
     print(f"Run Name:            {args.run_name}")
     print(f"Output Directory:    {output_dir}")
+    print(f"Model Architecture:  {args.encoder_layers}L Encoder, {args.decoder_blocks}L Decoder, Dim: {args.model_dim}")
     print(f"Warm-Start Checkpoint: {args.resume_from}")
     print(f"Batch Size:          {args.batch_size}")
     print(f"Epochs:              {args.epochs}")
@@ -269,18 +283,40 @@ def main():
     print(f"Val Dataloader:   {len(val_loader)} batches of {args.batch_size} ({len(joint_val_ds):,} samples)")
 
     # 5. Initialize Lightning Module with warm-started weights
+    model_cfg = {
+        "model_dim": args.model_dim,
+        "encoder_layers": args.encoder_layers,
+        "encoder_heads": args.encoder_heads,
+        "encoder_ff_dim": args.encoder_ff_dim,
+        "decoder_blocks": args.decoder_blocks,
+        "decoder_heads": args.decoder_heads,
+        "mlp_hidden_dim": args.mlp_hidden_dim,
+        "max_charge": DEFAULTS.model.max_charge,
+        "max_length": DEFAULTS.model.max_length,
+        "min_length": DEFAULTS.model.min_length,
+        "dropout": DEFAULTS.model.dropout,
+    }
     args_dict = vars(args)
+    args_dict["model_cfg"] = model_cfg
     args_dict["learning_rate"] = args.lr
     args_dict["eval_chunk_size"] = 256
 
     model = DFMLightningModule(vocabulary, args_dict)
+    total_params = sum(p.numel() for p in model.parameters())
+    print(f"\nModel Initialized: {total_params / 1e6:.2f}M parameters ({args.encoder_layers}L Encoder, {args.decoder_blocks}L Decoder, Dim: {args.model_dim})")
 
     if args.resume_from and Path(args.resume_from).exists():
-        print(f"\nLoading warm-start model weights from: {args.resume_from}")
+        print(f"Loading warm-start model weights from: {args.resume_from}")
         ckpt = torch.load(args.resume_from, map_location="cpu", weights_only=False)
         state_dict = ckpt.get("state_dict", ckpt)
-        missing, unexpected = model.load_state_dict(state_dict, strict=False)
-        print(f"  Warm-start weights loaded (missing keys: {len(missing)}, unexpected keys: {len(unexpected)}).")
+        model_sd = model.state_dict()
+        matching_sd = {
+            k: v for k, v in state_dict.items()
+            if k in model_sd and model_sd[k].shape == v.shape
+        }
+        missing, unexpected = model.load_state_dict(matching_sd, strict=False)
+        print(f"  Warm-start weights transferred: {len(matching_sd)} keys matched with identical shapes.")
+        print(f"  New/uninitialized parameters: {len(missing)} keys (e.g. newly scaled layers).")
         print("  Optimizer & Scheduler reset to start fresh at epoch 0 with cosine warmup schedule.")
 
     # 6. Callbacks & Loggers
@@ -292,7 +328,7 @@ def main():
         filename="best-joint-gen-exact-epoch={epoch:02d}-exact={valid_gen_exact_match:.4f}",
         monitor="valid_gen_exact_match",
         mode="max",
-        save_top_k=2,
+        save_top_k=1,
         auto_insert_metric_name=False,
     )
 

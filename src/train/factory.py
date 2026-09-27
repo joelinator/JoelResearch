@@ -13,33 +13,57 @@ def build_models(
     vocabulary: dict[str, int],
     device: torch.device,
     compile_models: bool = False,
+    model_cfg: dict | None = None,
 ):
-    model_cfg = DEFAULTS.model
+    if model_cfg is None:
+        cfg = DEFAULTS.model
+    elif isinstance(model_cfg, dict):
+        cfg = model_cfg
+    else:
+        cfg = model_cfg
+
+    def _get(key, default):
+        if isinstance(cfg, dict):
+            return cfg.get(key, default)
+        return getattr(cfg, key, default)
+
+    model_dim = int(_get("model_dim", DEFAULTS.model.model_dim))
+    encoder_layers = int(_get("encoder_layers", DEFAULTS.model.encoder_layers))
+    encoder_heads = int(_get("encoder_heads", DEFAULTS.model.encoder_heads))
+    encoder_ff_dim = int(_get("encoder_ff_dim", DEFAULTS.model.encoder_ff_dim))
+    decoder_blocks = int(_get("decoder_blocks", DEFAULTS.model.decoder_blocks))
+    decoder_heads = int(_get("decoder_heads", DEFAULTS.model.decoder_heads))
+    mlp_hidden_dim = int(_get("mlp_hidden_dim", DEFAULTS.model.mlp_hidden_dim))
+    dropout = float(_get("dropout", DEFAULTS.model.dropout))
+    max_charge = int(_get("max_charge", DEFAULTS.model.max_charge))
+    max_length = int(_get("max_length", DEFAULTS.model.max_length))
+    min_length = int(_get("min_length", DEFAULTS.model.min_length))
+
     spectrum_encoder = SpectrumEncoder(
-        model_dim=model_cfg.model_dim,
-        num_layers=model_cfg.encoder_layers,
-        nhead=model_cfg.encoder_heads,
-        dim_feedforward=model_cfg.encoder_ff_dim,
-        dropout=model_cfg.dropout,
+        model_dim=model_dim,
+        num_layers=encoder_layers,
+        nhead=encoder_heads,
+        dim_feedforward=encoder_ff_dim,
+        dropout=dropout,
     ).to(device)
     length_predictor = PeptideLengthClassifier(
-        in_dim=model_cfg.model_dim,
+        in_dim=model_dim,
         hidden_dim=256,
         emb_dim=128,
     ).to(device)
     decoder = DFMPeptideDecoder.from_vocabulary(
         vocabulary,
-        spec_dim=model_cfg.model_dim,
-        emb_dim=model_cfg.model_dim,
-        mlp_hidden_dim=model_cfg.mlp_hidden_dim,
-        n_decoder_blocks=model_cfg.decoder_blocks,
-        num_heads=model_cfg.decoder_heads,
-        dropout=model_cfg.dropout,
-        max_charge=model_cfg.max_charge,
-        max_length = model_cfg.max_length,
-        min_length = model_cfg.min_length
+        spec_dim=model_dim,
+        emb_dim=model_dim,
+        mlp_hidden_dim=mlp_hidden_dim,
+        n_decoder_blocks=decoder_blocks,
+        num_heads=decoder_heads,
+        dropout=dropout,
+        max_charge=max_charge,
+        max_length=max_length,
+        min_length=min_length,
     ).to(device)
-    guidance = ClfGuidance(cond_dim=model_cfg.model_dim).to(device)
+    guidance = ClfGuidance(cond_dim=model_dim).to(device)
 
     if compile_models and device.type == "cuda" and hasattr(torch, "compile"):
         try:
