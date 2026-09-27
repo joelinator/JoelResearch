@@ -123,8 +123,8 @@ def parse_args():
     parser.add_argument("--run-name", default=None)
     parser.add_argument(
         "--resume-from",
-        default="artifacts/dfm_joint_balanced_8ep/checkpoints/dfm_balanced_best.ckpt",
-        help="Checkpoint to initialize model weights from.",
+        default=None,
+        help="Checkpoint to initialize model weights from. If None, trains from scratch.",
     )
     parser.add_argument(
         "--batch-size",
@@ -305,7 +305,7 @@ def main():
     total_params = sum(p.numel() for p in model.parameters())
     print(f"\nModel Initialized: {total_params / 1e6:.2f}M parameters ({args.encoder_layers}L Encoder, {args.decoder_blocks}L Decoder, Dim: {args.model_dim})")
 
-    if args.resume_from and Path(args.resume_from).exists():
+    if args.resume_from and args.resume_from.lower() != "none" and Path(args.resume_from).exists():
         print(f"Loading warm-start model weights from: {args.resume_from}")
         ckpt = torch.load(args.resume_from, map_location="cpu", weights_only=False)
         state_dict = ckpt.get("state_dict", ckpt)
@@ -318,6 +318,8 @@ def main():
         print(f"  Warm-start weights transferred: {len(matching_sd)} keys matched with identical shapes.")
         print(f"  New/uninitialized parameters: {len(missing)} keys (e.g. newly scaled layers).")
         print("  Optimizer & Scheduler reset to start fresh at epoch 0 with cosine warmup schedule.")
+    else:
+        print("Training cleanly from scratch (all layers randomly initialized with fresh AdaLN-Zero zero-gate residual dynamics).")
 
     # 6. Callbacks & Loggers
     checkpoint_dir = output_dir / "checkpoints"
