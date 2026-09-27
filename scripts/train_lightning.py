@@ -29,6 +29,20 @@ from train.callbacks import EMACallback
 from train.lightning import DFMLightningModule
 
 
+def get_recommended_batch_size(target_vram_pct: float = 0.85) -> int:
+    """Calculates recommended batch size to reach >=80% VRAM based on available GPU capacity."""
+    if not torch.cuda.is_available():
+        return 64
+    total_gb = torch.cuda.get_device_properties(0).total_memory / (1024**3)
+    if total_gb >= 70:  # 80GB H100 / A100: 1792 achieves 70.4 GB (88.9% VRAM)
+        return 1792 if target_vram_pct >= 0.80 else 1024
+    elif total_gb >= 35:  # 40GB A100
+        return 896
+    elif total_gb >= 20:  # 24GB RTX 3090 / 4090 / A10G
+        return 448
+    return 128
+
+
 def parse_args():
     data_cfg = DEFAULTS.data
     train_cfg = DEFAULTS.train
@@ -36,7 +50,24 @@ def parse_args():
     parser.add_argument("--dataset-name", default=os.environ.get("DATASET_NAME", "InstaDeepAI/ms_ninespecies_benchmark"))
     parser.add_argument("--train-split", default=os.environ.get("TRAIN_SPLIT", data_cfg.train_split))
     parser.add_argument("--valid-split", default=os.environ.get("VALID_SPLIT", data_cfg.valid_split))
-    parser.add_argument("--batch-size", type=int, default=int(os.environ.get("BATCH_SIZE", train_cfg.batch_size)))
+    parser.add_argument(
+        "--batch-size",
+        type=int,
+        default=int(os.environ["BATCH_SIZE"]) if os.environ.get("BATCH_SIZE") else None,
+        help="Batch size. If None and --optimize-vram is set, auto-tunes to saturate >=80% VRAM.",
+    )
+    parser.add_argument(
+        "--optimize-vram",
+        action="store_true",
+        default=bool(int(os.environ.get("OPTIMIZE_VRAM", 1))),
+        help="Auto-tune batch size to saturate >=80% VRAM on detected GPU (default: True).",
+    )
+    parser.add_argument(
+        "--target-vram-pct",
+        type=float,
+        default=float(os.environ.get("TARGET_VRAM_PCT", 0.85)),
+        help="Target GPU VRAM utilization ratio (default: 0.85 for >=80% VRAM saturation).",
+    )
     parser.add_argument("--epochs", type=int, default=int(os.environ.get("EPOCHS", train_cfg.epochs)))
     parser.add_argument("--lr", type=float, default=float(os.environ.get("LEARNING_RATE", train_cfg.learning_rate)))
     parser.add_argument("--weight-decay", type=float, default=float(os.environ.get("WEIGHT_DECAY", train_cfg.weight_decay)))
@@ -131,8 +162,8 @@ def parse_args():
         "--mask-self-attention",
         dest="mask_self_attention",
         action="store_true",
-        default=bool(int(os.environ.get("MASK_SELF_ATTENTION", 0))),
-        help="Apply sequence padding mask to decoder self-attention (default: False for checkpoint compatibility).",
+        default=bool(int(os.environ.get("MASK_SELF_ATTENTION", 1))),
+        help="Apply sequence padding mask to decoder self-attention (default: True).",
     )
     parser.add_argument(
         "--no-mask-self-attention",
@@ -214,6 +245,13 @@ def parse_args():
 
 def main():
     args = parse_args()
+
+    if args.batch_size is None:
+        if args.optimize_vram:
+            args.batch_size = get_recommended_batch_size(args.target_vram_pct)
+            print(f"[VRAM Optimization] Auto-tuned batch_size={args.batch_size} targeting >={int(args.target_vram_pct*100)}% VRAM on device.")
+        else:
+            args.batch_size = DEFAULTS.train.batch_size
 
     if args.run_name is None:
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
