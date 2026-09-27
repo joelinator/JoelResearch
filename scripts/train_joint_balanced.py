@@ -100,17 +100,42 @@ class JointResampleCallback(pl.Callback):
             print(f"\n[JointResampleCallback] Resampled 1:1 indices for epoch {trainer.current_epoch} (total samples={len(ds):,})")
 
 
+def get_recommended_batch_size(target_vram_pct: float = 0.85) -> int:
+    """Calculates recommended batch size to reach >=80% VRAM based on available GPU capacity."""
+    if not torch.cuda.is_available():
+        return 64
+    total_gb = torch.cuda.get_device_properties(0).total_memory / (1024**3)
+    if total_gb >= 70:  # 80GB H100 / A100: 1792 achieves 70.4 GB (88.9% VRAM)
+        return 1792 if target_vram_pct >= 0.80 else 1024
+    elif total_gb >= 35:  # 40GB A100
+        return 896
+    elif total_gb >= 20:  # 24GB RTX 3090 / 4090 / A10G
+        return 448
+    return 128
+
+
 def parse_args():
     parser = argparse.ArgumentParser(description="Train DFM on balanced Nine-Species + HC-PT dataset.")
     parser.add_argument("--cache-dir", default=os.environ.get("HF_DATASETS_CACHE", "data/cache"))
-    parser.add_argument("--output-dir", default="artifacts/dfm_joint_balanced_8ep")
+    parser.add_argument("--output-dir", default="artifacts/dfm_joint_balanced_30ep")
     parser.add_argument("--run-name", default=None)
     parser.add_argument(
         "--resume-from",
-        default="artifacts/dfm_pl_ninespecies_finetune_phase2_10ep/checkpoints/best-gen-exact-epoch=02-exact=0.6270.ckpt",
+        default="artifacts/dfm_joint_balanced_8ep/checkpoints/dfm_balanced_best.ckpt",
         help="Checkpoint to initialize model weights from.",
     )
-    parser.add_argument("--batch-size", type=int, default=512)
+    parser.add_argument(
+        "--batch-size",
+        type=int,
+        default=None,
+        help="Training batch size. If None, auto-selects batch size to saturate >=80% VRAM (1792 on 80GB H100).",
+    )
+    parser.add_argument(
+        "--target-vram-pct",
+        type=float,
+        default=0.85,
+        help="Target GPU VRAM utilization ratio (default: 0.85 for >=80% VRAM saturation).",
+    )
     parser.add_argument("--epochs", type=int, default=8)
     parser.add_argument("--samples-per-epoch", type=int, default=1_000_000, help="Total train samples per epoch (50%% each domain)")
     parser.add_argument("--val-samples", type=int, default=20_000, help="Total validation samples (50%% each domain)")
@@ -132,7 +157,10 @@ def parse_args():
     parser.add_argument("--top-k-lengths", type=int, default=3)
     parser.add_argument("--length-beam-alpha", type=float, default=0.5)
     parser.add_argument("--use-knapsack-filter", action="store_true", default=True)
+    parser.add_argument("--use-exact-dp-knapsack", action="store_true", default=True)
     parser.add_argument("--knapsack-tol-da", type=float, default=1.0)
+    parser.add_argument("--mask-self-attention", action="store_true", default=True)
+    parser.add_argument("--enzyme", default="trypsin", help="Enzyme for evidence-conditioned prior ('trypsin' or 'none')")
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--use-ema", action="store_true", default=True)
     parser.add_argument("--ema-decay", type=float, default=0.999)
@@ -150,6 +178,10 @@ def main():
 
     output_dir = Path(args.output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
+
+    if args.batch_size is None:
+        args.batch_size = get_recommended_batch_size(args.target_vram_pct)
+        print(f"[VRAM Optimization] Auto-tuned batch_size={args.batch_size} targeting >={int(args.target_vram_pct*100)}% VRAM on device.")
 
     if args.run_name is None:
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")

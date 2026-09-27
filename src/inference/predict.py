@@ -12,6 +12,7 @@ from flow_matching.sampling import (
     sample_uniform_noise,
 )
 from flow_matching.scheduler import get_scheduler
+from inference.knapsack_dp import ExactReachabilityDP
 
 
 def decode_tokens(token_ids: torch.Tensor, vocab: dict[str, int]) -> list[str]:
@@ -71,10 +72,12 @@ def compute_fragment_matching_scores(
     vocabulary: dict[str, int],
     tolerance_ppm: float = 20.0,
     tolerance_da: float = 0.05,
+    use_composite_ladders: bool = False,
 ) -> torch.Tensor:
     """
-    Compute the explained spectral intensity fraction for each candidate sequence
-    by matching theoretical b- and y-ions against experimental spectrum peaks.
+    Compute the explained spectral intensity and ion-ladder continuity fraction
+    for each candidate sequence by matching theoretical b- and y-ions against
+    experimental spectrum peaks.
 
     Args:
         x_t: Candidate token sequences of shape (B_total, L).
@@ -85,9 +88,11 @@ def compute_fragment_matching_scores(
         vocabulary: Token dictionary.
         tolerance_ppm: Mass tolerance in parts-per-million (default: 20.0).
         tolerance_da: Absolute mass tolerance in Daltons (default: 0.05).
+        use_composite_ladders: If True, combines explained intensity, consecutive b/y ladders,
+            theoretical coverage, ion balance, and high-intensity unexplained peak penalty.
 
     Returns:
-        explained_intensity: Tensor of shape (B_total,) in [0, 1].
+        score: Tensor of shape (B_total,) in [0, 1].
     """
     device = x_t.device
     mass_table = torch.zeros(max(vocabulary.values()) + 1, device=device, dtype=torch.float32)
@@ -130,8 +135,97 @@ def compute_fragment_matching_scores(
 
     peak_is_matched = matched.any(dim=-1)  # (B_total, S)
     matched_intensity = (exp_intensity * peak_is_matched.float()).sum(dim=-1)
+    explained_intensity = (matched_intensity / total_spec_intensity).clamp(0.0, 1.0)
 
-    return (matched_intensity / total_spec_intensity).clamp(0.0, 1.0)
+    if not use_composite_ladders:
+        return explained_intensity
+
+    # Multi-feature fragment scoring: consecutive ion ladders, theoretical coverage, ion balance
+    theo_is_matched = matched.any(dim=1)  # (B_total, 2*L)
+    L_seq = x_t.size(1)
+    b_matched = theo_is_matched[:, :L_seq] & valid_fragment  # (B_total, L)
+    y_matched = theo_is_matched[:, L_seq:] & valid_fragment  # (B_total, L)
+
+    # 1. Consecutive ion ladder series (contiguous sequence evidence)
+    max_pairs = (lengths - 2).clamp(min=1).float()
+    b_ladder_ratio = (b_matched[:, :-1] & b_matched[:, 1:]).float().sum(dim=-1) / max_pairs
+    y_ladder_ratio = (y_matched[:, :-1] & y_matched[:, 1:]).float().sum(dim=-1) / max_pairs
+    ladder_score = ((b_ladder_ratio + y_ladder_ratio) / 2.0).clamp(0.0, 1.0)
+
+    # 2. Theoretical ion coverage (fraction of theoretical b and y observed)
+    total_theo = (2 * (lengths - 1)).float().clamp(min=1.0)
+    theo_coverage = ((b_matched.sum(dim=-1) + y_matched.sum(dim=-1)).float() / total_theo).clamp(0.0, 1.0)
+
+    # 3. Ion type balance (observing both b and y series)
+    n_b = b_matched.sum(dim=-1).float()
+    n_y = y_matched.sum(dim=-1).float()
+    ion_balance = (1.0 - (n_b - n_y).abs() / (n_b + n_y + 1e-6)).clamp(0.0, 1.0)
+
+    # 4. Unmatched high-intensity peaks penalty
+    top_k = min(5, exp_intensity.size(-1))
+    unmatched_peaks_int = exp_intensity * (~peak_is_matched).float()
+    top_unmatched = unmatched_peaks_int.topk(k=top_k, dim=-1).values.sum(dim=-1) / total_spec_intensity
+    unmatched_penalty = top_unmatched.clamp(0.0, 1.0)
+
+    composite_score = (
+        0.45 * explained_intensity
+        + 0.20 * theo_coverage
+        + 0.20 * ladder_score
+        + 0.15 * ion_balance
+        - 0.10 * unmatched_penalty
+    ).clamp(0.0, 1.0)
+
+    return composite_score
+
+
+def compute_terminal_prior(
+    x_t: torch.Tensor,
+    cand_lengths: torch.Tensor,
+    vocabulary: dict[str, int],
+    enzyme: str | None = "trypsin",
+    mz_array_exp: torch.Tensor | None = None,
+    spectrum_mask_exp: torch.Tensor | None = None,
+    tolerance_da: float = 0.05,
+) -> torch.Tensor:
+    """
+    Compute dataset- and evidence-conditioned C-terminal cleavage prior.
+
+    If enzyme == 'trypsin':
+      - C-terminal residue must be Lysine (K) or Arginine (R).
+      - If experimental y1 peak is observed in mz_array (y1(K) ~ 147.11 Da, y1(R) ~ 175.12 Da),
+        awards an evidence bonus of 0.25.
+      - If y1 peak is not observed, awards a baseline prior of 0.08.
+    If enzyme is None or non-tryptic:
+      - Returns 0.0 (no bias towards K/R).
+    """
+    total_samples = x_t.shape[0]
+    device = x_t.device
+    if enzyme is None or enzyme.lower() in ("none", "unspecific", "nonspecific"):
+        return torch.zeros(total_samples, device=device)
+
+    last_pos = (cand_lengths - 1).clamp(min=0)
+    last_tokens = x_t.gather(dim=-1, index=last_pos.unsqueeze(-1)).squeeze(-1)
+    k_id = vocabulary.get("K", -1)
+    r_id = vocabulary.get("R", -1)
+    is_tryptic_terminus = (last_tokens == k_id) | (last_tokens == r_id)
+
+    if enzyme.lower() == "trypsin":
+        if mz_array_exp is not None and spectrum_mask_exp is not None:
+            # Physical y1 theoretical masses (Da)
+            y1_k = 147.1128
+            y1_r = 175.1189
+            # Check for y1 peak in unmasked peaks
+            valid_peaks = ~spectrum_mask_exp
+            mz = mz_array_exp
+            has_y1_k = (((mz - y1_k).abs() <= tolerance_da) & valid_peaks).any(dim=-1)
+            has_y1_r = (((mz - y1_r).abs() <= tolerance_da) & valid_peaks).any(dim=-1)
+            has_y1_evidence = ((last_tokens == k_id) & has_y1_k) | ((last_tokens == r_id) & has_y1_r)
+            bonus = torch.where(has_y1_evidence, 0.25, torch.where(is_tryptic_terminus, 0.08, 0.0))
+            return bonus.float()
+        else:
+            return is_tryptic_terminus.float() * 0.15
+
+    return torch.zeros(total_samples, device=device)
 
 
 def knapsack_filter_logits_vectorized(
@@ -147,17 +241,14 @@ def knapsack_filter_logits_vectorized(
     pairs_2: torch.Tensor | None = None,
     min_aa_mass: float = 57.021464,
     max_aa_mass: float = 186.079313,
+    reachability_dp: ExactReachabilityDP | None = None,
+    use_exact_dp: bool = True,
 ) -> torch.Tensor:
     """
     Multi-step dynamic precursor mass-budget (knapsack) constraint for discrete flow matching.
 
-    Enforces physical mass-budget constraints at all flow matching stages:
-    - K == 1 (final unmasked residue): Restricts choices to AAs matching remaining mass within `tol` Da.
-    - K == 2 (two residues remaining): Restricts choices such that (rem_mass - m_aa) matches a valid single AA mass.
-    - K == 3 (three residues remaining): Restricts choices such that (rem_mass - m_aa) matches a valid 2-mer sum.
-    - K >= 4: Enforces dynamic interval bounds:
-        (K - 1) * min_aa_mass - tol <= rem_mass - m_aa <= (K - 1) * max_aa_mass + tol
-      pruning tokens that would guarantee a dead-end mass budget violation.
+    Supports exact dynamic programming reachability table (replaces coarse interval bounds
+    with exact reachability across all remaining lengths K >= 1), or fallback 4-stage checks.
     """
     is_masked = (x_t == mask_id) & active_mask
     num_masked = is_masked.sum(dim=-1, keepdim=True)  # (B_total, 1)
@@ -169,7 +260,27 @@ def knapsack_filter_logits_vectorized(
 
     rem_mass = target_residue_mass.unsqueeze(-1) - current_mass  # (B_total, 1)
 
-    # 1. Single remaining residue (exact mass match)
+    # Exact Reachable-Mass Dynamic Programming Table
+    if use_exact_dp:
+        if reachability_dp is None:
+            reachability_dp = ExactReachabilityDP.get_default(device=logits.device, tol_da=tol)
+        else:
+            reachability_dp = reachability_dp.to(logits.device)
+
+        k_next = (num_masked - 1).clamp(min=0)
+        R_next = rem_mass.unsqueeze(-1) - mass_table.view(1, 1, -1)
+        valid_tokens = reachability_dp.is_reachable(k_next.unsqueeze(-1), R_next) & (mass_table.view(1, 1, -1) > 0)
+        has_valid = valid_tokens.any(dim=-1, keepdim=True)
+
+        dist_to_budget = (R_next - (k_next * 110.0).unsqueeze(-1)).abs()
+        modified_logits = torch.where(
+            has_valid,
+            torch.where(valid_tokens, logits, torch.full_like(logits, -1e9)),
+            logits - dist_to_budget * 2.0,
+        )
+        return torch.where(is_masked.unsqueeze(-1), modified_logits, logits)
+
+    # Fallback 4-stage interval bounds
     single_rem_mask = (num_masked == 1) & is_masked  # (B_total, L)
     if single_rem_mask.any():
         target_m = rem_mass.unsqueeze(-1)  # (B_total, 1, 1)
@@ -184,7 +295,6 @@ def knapsack_filter_logits_vectorized(
         )
         logits = torch.where(single_rem_mask.unsqueeze(-1), modified_logits, logits)
 
-    # 2. Two remaining residues (complement single AA check)
     two_rem_mask = (num_masked == 2) & is_masked  # (B_total, L)
     if two_rem_mask.any() and valid_aa_masses is not None:
         R = rem_mass.unsqueeze(-1) - mass_table.view(1, 1, -1)  # (B_total, 1, V)
@@ -198,7 +308,6 @@ def knapsack_filter_logits_vectorized(
         )
         logits = torch.where(two_rem_mask.unsqueeze(-1), mod_2, logits)
 
-    # 3. Three remaining residues (complement pairwise sum check)
     three_rem_mask = (num_masked == 3) & is_masked  # (B_total, L)
     if three_rem_mask.any() and pairs_2 is not None:
         R = rem_mass.unsqueeze(-1) - mass_table.view(1, 1, -1)  # (B_total, 1, V)
@@ -212,7 +321,6 @@ def knapsack_filter_logits_vectorized(
         )
         logits = torch.where(three_rem_mask.unsqueeze(-1), mod_3, logits)
 
-    # 4. Four or more residues (interval mass bounds)
     multi_rem_mask = (num_masked >= 4) & is_masked  # (B_total, L)
     if multi_rem_mask.any():
         rem_count = (num_masked - 1).float()
@@ -263,12 +371,16 @@ def predict_peptide(
     trypsin_prior: bool = True,
     tolerance_ppm: float = 20.0,
     tolerance_da: float = 0.05,
-    mask_self_attention: bool = False,
+    mask_self_attention: bool = True,
     return_scores: bool = False,
     use_knapsack_filter: bool = True,
+    use_exact_dp_knapsack: bool = True,
     knapsack_tol_da: float = 1.0,
+    reachability_dp: ExactReachabilityDP | None = None,
     num_samples_per_length: int = 1,
     eta: float = 0.0,
+    enzyme: str | None = "trypsin",
+    use_composite_ladders: bool = True,
 ) -> tuple[torch.Tensor, torch.Tensor, list[str]] | tuple[torch.Tensor, torch.Tensor, list[str], torch.Tensor]:
     """
     Run de novo inference with Top-k Length Beam Decoding, Dynamic Knapsack Filtering, and SOTA scoring.
@@ -479,6 +591,8 @@ def predict_peptide(
                 pairs_2=pairs_2,
                 min_aa_mass=min_aa_mass,
                 max_aa_mass=max_aa_mass,
+                reachability_dp=reachability_dp,
+                use_exact_dp=use_exact_dp_knapsack,
             )
 
         if noising_scheme == "mask":
@@ -528,6 +642,8 @@ def predict_peptide(
                     pairs_2=pairs_2,
                     min_aa_mass=min_aa_mass,
                     max_aa_mass=max_aa_mass,
+                    reachability_dp=reachability_dp,
+                    use_exact_dp=use_exact_dp_knapsack,
                 )
                 x_t[rem_mask] = final_logits.argmax(dim=-1)[rem_mask]
             else:
@@ -565,19 +681,21 @@ def predict_peptide(
                 vocabulary=vocabulary,
                 tolerance_ppm=tolerance_ppm,
                 tolerance_da=tolerance_da,
+                use_composite_ladders=use_composite_ladders,
             )
         else:
             frag_score = torch.zeros(total_samples, device=device)
 
-        # Optional enzymatic C-terminal cleavage prior (Trypsin: C-terminal K or R)
-        if trypsin_prior:
-            last_pos = (cand_lengths_flat - 1).clamp(min=0)
-            last_tokens = x_t.gather(dim=-1, index=last_pos.unsqueeze(-1)).squeeze(-1)
-            k_id = vocabulary.get("K", -1)
-            r_id = vocabulary.get("R", -1)
-            trypsin_bonus = ((last_tokens == k_id) | (last_tokens == r_id)).float() * 0.2
-        else:
-            trypsin_bonus = 0.0
+        # Optional enzymatic C-terminal cleavage prior (Evidence-conditioned)
+        terminal_bonus = compute_terminal_prior(
+            x_t=x_t,
+            cand_lengths=cand_lengths_flat,
+            vocabulary=vocabulary,
+            enzyme=enzyme if enzyme is not None else ("trypsin" if trypsin_prior else None),
+            mz_array_exp=mz_array_exp,
+            spectrum_mask_exp=spectrum_mask_exp,
+            tolerance_da=tolerance_da,
+        )
 
         # Bayesian Joint Posterior Score:
         # log P(L | S) + mean_i log P(Y_i | S, L) - alpha * mass_error + beta * frag_score + prior
@@ -586,7 +704,7 @@ def predict_peptide(
             + mean_log_prob
             - alpha * relative_mass_error
             + beta * frag_score
-            + trypsin_bonus
+            + terminal_bonus
         )
     else:
         score = torch.zeros(total_samples, device=device)

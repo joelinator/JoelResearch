@@ -369,6 +369,12 @@ class DenovoMetrics:
     pr_auc_mass: float = 0.0
     p_pr_auc80_mass: float = 0.0
 
+    # Fixed-Precision Coverage Benchmarks (SOTA Standard)
+    coverage_at_80: float = 0.0
+    coverage_at_90: float = 0.0
+    coverage_at_95: float = 0.0
+    average_precision: float = 0.0
+
     # Backward compatibility properties
     @property
     def peptide_precision(self) -> float:
@@ -547,8 +553,36 @@ def compute_denovo_metrics(
     pr_auc_mass = 0.0
     p_pr_auc80_mass = 0.0
 
+    cov_80 = 0.0
+    cov_90 = 0.0
+    cov_95 = 0.0
+    avg_prec = 0.0
+
     if scores is not None:
         scores_arr = np.asarray(scores, dtype=np.float64)
+        order = np.argsort(-scores_arr)
+        sorted_exact = is_exact_il[order]
+        cum_corr = np.cumsum(sorted_exact)
+        cum_preds = np.arange(1, len(scores_arr) + 1)
+        precs = cum_corr / cum_preds
+        total_gold = max(1, int(cum_corr[-1]))
+        recs = cum_corr / total_gold
+
+        # Coverage @ 80%, 90%, 95% precision
+        m80 = np.where(precs >= 0.80)[0]
+        if len(m80) > 0:
+            cov_80 = float((m80[-1] + 1) / len(scores_arr))
+        m90 = np.where(precs >= 0.90)[0]
+        if len(m90) > 0:
+            cov_90 = float((m90[-1] + 1) / len(scores_arr))
+        m95 = np.where(precs >= 0.95)[0]
+        if len(m95) > 0:
+            cov_95 = float((m95[-1] + 1) / len(scores_arr))
+
+        # Average Precision (AP)
+        rec_diffs = np.diff(np.concatenate(([0.0], recs)))
+        avg_prec = float(np.sum(rec_diffs * precs))
+
         # Precision-Coverage Curves
         _, _, _, auc_exact, pauc80_exact, pauc50_exact = compute_precision_coverage_curve(
             is_exact, scores_arr
@@ -647,6 +681,10 @@ def compute_denovo_metrics(
         p_pr_auc80_exact_il=p_pr_auc80_exact_il,
         pr_auc_mass=pr_auc_mass,
         p_pr_auc80_mass=p_pr_auc80_mass,
+        coverage_at_80=cov_80,
+        coverage_at_90=cov_90,
+        coverage_at_95=cov_95,
+        average_precision=avg_prec,
     )
 
 
@@ -654,11 +692,133 @@ def format_metrics(metrics: DenovoMetrics) -> str:
     vals = metrics.to_dict()
     thresh_str = f"thresh={vals['score_threshold']:.3f} cov={vals['coverage']:.3f} " if vals['score_threshold'] is not None else ""
     pauc_str = f"auc_exact={vals['auc_exact']:.4f} pauc80_exact={vals['pauc80_exact']:.4f} " if vals['auc_exact'] > 0 else ""
+    cov_str = f"cov@80={vals['coverage_at_80']:.3f} cov@90={vals['coverage_at_90']:.3f} " if vals['coverage_at_80'] > 0 else ""
     return (
         f"n={vals['num_samples']} {thresh_str}"
         f"Exact[acc={vals['exact_peptide_accuracy']:.4f} P={vals['peptide_precision_exact']:.4f} R={vals['peptide_recall_exact']:.4f}] "
         f"Mass[acc={vals['mass_peptide_accuracy']:.4f} P={vals['peptide_precision_mass']:.4f} R={vals['peptide_recall_mass']:.4f}] "
         f"AA[P={vals['aa_precision']:.4f} R={vals['aa_recall']:.4f} F1={vals['aa_f1']:.4f}] "
         f"{pauc_str}"
+        f"{cov_str}"
         f"len_acc={vals['length_accuracy']:.4f}"
     )
+
+
+def mcnemar_paired_test(
+    correct_a: np.ndarray | list[bool],
+    correct_b: np.ndarray | list[bool],
+) -> dict[str, float | bool]:
+    """
+    McNemar's test with Edwards continuity correction for comparing two model predictions on identical spectra.
+
+    Discordant pairs:
+        b: Model A correct, Model B incorrect
+        c: Model A incorrect, Model B correct
+
+    Returns:
+        dict with: discordant_a_not_b, discordant_b_not_a, chi2_stat, p_value, significant_at_05, significant_at_01
+    """
+    a = np.asarray(correct_a, dtype=bool)
+    b = np.asarray(correct_b, dtype=bool)
+    if len(a) != len(b):
+        raise ValueError(f"Lengths must match: len(a)={len(a)}, len(b)={len(b)}")
+
+    n_b = int(np.sum(a & ~b))
+    n_c = int(np.sum(~a & b))
+
+    if n_b + n_c == 0:
+        return {
+            "discordant_a_not_b": 0,
+            "discordant_b_not_a": 0,
+            "chi2_stat": 0.0,
+            "p_value": 1.0,
+            "significant_at_05": False,
+            "significant_at_01": False,
+        }
+
+    # Edwards continuity correction
+    chi2 = float((abs(n_b - n_c) - 1.0) ** 2 / (n_b + n_c))
+    try:
+        from scipy.stats import chi2 as chi2_dist
+        p_val = float(1.0 - chi2_dist.cdf(chi2, df=1))
+    except ImportError:
+        import math
+        p_val = float(math.erfc(math.sqrt(chi2) / math.sqrt(2.0)))
+
+    return {
+        "discordant_a_not_b": n_b,
+        "discordant_b_not_a": n_c,
+        "chi2_stat": chi2,
+        "p_value": p_val,
+        "significant_at_05": p_val < 0.05,
+        "significant_at_01": p_val < 0.01,
+    }
+
+
+def stratified_performance_breakdown(
+    predictions: list[str],
+    targets: list[str],
+    lengths: list[int] | np.ndarray,
+    charges: list[int] | np.ndarray | None = None,
+) -> dict[str, dict[str, float | int]]:
+    """
+    Stratifies de novo performance by:
+    1. Length: Short (<= 10), Medium (11-16), Long (> 16)
+    2. Precursor charge: +2, +3, >= +4 (if available)
+    3. PTM status: Unmodified vs Modified
+    """
+    preds = list(predictions)
+    tgts = list(targets)
+    lens = np.asarray(lengths, dtype=int)
+    results: dict[str, dict[str, float | int]] = {}
+
+    # 1. By Length
+    length_strata = {
+        "short_<=10": lens <= 10,
+        "medium_11-16": (lens >= 11) & (lens <= 16),
+        "long_>16": lens > 16,
+    }
+    for name, mask in length_strata.items():
+        if np.any(mask):
+            sub_preds = [preds[i] for i in np.where(mask)[0]]
+            sub_tgts = [tgts[i] for i in np.where(mask)[0]]
+            metrics = compute_denovo_metrics(sub_preds, sub_tgts)
+            results[f"length_{name}"] = {
+                "count": int(np.sum(mask)),
+                "exact_acc": float(metrics.exact_peptide_accuracy_il),
+                "aa_f1": float(metrics.aa_f1),
+            }
+
+    # 2. By Charge
+    if charges is not None:
+        chgs = np.asarray(charges, dtype=int)
+        charge_strata = {
+            "charge_2": chgs == 2,
+            "charge_3": chgs == 3,
+            "charge_4+": chgs >= 4,
+        }
+        for name, mask in charge_strata.items():
+            if np.any(mask):
+                sub_preds = [preds[i] for i in np.where(mask)[0]]
+                sub_tgts = [tgts[i] for i in np.where(mask)[0]]
+                metrics = compute_denovo_metrics(sub_preds, sub_tgts)
+                results[name] = {
+                    "count": int(np.sum(mask)),
+                    "exact_acc": float(metrics.exact_peptide_accuracy_il),
+                    "aa_f1": float(metrics.aa_f1),
+                }
+
+    # 3. By PTM Presence
+    has_ptm = np.array(["(" in t or "[" in t for t in targets], dtype=bool)
+    for name, mask in [("unmodified", ~has_ptm), ("modified_ptm", has_ptm)]:
+        if np.any(mask):
+            sub_preds = [preds[i] for i in np.where(mask)[0]]
+            sub_tgts = [tgts[i] for i in np.where(mask)[0]]
+            metrics = compute_denovo_metrics(sub_preds, sub_tgts)
+            results[f"ptm_{name}"] = {
+                "count": int(np.sum(mask)),
+                "exact_acc": float(metrics.exact_peptide_accuracy_il),
+                "aa_f1": float(metrics.aa_f1),
+            }
+
+    return results

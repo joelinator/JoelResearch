@@ -1,0 +1,501 @@
+The fastest path to beating **InstaNovo on both Nine-Species and HC-PT** is not simply making DFlowNovo larger. Your current results already show strong biological performance, but the model loses badly on the synthetic HC-PT benchmark:
+
+- **Nine-Species:** DFM Balanced strict match `64.92%` vs InstaNovo `15.45%`, but I/L match is lower: `65.07%` vs `71.09%`.
+- **HC-PT:** DFM Balanced strict match `35.25%` vs InstaNovo `63.03%`.
+- **Speed:** DFM is substantially faster: about `185 spectra/s` versus `52 spectra/s`.
+
+These figures are documented in the repository README and supervisor report. 
+
+## Highest-priority improvements
+
+### 1. Fix the architecture/configuration mismatch first
+
+Your documentation describes a model with **12 decoder blocks and approximately 59.5M parameters**, but `src/model/model.py` currently defaults to:
+
+```python
+n_decoder_blocks: int = 6
+```
+
+The documentation also describes different dimensions and parameter counts from the source defaults. This creates a serious reproducibility risk: the reported benchmark may not correspond to the model a new user constructs from the code.
+
+Make the architecture explicit and centralized:
+
+```python
+MODEL_CONFIG = {
+    "model_dim": 512,
+    "encoder_layers": 6,
+    "decoder_layers": 12,
+    "num_heads": 8,
+    "decoder_ffn_dim": 1536,
+}
+```
+
+Then use the same configuration in:
+
+- `train.py`
+- `train_lightning.py`
+- checkpoint loading
+- inference
+- parameter-count tests
+- README and benchmark reports
+
+Add a test asserting that the instantiated model matches the reported parameter budget.
+
+**Why this matters:** before optimizing accuracy, you need to know that your benchmarked checkpoint and published architecture are actually the same system.
+
+---
+
+### 2. Always mask inactive peptide positions
+
+In `DFMLightningModule`, padding-aware self-attention is optional:
+
+```python
+mask_self_attention = self.args.get("mask_self_attention", False)
+seq_padding_mask = ~active_mask if mask_self_attention else None
+```
+
+The default is `False`. Consequently, decoder self-attention can mix active residues with padded positions, especially when candidate lengths are evaluated in parallel.
+
+I recommend making this unconditional:
+
+```python
+seq_padding_mask = ~active_mask
+```
+
+The padding positions should also be excluded from:
+
+- self-attention
+- loss computation
+- mass guidance
+- confidence scoring
+- fragment scoring
+- final candidate ranking
+
+This is particularly important for top-k length decoding because candidates with different lengths are packed into a common tensor.
+
+---
+
+### 3. Replace the single global mass knapsack with an exact dynamic-programming constraint
+
+Your current knapsack filter is strong for `K <= 3`, but for `K >= 4` it only applies interval bounds:
+
+```python
+(K - 1) * min_aa_mass <= remaining_mass <= (K - 1) * max_aa_mass
+```
+
+That allows many impossible mass compositions. InstaNovo's main advantage is its tightly integrated mass-constrained search.
+
+Build an exact reachable-mass table for every remaining length:
+
+```text
+reachable[k, mass_bin] = whether k residues can realize this mass
+```
+
+Use a quantized mass grid, for example:
+
+```text
+mass_bin = round(mass / 0.001 Da)
+```
+
+Then candidate token `a` is valid if:
+
+```text
+reachable[k - 1, remaining_mass - mass(a)]
+```
+
+is true within the instrument tolerance.
+
+For PTMs, use a separate alphabet-aware table:
+
+```text
+reachable[k, mass_bin, modification_budget]
+```
+
+This should eliminate errors such as:
+
+- one residue being replaced by two residues with the same mass
+- incorrect `N`/`GG` substitutions
+- incorrect `Q`/`GA` substitutions
+- chemically impossible PTM combinations
+
+This is probably the single most important decoding improvement for recovering HC-PT performance.
+
+---
+
+### 4. Train a dedicated residue-order refinement model
+
+Your error analysis shows a recurring failure mode:
+
+- `N` versus `GG`
+- `Q` versus `GA`
+- `IV` versus `VI`
+- local residue permutations with identical or nearly identical total mass
+
+These errors are difficult for a purely position-wise flow objective because the model can produce a sequence with the correct overall mass but incorrect local order.
+
+Add a second refinement objective based on theoretical fragment ions:
+
+```text
+L_total =
+    L_flow
+  + λ_length L_length
+  + λ_mass L_mass
+  + λ_prefix L_prefix
+  + λ_fragment L_fragment
+  + λ_order L_order
+```
+
+Useful additional losses:
+
+1. **Prefix mass loss**  
+   Already present, but increase its importance only at later training stages.
+
+2. **Theoretical ion ranking loss**  
+   Reward the model when predicted sequences produce b/y ions aligned with observed peaks.
+
+3. **Adjacent-order contrastive loss**  
+   Construct hard negatives by swapping adjacent residues or replacing:
+   - `N ↔ GG`
+   - `Q ↔ GA`
+   - `D ↔ N(deam)`
+   - `E ↔ Q(deam)`
+
+   Train the model to assign higher likelihood to the true sequence whenever the spectrum contains discriminative evidence.
+
+4. **Reverse-direction auxiliary loss**  
+   Predict the sequence in both N→C and C→N directions, or train a small bidirectional refinement head. This directly addresses errors caused by missing N-terminal or C-terminal evidence.
+
+---
+
+### 5. Use a hybrid DFM + autoregressive reranker
+
+The current DFM system is excellent at generating candidates quickly, but InstaNovo remains strong on HC-PT because autoregressive decoding models residue order and local dependencies very effectively.
+
+A strong practical design would be:
+
+```text
+Spectrum
+   │
+   ├── DFM generates 16–64 candidates in parallel
+   │
+   └── Small autoregressive or bidirectional reranker scores candidates
+          using spectrum + candidate sequence + precursor mass
+```
+
+The reranker does not need to generate sequences. It only needs to rank perhaps 8–32 candidates. This preserves most of your speed advantage while recovering the sequence-order accuracy of InstaNovo.
+
+Candidate generation should vary:
+
+- length
+- random seed
+- temperature
+- flow trajectory
+- confidence-based versus uniform unmasking
+- optional reverse-direction decoding
+
+The reranker should use:
+
+```text
+score =
+    sequence_score
+  + fragment_ion_score
+  + exact_mass_likelihood
+  + length_prior
+  + modification_prior
+```
+
+This is more promising than adding many more DFM layers.
+
+---
+
+### 6. Improve hard-negative training specifically for HC-PT
+
+The domain gap is clear: balanced training protects Nine-Species but still harms HC-PT. Your current 1:1 sampling strategy is too coarse.
+
+Replace fixed 1:1 sampling with an adaptive mixture:
+
+```text
+p(domain) ∝ validation_loss(domain)^τ
+```
+
+or use uncertainty-based weighting:
+
+```text
+w_domain ∝ exp(validation_loss_domain / temperature)
+```
+
+For example:
+
+```text
+initial:
+    HC-PT       0.60
+    NineSpecies 0.40
+
+later:
+    HC-PT       0.50
+    NineSpecies 0.50
+```
+
+Then adjust the mixture based on held-out strict exact match and I/L match, not training loss.
+
+Also split validation into:
+
+- synthetic high-confidence spectra
+- biological spectra
+- PTM-containing spectra
+- short peptides
+- long peptides
+- high-charge precursors
+- low-coverage spectra
+- I/L-ambiguous spectra
+
+A single combined validation metric can hide domain collapse.
+
+---
+
+### 7. Fix PTM and vocabulary handling
+
+`build_vocabulary()` creates both:
+
+```python
+"<mask_token>"
+"<mask>"
+```
+
+with the same numeric ID:
+
+```python
+vocab["<mask_token>"] = mask_idx
+vocab["<mask" + ">"] = mask_idx
+```
+
+This aliasing can produce inconsistent behavior in:
+
+- vocabulary size calculations
+- mass-table construction
+- inverse vocabulary conversion
+- checkpoint compatibility
+- token-count assertions
+
+Use one canonical token in the serialized vocabulary and handle aliases only at input parsing time:
+
+```python
+vocab = {
+    ...,
+    "<pad>": pad_id,
+    "<mask_token>": mask_id,
+}
+```
+
+Then normalize legacy checkpoints separately.
+
+Also add comprehensive PTM tests covering:
+
+- `M[UNIMOD:35]`
+- `M[15.9949]`
+- `N[UNIMOD:7]`
+- `C[UNIMOD:4]`
+- N-terminal modifications
+- multiple modifications in one peptide
+- modified I/L sequences
+- unknown modifications
+
+PTM errors can be especially damaging on HC-PT because InstaNovo benefits from a mature modification vocabulary and search procedure.
+
+---
+
+### 8. Replace the heuristic trypsin bonus with a learned or dataset-conditioned prior
+
+The current inference score includes:
+
+```python
+trypsin_bonus = ... * 0.2
+```
+
+This can hurt non-tryptic or mixed-digestion data. Make the prior conditional on metadata:
+
+```python
+if enzyme == "trypsin":
+    apply_terminal_prior(...)
+elif enzyme is None:
+    no_terminal_prior()
+```
+
+Better still, train a small cleavage classifier using:
+
+- enzyme type
+- organism/dataset
+- charge
+- precursor mass
+- observed terminal ion evidence
+
+A fixed `+0.2` is likely too strong for some spectra and too weak for others.
+
+---
+
+### 9. Improve fragment scoring beyond explained intensity
+
+The current fragment reranker mainly measures the fraction of experimental intensity explained by theoretical ions. That is useful, but it can favor candidates that explain many nonspecific peaks.
+
+Add separate features:
+
+```text
+fragment_score =
+    w1 * explained_intensity
+  + w2 * explained_peak_count
+  + w3 * consecutive_b_ion_series
+  + w4 * consecutive_y_ion_series
+  + w5 * intensity_correlation
+  + w6 * ion_type_balance
+  + w7 * charge-state agreement
+  - w8 * unmatched_high-intensity_penalty
+```
+
+In particular, reward **consecutive ion ladders**, not just the total number of matched peaks. A candidate explaining `b3, b4, b5, b6` should score higher than one matching four isolated noise peaks.
+
+You should also test:
+
+- doubly charged fragments
+- neutral losses
+- `a`-ions
+- immonium ions
+- instrument-specific fragment tolerances
+- HCD versus CID versus ETD spectra
+
+---
+
+### 10. Distill classifier-free guidance to recover speed
+
+Your inference path performs two decoder passes per step when:
+
+```python
+guidance_scale > 1.0
+```
+
+That means classifier-free guidance approximately doubles decoder computation.
+
+Train a guidance-distilled model that directly predicts the guided logits:
+
+```text
+teacher: conditional + unconditional CFG
+student: single conditional forward pass
+```
+
+Then benchmark:
+
+- original CFG
+- no CFG
+- distilled guidance
+- guidance at only the final 25–50% of flow steps
+
+This could preserve accuracy while reducing the current DFM throughput cost.
+
+---
+
+## Important evaluation problems to fix
+
+### A. Your precision-coverage AUC implementation is not standard
+
+`compute_precision_coverage_curve()` integrates precision with trapezoids over every individual prediction. Precision is not monotonic, so the resulting AUC can be misleading.
+
+Use a standard ranking metric:
+
+- average precision
+- precision at fixed coverage
+- maximum coverage at 80%, 90%, and 95% precision
+- recall at fixed precision
+- bootstrapped confidence intervals
+
+For example, report:
+
+```text
+Coverage @ 80% precision
+Coverage @ 90% precision
+Coverage @ 95% precision
+AA-F1 @ 80% precision
+Strict exact match @ 80% precision
+I/L exact match @ 80% precision
+```
+
+These are more operationally meaningful than a custom trapezoidal curve.
+
+### B. Avoid tuning and evaluating on the same validation proxy
+
+During validation, the threshold is calibrated on the same proxy predictions used to report metrics:
+
+```python
+calib = calibrate_score_threshold(scores_all, mass_matches, target_precision=0.80)
+```
+
+This produces optimistic estimates. Use three splits:
+
+```text
+training
+calibration validation
+final evaluation
+```
+
+Or calibrate thresholds once on a fixed calibration set and never alter them during test evaluation.
+
+### C. Use confidence intervals and paired significance tests
+
+Because both models are evaluated on the same spectra, report:
+
+- paired bootstrap confidence intervals
+- McNemar's test for exact matches
+- per-spectrum win/loss/tie counts
+- stratified results by charge, length, mass, PTM, and species
+
+This will tell you whether an improvement is real or caused by a particular subset.
+
+---
+
+## Recommended implementation order
+
+### Phase 1: Correctness and reproducibility
+
+1. Make architecture configuration explicit.
+2. Enable padding masks by default.
+3. Remove duplicate `<mask>` vocabulary aliases.
+4. Add exact model parameter-count tests.
+5. Fix benchmark calibration leakage.
+6. Add stratified evaluation reports.
+
+### Phase 2: HC-PT accuracy
+
+1. Exact reachable-mass dynamic programming.
+2. Hard-negative training for isobaric compositions.
+3. Adaptive HC-PT/Nine-Species sampling.
+4. Better fragment-ladder scoring.
+5. Candidate generation with 16–64 diverse trajectories.
+
+### Phase 3: Hybrid accuracy
+
+1. Train a lightweight candidate reranker.
+2. Add bidirectional/reverse-order refinement.
+3. Distill classifier-free guidance.
+4. Add PTM-aware and instrument-aware conditioning.
+
+## My strongest recommendation
+
+Build this system next:
+
+```text
+DFM candidate generator
+    ├── 5 length hypotheses
+    ├── 8 stochastic trajectories per length
+    ├── exact mass-reachability pruning
+    └── confidence-based unmasking
+
+Candidate pool
+    ├── fragment ladder features
+    ├── precursor mass likelihood
+    ├── length prior
+    ├── PTM validity
+    └── small bidirectional reranker
+
+Final prediction
+```
+
+That approach directly targets your current weakness: **DFM already finds plausible mass-consistent sequences, but it sometimes chooses the wrong residue order or composition among multiple mass-equivalent candidates.** InstaNovo is strongest precisely in that ranking problem.
+

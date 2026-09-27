@@ -43,7 +43,7 @@ def _run_epoch(
     amp=True,
     length_noising=length_noiser,
     length_noising_prob=0.1,
-    mask_self_attention=False,
+    mask_self_attention=True,
 ):
     if train:
         spectrum_encoder.train()

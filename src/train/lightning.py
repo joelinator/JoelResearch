@@ -110,7 +110,7 @@ class DFMLightningModule(pl.LightningModule):
         else:
             length_for_decoder = length
 
-        mask_self_attention = self.args.get("mask_self_attention", False)
+        mask_self_attention = self.args.get("mask_self_attention", True)
         seq_padding_mask = ~active_mask if mask_self_attention else None
 
         peptide_logits = self.decoder(
@@ -294,7 +294,7 @@ class DFMLightningModule(pl.LightningModule):
                             decoding_strategy=self.args.get("decoding_strategy", "confidence"),
                             temperature=self.args.get("decoding_temperature", 0.0),
                             trypsin_prior=self.args.get("trypsin_prior", True),
-                            mask_self_attention=self.args.get("mask_self_attention", False),
+                            mask_self_attention=self.args.get("mask_self_attention", True),
                             return_scores=True,
                         )
 
