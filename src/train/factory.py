@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import torch
 
-from config.defaults import DEFAULTS
+from config.defaults import DEFAULTS, MODEL_CONFIG
 from model.guidance import ClfGuidance
 from model.model import DFMPeptideDecoder, PeptideLengthClassifier, SpectrumEncoder
 

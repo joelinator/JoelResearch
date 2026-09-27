@@ -12,20 +12,35 @@ from dataclasses import asdict, dataclass, field
 
 from data.lengths import MAX_PEPTIDE_LENGTH, MIN_PEPTIDE_LENGTH
 
+# Centralized explicit architectural configuration (12 total Transformer blocks: 6 encoder + 6 AdaLN decoder, ~59.48M params)
+MODEL_CONFIG: dict[str, int | float] = {
+    "model_dim": 512,
+    "encoder_layers": 6,
+    "encoder_heads": 8,
+    "encoder_ff_dim": 1536,
+    "decoder_blocks": 6,          # 6 AdaLN-Zero decoder blocks
+    "decoder_heads": 8,
+    "mlp_hidden_dim": 1536,       # SwiGLU FFN hidden dimension (3× model_dim)
+    "max_charge": 6,
+    "max_length": MAX_PEPTIDE_LENGTH,
+    "min_length": MIN_PEPTIDE_LENGTH,
+    "dropout": 0.1,
+}
+
 
 @dataclass(frozen=True)
 class ModelDefaults:
-    model_dim: int = 512
-    encoder_layers: int = 6
-    encoder_heads: int = 8
-    encoder_ff_dim: int = 1536   # tuned: 2048 → 1536 to stay in 40-50M param range
-    decoder_blocks: int = 6
-    decoder_heads: int = 8
-    mlp_hidden_dim: int = 1536   # SwiGLU FFN hidden dimension (3× model_dim for ~59M total parameters)
-    max_charge: int = 6
-    max_length: int = MAX_PEPTIDE_LENGTH
-    min_length: int = MIN_PEPTIDE_LENGTH
-    dropout: float = 0.1
+    model_dim: int = int(MODEL_CONFIG["model_dim"])
+    encoder_layers: int = int(MODEL_CONFIG["encoder_layers"])
+    encoder_heads: int = int(MODEL_CONFIG["encoder_heads"])
+    encoder_ff_dim: int = int(MODEL_CONFIG["encoder_ff_dim"])
+    decoder_blocks: int = int(MODEL_CONFIG["decoder_blocks"])
+    decoder_heads: int = int(MODEL_CONFIG["decoder_heads"])
+    mlp_hidden_dim: int = int(MODEL_CONFIG["mlp_hidden_dim"])
+    max_charge: int = int(MODEL_CONFIG["max_charge"])
+    max_length: int = int(MODEL_CONFIG["max_length"])
+    min_length: int = int(MODEL_CONFIG["min_length"])
+    dropout: float = float(MODEL_CONFIG["dropout"])
 
 
 @dataclass(frozen=True)
