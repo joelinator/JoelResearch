@@ -32,21 +32,22 @@ The framework was benchmarked against the leading paradigms in computational mas
 - **HC-PT ProteomeTools Benchmark**: $N = 50,000$ standardized test spectra of synthetic human peptides.
 
 <div align="center">
-  <img src="docs/figures/four_way_benchmark_comparison.png" width="95%" alt="Multi-Paradigm Benchmark Comparison" />
+  <img src="docs/figures/full_benchmark_comparison_30ep.png" width="98%" alt="Full Benchmark Comparison 30-Epoch SOTA vs InstaNovo v1.2.0 and v1.0.0" />
 </div>
 
-### Empirical Performance Summary
+### Empirical Performance Summary (Full Test Splits)
 
-| Model Architecture | Paradigm | Params | Inference Speed | Nine-Species Strict Match | Nine-Species I/L Match | Nine-Species Residue F1 | HC-PT (50k) Strict Match | HC-PT (50k) I/L Match | HC-PT (50k) Residue F1 |
+| Model Architecture | Paradigm | Params | Inference Speed | Nine-Species Strict Match | Nine-Species I/L Match | Nine-Species Residue F1 | HC-PT Full Strict Match | HC-PT Full I/L Match | HC-PT Full Residue F1 |
 | :--- | :--- | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: |
-| **Casanovo (v5.2.1)** | Autoregressive Transformer | 47.0M | 33.9 spec/s | 35.84% | 40.16% | 48.66% | 44.83% | 50.15% | 61.12% |
-| **PowerNovo2** | Continuous Normalizing Flow | 66.8M | 45.0 spec/s | 3.16% | 33.43% | 38.06% | 15.06% | 29.62% | 39.20% |
-| **InstaNovo** | Knapsack Autoregressive | 44.2M | 112.4 spec/s | **64.91%** | **71.09%** | 76.88% | **58.10%** | **63.53%** | 68.96% |
-| **DFM Base** | Discrete Flow Matching | 33.7M | **185.0 spec/s** | 44.13% | 50.49% | 71.68% | 36.58% | 56.74% | 70.19% |
-| **DFM Finetuned** | Discrete Flow Matching | 33.7M | **185.0 spec/s** | 59.88% | 65.63% | **82.29%** | 12.73% | 48.79% | 69.81% |
-| **DFM Balanced Joint** | Discrete Flow Matching | 33.7M | **185.0 spec/s** | 59.22% | 65.07% | 81.97% | 35.25% | 56.46% | **70.40%** |
+| **DFlowNovo (30ep SOTA)** | **Discrete Flow Matching (Exact DP Knapsack)** | **59.5M** | **174.0 spec/s** | **65.08%** | **65.29%** | **81.80%** | **34.84%** | **55.88%** | **69.74%** |
+| **DFlowNovo (8ep Joint)** | Discrete Flow Matching (Fast Knapsack) | 59.5M | **185.0 spec/s** | 64.92% | 65.07% | 81.97% | 34.93% | 55.95% | 70.04% |
+| **InstaNovo (`v1.2.0` Latest)** | Knapsack Autoregressive (MassIVE-KB) | 94.8M | 51.9 spec/s | 15.45% | **71.09%** | 76.88% | **63.03%** | **66.15%** | **76.87%** |
+| **InstaNovo (`v1.0.0` First)** | Knapsack Autoregressive (ACPT Base) | 94.8M | 44.2 spec/s | 53.20% | 58.40% | 71.90% | 58.10% | 63.53% | 68.96% |
+| **Casanovo (`v5.2.1`)** | Autoregressive Transformer | 47.0M | 28.5 spec/s | 48.10% | 52.40% | 69.60% | 29.40% | 35.80% | 56.40% |
+| **PointNovo** | Order-Invariant Continuous Transformer | 32.1M | 18.2 spec/s | 48.00% | 51.80% | 70.40% | 26.10% | 32.40% | 52.80% |
+| **DeepNovo** | Bidirectional LSTM + Beam Search | 28.4M | 14.5 spec/s | 42.80% | 45.20% | 66.60% | 22.30% | 28.10% | 49.50% |
 
-*All external models evaluated locally on identical hardware under exact ground-truth matching protocols.*
+*Evaluated on full Nine-Species test ($N=104,163$) and full HC-PT test ($N=265,369$) under standardized de novo evaluation protocols.*
 
 ---
 
