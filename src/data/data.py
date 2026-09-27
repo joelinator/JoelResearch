@@ -181,7 +181,30 @@ def to_unimod_sequence(sequence: str | list[str]) -> str:
     return "".join(CANONICAL_TO_UNIMOD_MAP.get(tok, tok) for tok in tokens)
 
 
-def build_vocabulary(ds=None, include_ptms: bool = True) -> dict[str, int]:
+class Vocabulary(dict):
+    """
+    Bijective vocabulary mapping tokens to integer IDs with alias normalization.
+    Ensures unique IDs and maps aliases like '<mask' to '<mask_token>' without polluting keys().
+    """
+
+    def __getitem__(self, key: str) -> int:
+        if key in ("<mask" + ">", "<mask_token>", "<mask"):
+            return super().__getitem__("<mask_token>")
+        return super().__getitem__(key)
+
+    def get(self, key: str, default=None):
+        if key in ("<mask" + ">", "<mask_token>", "<mask"):
+            if "<mask_token>" in self:
+                return super().get("<mask_token>", default)
+        return super().get(key, default)
+
+    def __contains__(self, key: object) -> bool:
+        if key in ("<mask" + ">", "<mask_token>", "<mask"):
+            return "<mask_token>" in self.keys()
+        return super().__contains__(key)
+
+
+def build_vocabulary(ds=None, include_ptms: bool = True) -> Vocabulary:
     """
     Build token vocabulary with stable ordering:
     1. Standard 20 amino acids (indices 0..19)
@@ -190,7 +213,7 @@ def build_vocabulary(ds=None, include_ptms: bool = True) -> dict[str, int]:
     4. <pad> and <mask_token> (strictly the last two entries)
     """
     # 1. Standard 20 amino acids in canonical order
-    vocab = {token: index for index, token in enumerate(STANDARD_AMINO_ACIDS)}
+    vocab = Vocabulary({token: index for index, token in enumerate(STANDARD_AMINO_ACIDS)})
 
     # 2. Add target PTM tokens
     if include_ptms:
@@ -208,12 +231,11 @@ def build_vocabulary(ds=None, include_ptms: bool = True) -> dict[str, int]:
                     if tok not in vocab:
                         vocab[tok] = len(vocab)
 
-    # 4. Mandatory: <pad> and <mask_token> must be the last two entries
+    # 4. Mandatory: <pad> and <mask_token> must be strictly the last two entries
     vocab["<pad>"] = len(vocab)
-    mask_idx = len(vocab)
-    vocab["<mask_token>"] = mask_idx
-    vocab["<mask" + ">"] = mask_idx
+    vocab["<mask_token>"] = len(vocab)
     return vocab
+
 
 def invert_vocabulary(vocab: dict[str, int]) -> dict[int, str]:
     return {index: token for token, index in vocab.items()}

@@ -34,16 +34,20 @@ def evaluate_generative(
     decoding_strategy: str = "confidence",
     temperature: float = 0.0,
     trypsin_prior: bool = True,
-    mask_self_attention: bool = False,
+    mask_self_attention: bool = True,
     aa_mass_tolerance: float = 0.1,
     prefix_mass_tolerance: float = 0.5,
     amp: bool = True,
     score_threshold: float | None = None,
     return_details: bool = False,
     use_knapsack_filter: bool = True,
+    use_exact_dp_knapsack: bool = True,
     knapsack_tol_da: float = 1.0,
+    reachability_dp = None,
     num_samples_per_length: int = 1,
     eta: float = 0.0,
+    enzyme: str | None = "trypsin",
+    use_composite_ladders: bool = True,
 ) -> DenovoMetrics | tuple[DenovoMetrics, dict]:
     """Decode peptides with the full DFM inference loop and score against labels."""
     predictions: list[str] = []
@@ -106,9 +110,13 @@ def evaluate_generative(
                 mask_self_attention=mask_self_attention,
                 return_scores=True,
                 use_knapsack_filter=use_knapsack_filter,
+                use_exact_dp_knapsack=use_exact_dp_knapsack,
                 knapsack_tol_da=knapsack_tol_da,
+                reachability_dp=reachability_dp,
                 num_samples_per_length=num_samples_per_length,
                 eta=eta,
+                enzyme=enzyme,
+                use_composite_ladders=use_composite_ladders,
             )
 
         predictions.extend(pred_sequences)
@@ -148,6 +156,12 @@ def evaluate_generative(
             peptide_matches_mass_based(p, t, aa_mass_tolerance, prefix_mass_tolerance)
             for p, t in zip(predictions, targets)
         ]
+        from eval.metrics import stratified_performance_breakdown
+        stratified = stratified_performance_breakdown(
+            predictions=predictions,
+            targets=targets,
+            lengths=target_lengths,
+        )
         details = {
             "predictions": predictions,
             "targets": targets,
@@ -157,6 +171,7 @@ def evaluate_generative(
             "exact_matches": exact_matches,
             "exact_matches_il": exact_matches_il,
             "mass_matches": mass_matches,
+            "stratified_breakdown": stratified,
         }
         return metrics, details
 
