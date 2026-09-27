@@ -8,7 +8,7 @@
 [![Technical Report](https://img.shields.io/badge/Research-Master's%20Thesis%20Report-blue)](SUPERVISOR_REPORT_DFM_DE_NOVO.md)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
-> **DFlowNovo** is a non-autoregressive deep generative framework for *de novo* peptide sequencing from tandem mass spectrometry (MS/MS) data using **Continuous-Time Markov Chain (CTMC) Discrete Flow Matching**. By formulating peptide generation as a probability velocity trajectory on the discrete vocabulary simplex coupled with **vectorized dynamic knapsack mass guidance**, DFlowNovo achieves **174 to 185 spectra/second throughput** (a **3.9× to 5.5× speedup** over existing models) while achieving state-of-the-art precision.
+> **DFlowNovo** is a non-autoregressive deep generative framework for *de novo* peptide sequencing from tandem mass spectrometry (MS/MS) data using **Continuous-Time Markov Chain (CTMC) Discrete Flow Matching**. By modeling peptide generation as a probability velocity trajectory on the discrete vocabulary simplex coupled with **dynamic knapsack mass guidance**, DFlowNovo achieves **174 to 185 spectra/second throughput** (3.9× to 5.5× faster than autoregressive baselines) with competitive sequencing accuracy.
 
 ---
 
@@ -19,15 +19,15 @@
 2. **Parallel Dynamic Knapsack Guidance**:
    Incorporates precursor neutral mass conservation as an active constraint. During flow integration, candidates violating the parent ion mass $M_{\text{prec}}$ are pruned using exact polynomial-time dynamic programming knapsack filtering.
 3. **Multi-Domain Joint Balanced Training**:
-   Resolves the fundamental catastrophic forgetting dilemma between synthetic reference libraries (ProteomeTools HC-PT) and complex multi-organism proteomes (Nine-Species). Our balanced joint model maintains high precision across diverse biological domains without degradation.
-4. **Extreme Inference Efficiency**:
-   Processes **174.0 spectra/sec** on a single GPU with exact DP knapsack (and **185.0 spec/s** with fast filtering)—delivering **3.9× higher throughput than PowerNovo2** (45.0 spec/s) and **6.1× higher throughput than Casanovo** (28.5 spec/s).
+   Addresses the catastrophic forgetting trade-off between synthetic reference libraries (ProteomeTools HC-PT) and complex multi-organism proteomes (Nine-Species). Our balanced joint model maintains performance across diverse biological domains without degradation.
+4. **Inference Efficiency**:
+   Processes **174.0 spectra/sec** on a single GPU with exact DP knapsack (and **185.0 spec/s** with fast filtering)—providing **3.9× higher throughput than PowerNovo2** (45.0 spec/s) and **6.1× higher throughput than Casanovo** (28.5 spec/s).
 
 ---
 
 ## 📊 Comprehensive Multi-Paradigm Benchmark
 
-The framework was benchmarked against the leading paradigms in computational mass spectrometry across two standard benchmarks:
+The framework was benchmarked against existing de novo peptide sequencing methods across two standard datasets:
 - **Nine-Species Biological Benchmark**: $N = 104,163$ full test spectra across 9 organisms (*H. sapiens*, *M. musculus*, *S. cerevisiae*, *B. subtilis*, etc.).
 - **HC-PT ProteomeTools Benchmark**: $N = 265,369$ full test spectra of synthetic human peptides.
 
