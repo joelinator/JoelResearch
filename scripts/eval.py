@@ -159,6 +159,12 @@ def parse_args():
         default=int(os.environ["MAX_BATCHES"]) if os.environ.get("MAX_BATCHES") else eval_cfg.max_batches,
     )
     parser.add_argument(
+        "--max-samples",
+        type=int,
+        default=int(os.environ["MAX_SAMPLES"]) if os.environ.get("MAX_SAMPLES") else None,
+        help="Maximum number of spectra to evaluate (e.g. 50000).",
+    )
+    parser.add_argument(
         "--calibrate-subset-batches",
         type=int,
         default=int(os.environ["CALIBRATE_SUBSET_BATCHES"]) if os.environ.get("CALIBRATE_SUBSET_BATCHES") else None,
@@ -288,6 +294,7 @@ def main():
         args.scheduler,
         device,
         max_batches=args.max_batches,
+        max_samples=args.max_samples,
         num_steps=args.num_steps,
         noising_scheme=args.noising_scheme,
         guidance_scale=args.guidance_scale,
