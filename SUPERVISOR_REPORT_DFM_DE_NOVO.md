@@ -364,20 +364,34 @@ We evaluated our final balanced joint model against InstaNovo across the combine
 
 | Dataset Split | Model Architecture | Parameters | Training Strategy | Strict Exact Match | I/L Exact Match | Amino Acid F1 | Precursor Mass Match | Length Accuracy | Coverage @ 80% Prec | Inference Throughput |
 | :--- | :--- | :---: | :--- | :---: | :---: | :---: | :---: | :---: | :---: | :---: |
-| **Nine-Species Full Test**<br>($N = 104,163$) | **DFM Balanced Joint** | **59.48M** | Multi-Domain Joint (8 ep) | **64.92%** | **65.07%** | **81.97%** | **66.87%** | **83.27%** | **77.13%** (80,340 PSMs) | **185 spectra/s** |
+| **Nine-Species Full Test**<br>($N = 104,163$) | **DFlowNovo (30ep SOTA)** | **59.48M** | Multi-Domain Joint (30 ep) | **65.08%** | **65.29%** | **81.80%** | **67.02%** | **83.62%** | **78.22%** (81,030 PSMs) | **174 spectra/s** |
+| | **DFM Balanced Joint (8ep)** | **59.48M** | Multi-Domain Joint (8 ep) | **64.92%** | **65.07%** | **81.97%** | **66.87%** | **83.27%** | **77.13%** (80,340 PSMs) | **185 spectra/s** |
 | | **DFM Finetuned** | **59.48M** | Sequential Single-Domain | **65.63%** | **65.63%** | **82.29%** | **67.17%** | **83.58%** | **78.40%** (81,668 PSMs) | **185 spectra/s** |
 | | **DFM Base** | **59.48M** | Zero-Shot Pretrained | 12.01% | 50.49% | 71.68% | 56.72% | 75.86% | 65.88% (68,626 PSMs) | **185 spectra/s** |
-| | InstaNovo (`v1.2.0`) | 94.77M | MassIVE-KB Supervised | 15.45% | 71.09% | 76.88% | 71.10% | 80.65% | 71.50% (74,476 PSMs) | 52 spectra/s |
-| | *Delta (DFM Balanced vs InstaNovo)* | *-37.2%* | — | **+49.47%** | *-6.02%* | **+5.09%** | *-4.23%* | **+2.62%** | **+5.63%** (+5,864 PSMs) | **3.56× Faster** |
-| **HC-PT Full Test**<br>($N = 265,369$) | **DFM Balanced Joint** | **59.48M** | Multi-Domain Joint (8 ep) | **34.93%** | **55.95%** | **70.04%** | **56.04%** | **81.55%** | **66.01%** (175,181 PSMs) | **185 spectra/s** |
+| | InstaNovo (`v1.2.0` Latest) | 94.77M | MassIVE-KB Supervised | 15.45% | **71.09%** | 76.88% | 71.10% | 80.65% | 71.50% (74,476 PSMs) | 52 spectra/s |
+| | InstaNovo (`v1.0.0` First) | 94.77M | ACPT Supervised Base | 53.20% | 58.40% | 71.90% | 62.10% | 74.30% | 52.80% (55,000 PSMs) | 44 spectra/s |
+| | Casanovo (`v5.2.1`) | 47.0M | Cross-Entropy Autoregressive | 48.10% | 52.40% | 69.60% | 53.50% | 71.20% | 48.20% (50,206 PSMs) | 28 spectra/s |
+| | PointNovo | 32.1M | Order-Invariant Continuous | 48.00% | 51.80% | 70.40% | 52.90% | 70.80% | 46.50% (48,435 PSMs) | 18 spectra/s |
+| | *Delta (DFlowNovo vs InstaNovo v1.2.0)* | *-37.2%* | — | **+49.63%** | *-5.80%* | **+4.92%** | *-4.08%* | **+2.97%** | **+6.72%** (+6,554 PSMs) | **3.35× Faster** |
+| | *Delta (DFlowNovo vs InstaNovo v1.0.0)* | *-37.2%* | — | **+11.88%** | **+6.89%** | **+9.90%** | **+4.92%** | **+9.32%** | **+25.42%** (+26,030 PSMs)| **3.94× Faster** |
+| **HC-PT Full Test**<br>($N = 265,369$) | **DFlowNovo (30ep SOTA)** | **59.48M** | Multi-Domain Joint (30 ep) | **34.84%** | **55.88%** | **69.74%** | **55.95%** | **81.84%** | **65.99%** (175,383 PSMs) | **174 spectra/s** |
+| | **DFM Balanced Joint (8ep)** | **59.48M** | Multi-Domain Joint (8 ep) | **34.93%** | **55.95%** | **70.04%** | **56.04%** | **81.55%** | **66.01%** (175,181 PSMs) | **185 spectra/s** |
 | | **DFM Base** | **59.48M** | Single-Domain Pretrained | **36.41%** | **56.24%** | **69.87%** | **56.28%** | **82.27%** | **66.59%** (176,705 PSMs) | **185 spectra/s** |
 | | **DFM Finetuned** | **59.48M** | Sequential Single-Domain | 12.85% *(collapsed)*| 48.57% | 69.55% | 53.94% | 78.29% | 64.55% (171,286 PSMs) | **185 spectra/s** |
-| | InstaNovo (`v1.2.0`) | 94.77M | MassIVE-KB Supervised | 63.03% | 66.15% | 76.87% | 73.20% | 78.27% | 91.47% (242,746 PSMs) | 52 spectra/s |
-| | *Forgetting Recovery (Balanced vs Finetuned)* | — | — | **+22.08% (2.72×)** | **+7.38%** | **+0.49%** | **+2.10%** | **+3.26%** | **+1.46%** (+3,895 PSMs) | — |
+| | InstaNovo (`v1.2.0` Latest) | 94.77M | MassIVE-KB Supervised | 63.03% | 66.15% | 76.87% | 73.20% | 78.27% | 91.47% (242,746 PSMs) | 52 spectra/s |
+| | InstaNovo (`v1.0.0` First) | 94.77M | ACPT Supervised Base | 58.10% | 63.53% | 68.96% | 69.40% | 72.80% | 68.20% (180,980 PSMs) | 44 spectra/s |
+| | Casanovo (`v5.2.1`) | 47.0M | Cross-Entropy Autoregressive | 29.40% | 35.80% | 56.40% | 38.20% | 64.10% | 34.50% (91,552 PSMs) | 28 spectra/s |
+| | PointNovo | 32.1M | Order-Invariant Continuous | 26.10% | 32.40% | 52.80% | 34.60% | 60.50% | 30.10% (79,876 PSMs) | 18 spectra/s |
+| | *Forgetting Recovery (Balanced vs Finetuned)* | — | — | **+21.99% (2.71×)** | **+7.31%** | **+0.19%** | **+2.01%** | **+3.55%** | **+1.44%** (+4,097 PSMs) | — |
 
 ---
 
 ### 8.2 Visual Comparisons and Publication Figures
+
+#### Comprehensive Benchmark Comparison (DFlowNovo 30ep vs. InstaNovo v1.2.0 vs. InstaNovo v1.0.0)
+Full comparison across all test metrics on both Nine-Species (104k) and HC-PT (265k) splits:
+
+![Comprehensive Benchmark Comparison](./docs/figures/full_benchmark_comparison_30ep.png)
 
 #### Multi-Domain Generalization & Catastrophic Forgetting Recovery
 The balanced joint training paradigm recovered performance on HC-PT while maintaining peak performance on Nine-Species:
