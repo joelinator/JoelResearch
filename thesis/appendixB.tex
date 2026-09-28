@@ -1,0 +1,108 @@
+\chapter{Hyperparameter Configurations and Training Protocols}
+
+This appendix provides the complete specifications of the architectural hyperparameters, optimization schedules, hardware environments, and dynamic knapsack configurations used to train and evaluate DFlowNovo.
+
+\section{Model Architecture Specifications}
+
+Table~\ref{tab:model_hyperparameters} details the structural configuration of the DFlowNovo network components.
+
+\begin{table}[!ht]
+\centering
+\small
+\begin{tabular}{llr}
+\toprule
+\textbf{Component} & \textbf{Hyperparameter} & \textbf{Setting} \\
+\midrule
+\textbf{General} & Model Dimension ($d_{\text{model}}$) & 512 \\
+& Vocabulary Size ($S$) & 22 (20 canonical AAs + $[M]$ + $[PAD]$) \\
+& Maximum Peptide Length ($L_{\max}$) & 30 \\
+& Maximum Spectrum Peaks ($P_{\max}$) & 500 \\
+\midrule
+\textbf{SpectrumEncoder} & Transformer Encoder Layers & 6 \\
+& Multi-Head Attention Heads ($h$) & 8 \\
+& Head Dimension ($d_k$) & 64 \\
+& Feed-Forward Dimension ($d_{\text{ff}}$) & 1536 \\
+& Normalization Layer & Pre-LayerNorm \citep{Xiong2020} \\
+& Attention Implementation & FlashAttention-2 \citep{Dao2022} \\
+& Dropout Rate & 0.10 \\
+\midrule
+\textbf{PeptideLengthClassifier} & MLP Layers & 2 \\
+& Hidden Layer Dimension & 256 \\
+& Activation Function & GELU \\
+& Dropout Rate & 0.15 \\
+& Output Dimension & 27 (lengths 4 to 30) \\
+\midrule
+\textbf{DFMPeptideDecoder} & Bidirectional Transformer Blocks & 6 \\
+& Conditioning Mechanism & AdaLN-Zero \citep{Peebles2023} \\
+& Multi-Head Attention Heads ($h$) & 8 \\
+& Head Dimension ($d_k$) & 64 \\
+& Feed-Forward Architecture & SwiGLU \citep{Shazeer2020} \\
+& FFN Dimension ($d_{\text{ff}}$) & 1536 \\
+& Conditioning Vector Dimension ($d_c$) & 512 \\
+& Dropout Rate & 0.10 \\
+\midrule
+\textbf{Total Parameters} & \textbf{Complete Architecture} & \textbf{59,478,579} \\
+\bottomrule
+\end{tabular}
+\caption{Architectural hyperparameters of the DFlowNovo framework.}
+\label{tab:model_hyperparameters}
+\end{table}
+
+\section{Optimization and Training Dynamics}
+
+Table~\ref{tab:training_hyperparameters} summarizes the optimization parameters, loss weighting schedules, and hardware infrastructure utilized during model training.
+
+\begin{table}[!ht]
+\centering
+\small
+\begin{tabular}{ll}
+\toprule
+\textbf{Optimization Parameter} & \textbf{Value / Specification} \\
+\midrule
+Optimizer & AdamW ($\beta_1 = 0.9$, $\beta_2 = 0.98$, $\epsilon = 10^{-8}$) \\
+Weight Decay & 0.01 \\
+Gradient Norm Clipping & 1.0 \\
+Peak Learning Rate ($\eta_{\text{lr}}$) & $5.0 \times 10^{-4}$ \\
+Learning Rate Schedule & Linear warmup (10,000 steps) followed by Cosine decay to $1.0 \times 10^{-6}$ \\
+Minibatch Size & 128 spectra per GPU \\
+Gradient Accumulation Steps & 2 \\
+Effective Batch Size & 256 spectra \\
+Numerical Precision & Mixed Precision (FP16 / AMP) \\
+Training Epochs & 30 epochs \\
+Length Loss Weight ($\lambda_{\text{len}}$) & 0.20 \\
+Hardware & $4 \times$ NVIDIA H100 SXM5 (80GB HBM3) \\
+Software Framework & PyTorch 2.4.0, CUDA 12.4, FlashAttention 2.5.6 \\
+\bottomrule
+\end{tabular}
+\caption{Training hyperparameters and optimization settings.}
+\label{tab:training_hyperparameters}
+\end{table}
+
+\section{Inference and Dynamic Knapsack Guidance Settings}
+
+Table~\ref{tab:inference_hyperparameters} details the parameters governing generative reverse flow sampling, dynamic programming reachability, and Bayesian length beam re-ranking.
+
+\begin{table}[!ht]
+\centering
+\small
+\begin{tabular}{ll}
+\toprule
+\textbf{Inference Parameter} & \textbf{Value / Specification} \\
+\midrule
+Integration Steps ($K$) & 20 uniform Euler steps \\
+Flow Schedule Function & Cosine Schedule: $\kappa(t) = 1 - \cos(\pi t / 2)$ \\
+CTMC Stochasticity ($\eta$) & 0.0 (Canonical minimum-jump process $R_t^*$) \\
+Length Beam Size ($B$) & 3 candidate lengths ($\operatorname{TopK}(p_{\text{len}}, 3)$) \\
+Knapsack Grid Discretization ($\Delta m$) & 0.02 Da \\
+Maximum Precursor Mass ($M_{\max}$) & 5000.0 Da \\
+Quantized Mass Bins ($B_{\max}$) & 250,000 bins \\
+Reachability Tolerance ($\tau$) & 1.0 Da \\
+GPU 1D Max-Pooling Kernel Size & $W = 2 \lfloor \tau / \Delta m \rfloor + 1 = 101$ bins \\
+Bayesian Mass Deviation Penalty ($\alpha$) & $1.0 \times 10^{-4}$ \\
+Bayesian Fragment Coverage Weight ($\beta$) & 2.5 \\
+C-Terminal Trypsin Bonus & 0.25 (if confirmed by experimental $y_1$ ion) \\
+\bottomrule
+\end{tabular}
+\caption{Inference and guidance hyperparameters.}
+\label{tab:inference_hyperparameters}
+\end{table}
