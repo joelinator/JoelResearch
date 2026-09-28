@@ -125,3 +125,22 @@ The empirical trajectories highlight several distinct dynamical regimes:
 \item \textbf{Generative Validation Plateau:} Unlike autoregressive decoders that often suffer from exposure bias and early validation divergence, DFlowNovo's reverse flow sampling accuracy (evaluated every epoch) rises monotonically through epoch 10 and maintains a stable plateau from epoch 15 through 30. Peak validation exact match reaches $47.13\%$ (strict) and $57.12\%$ (isobaric I/L), with residue-level F1 stabilizing at $73.45\%$.
 \item \textbf{Absence of Degradation:} The smooth cosine decay of the learning rate (Figure~\ref{fig:training_validation_curves}(d)) from $5.0 \times 10^{-4}$ down to $1.0 \times 10^{-6}$ provides stable late-stage regularization, preventing gradient oscillations or loss degradation.
 \end{enumerate}
+
+\section{Empirical CTMC Flow Dynamics and Schedule Analysis}
+
+Figure~\ref{fig:ctmc_flow_dynamics_app} provides empirical validation of Continuous-Time Markov Chain (CTMC) flow dynamics evaluated across 10,000 biological spectra from the Nine-Species benchmark.
+
+\begin{figure}[!ht]
+\centering
+\includegraphics[width=0.88\textwidth]{images/ctmc_flow_dynamics.png}
+\caption{Empirical verification of Continuous-Time Markov Chain (CTMC) flow dynamics evaluated across 10,000 biological spectra. (a) Unmasking schedule profiles $\kappa(t)$ comparing linear, cosine, and Dirichlet dynamics over $t \in [0, 1]$. (b) Positional categorical Shannon entropy decay across reverse flow sampling steps, showing progressive uncertainty reduction. (c) Token commitment velocity $\frac{\mathrm{d}\kappa}{\mathrm{d}t}$ across integration time. (d) Mean precursor mass error standard deviation as a function of sampling budget $K \in \{5, 10, 20, 50\}$.}
+\label{fig:ctmc_flow_dynamics_app}
+\end{figure}
+
+The empirical trajectories demonstrate the core advantages of the cosine schedule in tandem mass spectrometry decoding:
+\begin{enumerate}[(i)]
+\item \textbf{Controlled Information Integration:} As evidenced in Figure~\ref{fig:ctmc_flow_dynamics_app}(a) and (c), the cosine schedule enforces $\kappa'(0) = 0$, ensuring zero initial unmasking velocity. During early sampling steps ($t \in [0, 0.2]$), the bidirectional decoder processes the complete set of spectral peaks and precursor conditioning tokens without making premature irreversible amino acid assignments.
+\item \textbf{Monotonic Entropy Reduction:} As illustrated in Figure~\ref{fig:ctmc_flow_dynamics_app}(b), positional categorical Shannon entropy decreases monotonically and smoothly across the 20 Euler integration steps. In contrast to linear unmasking which causes abrupt late-stage collapse, the cosine schedule distributes residue commitments over the middle integration interval ($t \in [0.3, 0.8]$).
+\item \textbf{Precursor Mass Error Convergence:} Figure~\ref{fig:ctmc_flow_dynamics_app}(d) demonstrates that integration budgets of $K \ge 20$ achieve asymptotic convergence in precursor mass accuracy, validating the choice of $K=20$ as the production operational budget.
+\end{enumerate}
+
