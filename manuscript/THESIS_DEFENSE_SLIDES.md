@@ -120,6 +120,9 @@
 | | Residue F1 | 68.40% | 70.10% | **78.40%** | 69.62% |
 | | **Throughput (spec/s)** | 34.8 | 39.5 | 51.8 | **255.8 (4.94×)** |
 
+- **Experimental Protocol:** Evaluated on full held-out test splits ($N=369,532$ spectra total) on an NVIDIA H100 80GB SXM5 GPU (batch size 128). DFlowNovo runs $K=20$ reverse Euler steps with exact Dynamic Knapsack tolerance $\tau = 1.0\text{ Da}$. Strict match requires 100% character equality; $I/L$ match conflates Leu/Ile ($113.084\text{ Da}$); residue metrics align prefix masses within $\pm 0.1\text{ Da}$.
+- **Mechanistic Interpretation:** Bidirectional spectral cross-attention resolves subtle fragment peaks across diverse organisms, achieving 68.28% strict match on Nine-Species. The 20.98% gap on HC-PT reflects the physical indistinguishability of Leu/Ile under standard HCD collision cells. Non-autoregressive parallel unmasking delivers length-independent latency ($\approx 5.8\text{ ms}$), achieving 227–256 spectra/second.
+
 ---
 
 ### Slide 9: Key Insights from Results

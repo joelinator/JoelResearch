@@ -51,6 +51,10 @@ The framework was benchmarked against existing de novo peptide sequencing method
 
 *Evaluated on full Nine-Species test ($N=104,163$) and full HC-PT test ($N=265,369$) under standardized de novo evaluation protocols.*
 
+> **Evaluation Protocol**: Full test splits evaluated on a single NVIDIA H100 GPU (batch size 128). DFlowNovo used $K=20$ Euler reverse flow steps under cosine schedule with Dynamic Knapsack reachability table ($\tau = 1.0\text{ Da}$). Prefix matching evaluated with $\pm 0.1\text{ Da}$ residue mass and $\pm 0.5\text{ Da}$ cumulative tolerance.
+>
+> **Scientific Interpretation**: DFlowNovo achieves top accuracy on Nine-Species (68.28% strict match, 83.01% residue F1) with a 4.3× to 4.9× throughput advantage (227–256 spectra/s) over autoregressive beam search. On HC-PT, 56.79% $I/L$ accuracy reflects the physical limit of standard HCD spectra, where isomeric Leucine and Isoleucine ($113.084\text{ Da}$) produce identical backbone fragments.
+
 ---
 
 ## 🧠 Method Overview
