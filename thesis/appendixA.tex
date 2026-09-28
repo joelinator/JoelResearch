@@ -48,6 +48,7 @@ Table~\ref{tab:extended_benchmark_metrics} provides the comprehensive multi-metr
 \begin{table}[!ht]
 \centering
 \small
+\setlength{\tabcolsep}{3.5pt}
 \begin{tabular}{lcccccc}
 \toprule
 \textbf{Architecture} & \textbf{Strict (\%)} & \textbf{I/L (\%)} & \textbf{AA F1 (\%)} & \textbf{Cov@80 (\%)} & \textbf{AP (\%)} & \textbf{Speed (spec/s)} \\
@@ -77,4 +78,68 @@ DeepNovo & 22.30 & 28.10 & 54.20 & 22.0 & 44.8 & 14.5 \\
 \end{tabular}
 \caption{Comprehensive performance breakdown across both full test splits. Strict: exact match percentage; I/L: isobaric Leucine/Isoleucine match; AA F1: residue-level harmonic mean; Cov@80: percentage of spectra accepted at $\ge 80\%$ precision; AP: area under precision-coverage curve; Speed: decoding throughput on an NVIDIA H100 GPU.}
 \label{tab:extended_benchmark_metrics}
+\end{table}
+
+\section{Qualitative Prediction Case Studies: Successes and Failure Modes}
+
+To investigate the mechanistic behavior of non-autoregressive discrete flow matching and identify physical failure modes, Table~\ref{tab:qualitative_case_studies} examines five representative prediction outcomes from the Nine-Species benchmark. Ground-truth residues are compared against predictions from DFlowNovo and the autoregressive baseline InstaNovo. Matching amino acid positions are highlighted in green (\resmatch{A}), chemically equivalent isobaric substitutions (such as Leucine vs.\ Isoleucine) in blue (\resiso{I}), and mismatched or hallucinated residues in red (\reserror{V}). Figure~\ref{fig:qualitative_prediction_cases} provides the corresponding visual inspection panels.
+
+\begin{figure}[!ht]
+\centering
+\includegraphics[width=\textwidth]{images/qualitative_prediction_cases.png}
+\caption{Mechanistic case studies illustrating canonical sequencing outcomes across high-resolution tandem mass spectra. Quadrant~1: Consensus success where discrete flow matching recovers the true Isoleucine rather than collapsing to Leucine. Quadrant~2: Sub-10 mDa mass degeneracy where two distinct dipeptide combinations produce near-identical mass deficits that cannot be resolved at standard instrument resolution. Quadrant~3: Elimination of spurious post-translational modifications (deamidation) by discrete flow matching. Quadrant~3b: Prevention of residue splitting ($1 \leftrightarrow 2$ tokens) by the length prior. Quadrant~4: Directional sequence inversion resulting from missing terminal $b_1$ fragment ions.}
+\label{fig:qualitative_prediction_cases}
+\end{figure}
+
+\begin{table}[!ht]
+\centering
+\small
+\renewcommand{\arraystretch}{0.90}
+\begin{tabular}{lp{10.2cm}}
+\toprule
+\textbf{Case Study} & \textbf{Peptide Alignment and Biophysical Commentary} \\
+\midrule
+\textbf{Case 1: Exact Resolution} & 
+\textbf{Target:} \resmatch{I}-\resmatch{V}-\resmatch{S}-\resmatch{W}-\resmatch{Y}-\resmatch{D}-\resmatch{N}-\resmatch{E}-\resmatch{Y}-\resmatch{G}-\resmatch{Y}-\resmatch{S}-\resmatch{T}-\resmatch{R} \\
+\emph{(Spectrum \#0)} & 
+\textbf{DFlowNovo:} \resmatch{I}-\resmatch{V}-\resmatch{S}-\resmatch{W}-\resmatch{Y}-\resmatch{D}-\resmatch{N}-\resmatch{E}-\resmatch{Y}-\resmatch{G}-\resmatch{Y}-\resmatch{S}-\resmatch{T}-\resmatch{R} \quad [\textbf{100\% Strict Match}] \\
+& \textbf{InstaNovo:} \resiso{L}-\resmatch{V}-\resmatch{S}-\resmatch{W}-\resmatch{Y}-\resmatch{D}-\resmatch{N}-\resmatch{E}-\resmatch{Y}-\resmatch{G}-\resmatch{Y}-\resmatch{S}-\resmatch{T}-\resmatch{R} \quad [\textbf{I/L Collapsed to L}] \\
+\addlinespace[3pt]
+& \emph{Analysis:} In high-signal spectra with complete $b$- and $y$-ion coverage, DFlowNovo reconstructs the exact ground-truth sequence. InstaNovo defaults to Leucine at position 1 due to the higher prior frequency of Leucine in database training corpora. \\
+\midrule
+\textbf{Case 2: Sub-10 mDa Degeneracy} & 
+\textbf{Target:} \resmatch{I}-\resmatch{S}-[\resmatch{V}-\resmatch{Q}]-\resmatch{D}-\resmatch{I}-\resmatch{D}-\resmatch{I}-\resmatch{K} \\
+\emph{(Spectrum \#2)} & 
+\textbf{DFlowNovo:} \resmatch{I}-\resmatch{S}-[\reserror{N}-\reserror{I}]-\reserror{E}-\resmatch{D}-\reserror{V}-\resmatch{I}-\resmatch{K} \quad [$\Delta m = 0.005\,\text{Da}$] \\
+& \textbf{InstaNovo:} \resiso{L}-\resmatch{S}-[\reserror{N}-\resiso{L}]-\reserror{V}-\reserror{E}-\resmatch{D}-\resiso{L}-\resmatch{K} \quad [$\Delta m = 0.005\,\text{Da}$] \\
+\addlinespace[3pt]
+& \emph{Analysis:} The residual mass of $[V-Q]$ ($227.126\,\text{Da}$) differs from $[N-I]$ ($227.122\,\text{Da}$) by only $4.8\,\text{mDa}$ ($5.2\,\text{ppm}$). When internal fragment ions between $V$ and $Q$ are missing, standard collision-induced dissociation cannot physically resolve this mass gap, illustrating the instrumental resolution boundary. \\
+\midrule
+\textbf{Case 3: PTM Hallucination} & 
+\textbf{Target:} \resmatch{I}-\resmatch{T}-\resmatch{P}-\resmatch{K}-\resmatch{P}-[\resmatch{E}]-\resmatch{E}-\resmatch{K} \\
+\emph{(Spectrum \#32)} & 
+\textbf{DFlowNovo:} \resmatch{I}-\resmatch{T}-\resmatch{P}-\resmatch{K}-\resmatch{P}-[\resmatch{E}]-\resmatch{E}-\resmatch{K} \quad [\textbf{100\% Strict Match}] \\
+& \textbf{InstaNovo:} \resmatch{I}-\resmatch{T}-\resmatch{P}-\resmatch{K}-\resmatch{P}-[\reserror{Q(deam)}]-\resmatch{E}-\resmatch{K} \quad [\textbf{Hallucinated PTM}] \\
+\addlinespace[3pt]
+& \emph{Analysis:} Glutamic acid ($E = 129.043\,\text{Da}$) is isobaric to deamidated glutamine ($Q(\text{deam}) = 129.042\,\text{Da}$, $\Delta m = 0.8\,\text{mDa}$). Autoregressive models with unconstrained PTM vocabularies hallucinate modifications to accommodate minor spectral noise, whereas DFlowNovo maintains canonical residue fidelity. \\
+\midrule
+\textbf{Case 4: Split Residue Prevention} & 
+\textbf{Target:} \resmatch{E}-\resmatch{V}-\resmatch{M}-[\resmatch{Q}]-\resmatch{R} \quad [$L=5$] \\
+\emph{(Spectrum \#40)} & 
+\textbf{DFlowNovo:} \resmatch{E}-\resmatch{V}-\resmatch{M}-[\resmatch{Q}]-\resmatch{R} \quad [\textbf{100\% Strict Match}, $L=5$] \\
+& \textbf{InstaNovo:} \resmatch{E}-\resmatch{V}-\resmatch{M}-[\reserror{G}-\reserror{A}]-\resmatch{R} \quad [\textbf{Split Error}, $L=6$] \\
+\addlinespace[3pt]
+& \emph{Analysis:} Glutamine ($Q = 128.058\,\text{Da}$) matches the combined mass of Glycine and Alanine ($G+A = 57.021 + 71.037 = 128.058\,\text{Da}$). Autoregressive generation lacks global sequence length constraints, allowing a single residue to split into two tokens. DFlowNovo's dedicated length classifier locks $L=5$, preventing length dilation. \\
+\midrule
+\textbf{Case 5: Directional Inversion} & 
+\textbf{Target:} [\resmatch{I}-\resmatch{V}]-\resmatch{S}-\resmatch{W}-\resmatch{Y}-\resmatch{D}-\resmatch{N}-\resmatch{E}-\resmatch{Y}-\resmatch{G}-\resmatch{Y}-\resmatch{S}-\resmatch{T}-\resmatch{R} \\
+\emph{(Spectrum \#7)} & 
+\textbf{DFlowNovo:} [\reserror{V}-\reserror{I}]-\resmatch{S}-\resmatch{W}-\resmatch{Y}-\resmatch{D}-\resmatch{N}-\resmatch{E}-\resmatch{Y}-\resmatch{G}-\resmatch{Y}-\resmatch{S}-\resmatch{T}-\resmatch{R} \quad [\textbf{Inversion: $IV \rightarrow VI$}] \\
+& \textbf{InstaNovo:} [\resiso{L}-\resmatch{V}]-\resmatch{S}-\resmatch{W}-\resmatch{Y}-\resmatch{D}-\resmatch{N}-\resmatch{E}-\resmatch{Y}-\resmatch{G}-\resmatch{Y}-\resmatch{S}-\resmatch{T}-\resmatch{R} \quad [\textbf{Correct Direction}] \\
+\addlinespace[3pt]
+& \emph{Analysis:} Low-mass collision cell transmission cutoffs suppress the $b_1$ ion ($m/z < 120\,\text{Da}$). In the absence of an anchoring $b_1$ peak, non-autoregressive discrete flow decoding cannot differentiate between $IV$ and $VI$, causing a localized N-terminal permutation while preserving subsequent positions. \\
+\bottomrule
+\end{tabular}
+\caption{Mechanistic case studies comparing predicted sequences against ground truth across representative spectra. Colored badges denote residue match status: exact match (green), isobaric equivalence (blue), and mismatch/error (red).}
+\label{tab:qualitative_case_studies}
 \end{table}

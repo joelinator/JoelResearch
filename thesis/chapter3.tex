@@ -1,6 +1,13 @@
 \chapter{The DFlowNovo Framework: Architecture and Dynamic Knapsack Guidance}
 
-Translating the continuous-time discrete flow matching theory established in Chapter 2 into an accurate, high-throughput sequencing engine requires solving two fundamental engineering and algorithmic challenges: (i) designing a neural architecture capable of conditioning bidirectional discrete flow representations on complex, continuous mass spectra within a strict 50--60M parameter budget, and (ii) enforcing physical mass conservation during generative flow sampling so that decoded sequences strictly match experimental precursor masses. This chapter presents the architecture of DFlowNovo and introduces the exact Dynamic Programming Knapsack reachability filter (\texttt{KnapsackDP}).
+Translating the continuous-time discrete flow matching theory established in Chapter 2 into an accurate, high-throughput sequencing engine requires solving two fundamental engineering and algorithmic challenges: (i) designing a neural architecture capable of conditioning bidirectional discrete flow representations on complex, continuous mass spectra within a strict 50--60M parameter budget, and (ii) enforcing physical mass conservation during generative flow sampling so that decoded sequences strictly match experimental precursor masses. This chapter presents the architecture of DFlowNovo and introduces the exact Dynamic Programming Knapsack reachability filter (\texttt{KnapsackDP}). The full end-to-end processing pipeline is schematized in Figure~\ref{fig:architecture_pipeline}.
+
+\begin{figure}[!ht]
+\centering
+\includegraphics[width=\textwidth]{images/dflow_architecture_pipeline.png}
+\caption{End-to-end architectural pipeline of DFlowNovo. Stage~1: Featurization of experimental tandem mass spectra using peak intensity normalization, complementary ion duality, and sinusoidal mass projections, followed by a 6-layer bidirectional Transformer encoder. Stage~2: Continuous-Time Markov Chain (CTMC) discrete flow decoding over sequence latent positions, adaptively conditioned on flow time $t$, precursor mass $M_{\text{prec}}$, and precursor charge $z$ via AdaLN-Zero modulation. Stage~3: GPU-accelerated \texttt{KnapsackDP} mass guidance dynamically pruning unviable amino acid transitions in $\mathcal{O}(1)$ time. Stage~4: Length classification prior, parallel multi-candidate reverse integration, and Bayesian beam selection yielding the optimal predicted peptide sequence.}
+\label{fig:architecture_pipeline}
+\end{figure}
 
 \section{Raw Spectrum Encoding and Complementary Ion Featurization}
 
