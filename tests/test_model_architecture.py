@@ -1,4 +1,4 @@
-"""Verification suite for SOTA architecture optimizations."""
+"""Verification suite for model architecture and parameter budget."""
 
 import torch
 import torch.nn.functional as F
@@ -150,4 +150,4 @@ if __name__ == "__main__":
     test_adaln_zero_identity_init()
     test_end_to_end_forward_backward()
     test_bayesian_beam_decoding()
-    print("All SOTA architecture optimization tests passed!")
+    print("All architecture tests passed!")
