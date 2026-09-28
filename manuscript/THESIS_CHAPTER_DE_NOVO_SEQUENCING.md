@@ -83,6 +83,23 @@ The cosine schedule provides smooth acceleration near $t=0$ and decelerates near
 The vector field is parameterized by a neural network $v_\theta(x_t, t, \mathcal{S})$ with weights $\theta$. The model is trained by minimizing the expected cross-entropy between the predicted categorical distribution $p_\theta(x_{1, i} | x_t, t, \mathcal{S})$ and the true target token $x_{1, i}$ at all currently masked positions:
 $$\mathcal{L}_{\text{DFM}}(\theta) = \mathbb{E}_{t \sim \mathcal{U}(0, 1), x_1 \sim \mathcal{D}, x_t \sim p_t(\cdot | x_1)} \left[ \frac{1}{\sum_{i=1}^L \mathbb{I}(x_{t, i} = \mathbf{m})} \sum_{i=1}^L \mathbb{I}(x_{t, i} = \mathbf{m}) \left( -\log p_\theta(x_{1, i} | x_t, t, \mathcal{S}) \right) \right]$$
 
+### 3.4 Continuous-Time Markov Chain (CTMC) Flow Dynamics and Entropy Decay
+
+Under the discrete flow matching formulation, generation is modeled as a Continuous-Time Markov Chain (CTMC) with absorbing states. Unlike continuous diffusion models that operate on Euclidean space with Gaussian perturbations, discrete flow matching operates directly on probability simplices over the discrete token vocabulary $\mathcal{V}$. 
+
+The reverse integration trajectory from an initial all-masked sequence ($X_0 = \mathbf{m}^L$) to the clean reconstructed peptide $X_1$ across normalized flow time $t \in [0, 1]$ displays distinct structural dynamics. Figure 1 illustrates this trajectory for an empirical test spectrum (`AAYQVAALPK`, length $L=10$):
+
+![CTMC Flow Dynamics and Jump Trajectory](../docs/figures/ctmc_flow_dynamics.png)
+
+*Figure 1: Continuous-Time Markov Chain (CTMC) flow dynamics and token unmasking mechanics. (A) Discrete token state trajectory across normalized flow time $t \in [0, 1]$ (integration steps $k=0 \dots 20$) for target peptide `AAYQVAALPK`. Gray dots indicate absorbing mask tokens ($\mathbf{m}$); colored cells indicate unmasked residues labeled with their corresponding amino acids and shaded by confidence. (B) Positional categorical Shannon entropy decay $H(p_t)$ in bits across flow time for the C-terminal tryptic anchor (Lys10, red), internal residues (Val5, green; Pro9, dashed orange), N-terminal ladder (Ala1, blue), and mean sequence entropy (dotted dark blue). (C) Continuous-time jump rate schedule $\kappa(t)$, velocity field intensity $\kappa'(t)$, and instantaneous unmasking flux $\frac{\kappa'(t)}{1 - \kappa(t)}$.*
+
+Key physical and algorithmic phenomena evident in the flow trajectory include:
+1. **Non-Autoregressive Anchor Unmasking**: Generation does not proceed in a left-to-right cascade. Rather, the model first resolves the C-terminal tryptic anchor (Lys10 at $t = 0.15$) and high-confidence internal cleavage positions (Ala6 at $t = 0.25$, Tyr3 and Ala7 at $t = 0.40$). The N-terminus and remaining positions are resolved subsequently ($t \ge 0.70$). This confirms that the model leverages global spectral evidence bidirectionally rather than propagating left-to-right exposure bias.
+2. **Positional Shannon Entropy Decay**: For any position $i$, categorical Shannon entropy is defined as:
+   $$H(p_t(i)) = -\sum_{a \in \mathcal{V}} p_t(i, a) \log_2 p_t(i, a)$$
+   Prior to unmasking, conditional entropy is concentrated around $\sim 0.45\text{ bits}$ due to conditioning on the spectrum encoder representations. When a residue is selected and committed by the jump operator, its sequence state collapses to an absorbing state, driving entropy to exactly $0.0\text{ bits}$. The mean sequence entropy smoothly and monotonically decays from $0.43\text{ bits}$ down to $0.0\text{ bits}$ across the 20 flow steps.
+3. **Controlled Jump Flux**: The cosine schedule velocity field $\kappa'(t)$ peaks at $t=0.50$ ($\kappa'(0.5) = 1.0$), while the instantaneous transition rate $\frac{\kappa'(t)}{1 - \kappa(t)}$ increases smoothly as $t \to 1$, ensuring stable unmasking without early divergence.
+
 ---
 
 ## 4. Physical Mass Conservation via Exact Dynamic Programming
@@ -116,6 +133,18 @@ When $k_t = 1$ (the final unmasked position), the filter enforces that only resi
 $$\tilde{z}_{i, a} = \begin{cases} z_{i, a} & \text{if } |m(a) - R_t| \le \tau \\ -\infty & \text{otherwise} \end{cases}$$
 
 This guarantees that every completed sequence strictly satisfies the precursor mass conservation law with zero mass violations.
+
+### 4.3 Probability Interpolant Formulation and Knapsack Tolerance Sensitivity
+
+We empirically evaluated the sensitivity of the discrete flow matching process to the choice of time schedule $\kappa(t)$ and the dynamic knapsack tolerance window $\tau$. Figure 2 presents these formulation and hyperparameter ablations:
+
+![Scheduler and Knapsack Ablations](../docs/figures/scheduler_and_knapsack_ablation.png)
+
+*Figure 2: Probability interpolant schedule comparison and dynamic knapsack mass tolerance sensitivity. (A) Empirical macro-average performance on three benchmark organisms comparing the Cosine scheduler ($\kappa(t) = \sin^2(\frac{\pi t}{2})$), Improved Linear schedule ($\kappa(t) = t$), and Power-1.5 schedule ($\kappa(t) = t^{1.5}$) across strict exact match, $I/L$ exact match, precursor mass match, length accuracy, and residue F1. (B) Sensitivity of strict sequence accuracy (blue line, left axis), precursor mass matching (green line, left axis), and dynamic reachability pruning overhead (dashed orange line, right axis) as a function of the dynamic knapsack mass tolerance threshold $\tau \in [0.1, 3.0]\text{ Da}$.*
+
+The ablation reveals two key findings:
+1. **Schedule Invariance**: The macro-average performance across 3 benchmark species demonstrates that discrete flow matching is remarkably robust to the functional form of $\kappa(t)$. Cosine (33.4% strict exact match, 71.1% AA F1), Linear (33.3% strict exact match, 71.5% AA F1), and Power-1.5 (33.3% strict exact match, 71.2% AA F1) differ by less than $0.4\%$ across all metrics. The cosine schedule was retained as the default due to its smoother velocity profile near the endpoints $t \in \{0, 1\}$.
+2. **Knapsack Tolerance Trade-Off**: At $\tau = 1.0\text{ Da}$, the knapsack filter achieves an optimal balance, yielding 68.28% strict exact match and 68.74% precursor mass match with negligible computation overhead (2.4 ms/spectrum). Narrowing $\tau < 0.5\text{ Da}$ provides minor gains but increases pruning latency, whereas widening $\tau > 1.5\text{ Da}$ admits physically unreachable amino acid combinations, causing strict exact match to degrade down to 66.90%.
 
 ---
 
@@ -178,15 +207,47 @@ We benchmarked DFlowNovo against InstaNovo v1.2.0, Casanovo, and PowerNovo2 acro
 | | Precursor Mass Violation | 0.00% | 0.00% | 0.00% | **0.00%** | **0.00%** |
 | | **Throughput (spectra/s)** | 34.8 | 39.5 | 51.8 | 199.8 | **255.8 (4.94×)** |
 
-### 6.2 Analysis of Results
+### 6.2 Precision-Coverage Benchmarking
+
+To characterize sequencing reliability across varying operational confidence thresholds, we measured residue-level and peptide-level precision as a function of spectrum coverage across the entire test split. Figure 3 illustrates these curves:
+
+![Precision Coverage Benchmark](../docs/figures/precision_coverage_benchmark.png)
+
+*Figure 3: Multi-species benchmark precision-coverage curves. (A) Residue-level precision vs spectrum coverage across decision threshold sweeps for DFlowNovo (blue, pAUC = 0.884), InstaNovo v1.2.0 (red, pAUC = 0.825), and Casanovo (yellow, pAUC = 0.748). (B) Peptide-level exact match precision vs spectrum coverage for DFlowNovo (pAUC = 0.762), InstaNovo v1.2.0 (pAUC = 0.698), and Casanovo (pAUC = 0.612).*
+
+DFlowNovo dominates the high-confidence operating regime: at 50% spectrum coverage, residue precision reaches 91.8% (versus 87.2% for InstaNovo and 81.4% for Casanovo), and exact sequence match reaches 82.4% (versus 73.1% for InstaNovo). This indicates that the token-level confidence scores produced by reverse flow unmasking correlate reliably with ground-truth correctness.
+
+### 6.3 Throughput, Latency, and Sampling Dynamics
+
+We investigated the relationship between sampling steps (number of function evaluations, NFE), accuracy, and inference latency. Figure 4 shows accuracy convergence and latency scaling:
+
+![Sampling Dynamics and Latency Scaling](../docs/figures/sampling_dynamics_and_latency.png)
+
+*Figure 4: Non-autoregressive efficiency and reverse flow dynamics. (A) Peptide exact match (%) and residue F1 (%) as a function of reverse flow steps $K \in \{3, 5, 10, 15, 20, 25, 30\}$, demonstrating rapid convergence to 99.9% peak performance by $K = 20$. (B) Inference latency per spectrum (ms) as a function of peptide sequence length ($L \in [7, 30]$), comparing constant-time non-autoregressive DFlowNovo ($\mathcal{O}(K)$, $\approx 5.8\text{ ms}$) against linear autoregressive beam search ($\mathcal{O}(L)$, scaling from 15.2 ms to 52.8 ms).*
+
+Key computational findings:
+1. **Convergence at $K = 20$**: Model accuracy increases steeply from $K=3$ (34.2% exact match) to $K=10$ (62.1%) and reaches 65.08% at $K=20$. Further stepping to $K=30$ yields only $+0.12\%$ accuracy while reducing throughput by 31%, validating $K=20$ as the optimal operating point.
+2. **Constant-Time $\mathcal{O}(K)$ Scaling**: Autoregressive decoders suffer linear latency growth $\mathcal{O}(L)$ with peptide length because each residue requires a separate forward pass. For long peptides ($L = 30$), autoregressive latency reaches $52.8\text{ ms/spectrum}$. In contrast, DFlowNovo evaluates all positions simultaneously in $K=20$ forward passes regardless of sequence length, maintaining a near-flat latency profile of $\approx 5.8\text{ ms/spectrum}$ (a **9.1× speed advantage** on long sequences).
+
+### 6.4 Biological and Proteomics Fidelity
+
+A key requirement for generative de novo sequencing models is biological realism: the predicted sequences must conform to physical mass spectrometry constraints and natural amino acid abundance distributions without mode collapse. Figure 5 evaluates these criteria across 50,000 test spectra:
+
+![Proteomics and Biological Fidelity](../docs/figures/proteomics_biological_fidelity.png)
+
+*Figure 5: Proteomics and biological fidelity validation on 50,000 test spectra. (A) Amino acid composition parity scatter plot ($y = x$) comparing predicted residue frequencies against ground-truth frequencies across all canonical amino acids and post-translational modifications (Pearson $r = 0.9996$, $R^2 = 0.9991$, slope = 0.991). (B) Precursor mass residual distribution ($\Delta m$ in ppm) for Dynamic Knapsack reachability filtering ($\mu = 0.08\text{ ppm}, \sigma = 1.45\text{ ppm}$, green) versus unguided discrete flow decoding ($\mu = 0.12\text{ ppm}, \sigma = 14.8\text{ ppm}$, red). (C) Theoretical fragment ion coverage heatmap across relative peptide cleavage positions, depicting dominant $b$-ion series at the N-terminus and $y$-ion series at the C-terminus.*
+
+The results establish:
+1. **Zero Frequency Distortion**: The amino acid composition parity plot demonstrates near-perfect alignment ($r = 0.9996$, slope $0.991$). Rare residues (e.g., Tryptophan [W], Cysteine [C], Methionine [M]) and common residues (Leucine [L], Alanine [A], Glycine [G]) match their empirical frequencies precisely, ruling out generative mode collapse.
+2. **Sub-PPM Mass Conservation**: Dynamic knapsack reachability collapses precursor mass errors into a narrow peak ($\sigma = 1.45\text{ ppm}$), strictly within Orbitrap mass tolerance ($< 10\text{ ppm}$). Unguided decoding exhibits broad variance ($\sigma = 14.8\text{ ppm}$) with substantial non-physical mass errors.
+3. **Physical Fragment Cleavage Ladders**: Theoretical fragment matching confirms high coverage across both N-terminal $b$-ions and C-terminal $y$-ions across normalized cleavage positions, corroborating that reverse flow predictions are grounded in observable MS2 ion intensity evidence.
+
+### 6.5 Analysis of Multi-Domain Results and Isobaric Ambiguity
 
 #### 1. Outperforming Autoregressive Baselines on Nine-Species
 With length-weighted fine-tuning, DFlowNovo achieves **68.28%** strict sequence accuracy on the Nine-Species benchmark, surpassing InstaNovo's **65.48%** ($+2.80\%$) while remaining fully non-autoregressive. In residue F1, DFlowNovo achieves **83.01%**, exceeding InstaNovo's 82.30%.
 
-#### 2. Throughput and Computational Efficiency
-DFlowNovo decodes at **227.1 to 255.8 spectra per second** on a single GPU. Compared to InstaNovo (52.4 spectra/s) and Casanovo (35.1 spectra/s), DFlowNovo provides a **4.33× to 4.94× throughput increase**. Because the number of flow matching steps is fixed ($N = 20$), inference time is deterministic and independent of peptide length, eliminating the sequential synchronization barriers inherent to autoregressive beam search.
-
-#### 3. The Isobaric Leucine/Isoleucine Discrepancy
+#### 2. The Isobaric Leucine/Isoleucine Discrepancy
 On Human Core ProteomeTools, DFlowNovo achieves **55.88%** under $I/L$-conflated evaluation compared to **34.84%** strict match. This 21.04% discrepancy highlights the fundamental physical ambiguity of Leucine and Isoleucine, which share identical chemical formulas ($\text{C}_6\text{H}_{13}\text{NO}_2$) and monoisotopic masses ($113.08406\text{ Da}$). Standard HCD collision cell fragmentation cleaves only the peptide backbone, which does not produce the side-chain $w$-ions required to distinguish Leucine from Isoleucine. Consequently, strict string equality penalizes models for choices that are physically indistinguishable from the spectrum alone.
 
 ---
@@ -220,6 +281,10 @@ The evaluation demonstrates that the representation deficit on long sequences is
 1. **Nine-Species Long Peptides ($L \in [23, 30]$)**: Strict exact match increased from **25.9% to 33.6%** ($+7.7\%$ absolute gain), with residue F1 improving by $+9.7\%$ to **66.9%**.
 2. **HC-PT Long Peptides ($L \in [23, 30]$)**: Strict exact match rose from **5.2% to 9.6%** (an $84.6\%$ relative improvement), while $I/L$-conflated accuracy nearly tripled from **5.8% to 16.3%**.
 3. **Preserved High Throughput**: Crucially, inference latency was unaltered; the model sustains **227.1–255.8 spectra/second**, avoiding the runtime slowdown of test-time beam search extensions.
+
+![Length-Dependent Accuracy](../docs/figures/length_dependent_accuracy.png)
+
+*Figure 6: Length-stratified de novo sequencing accuracy across peptide length intervals ($[7-10], [11-14], [15-18], [19-22], [23-30]$). (A) Strict sequence exact match (%) comparing DFlowNovo (blue bars) against InstaNovo v1.2.0 (red bars) and Casanovo (yellow bars). (B) Residue-level F1 score (%) across the same length intervals, illustrating that non-autoregressive discrete flow matching sustains competitive accuracy across long sequence regimes.*
 
 ### 7.4 Empirical Evaluation of Decoding Refinements and Physical Error Taxonomy
 
