@@ -1,0 +1,100 @@
+%-----------------------------------------------------------------------------
+% Template for AIMS Structured Masters Research Project
+% DFlowNovo: Continuous-Time Discrete Flow Matching for De Novo Peptide Sequencing
+% Author: Joël Gédéon (joel.gedeon@aims.ac.za)
+%-----------------------------------------------------------------------------
+\documentclass{aimsessay}
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage{lmodern}
+\usepackage[round]{natbib}
+\usepackage{amsmath}
+\usepackage{amsfonts}
+\usepackage{amssymb}
+\usepackage{mathtools}
+\usepackage{latexsym}
+\usepackage{parskip}
+\usepackage{enumerate}
+\usepackage{tikz}
+\usepackage{caption}
+\usepackage{subcaption}
+\usepackage{booktabs}
+\usepackage{array}
+\usepackage{float}
+\usepackage{moreverb}
+\usepackage{bm}
+
+% Fix spacing before theorem environments
+\makeatletter\def\thm@space@setup{%
+  \thm@preskip=1.2\parskip \thm@postskip=0pt
+}
+\renewenvironment{proof}[1][\proofname]{\par
+  \vspace{-\topsep}
+  \pushQED{\qed}
+  \normalfont
+  \topsep0pt \partopsep0pt
+  \trivlist
+  \item[\hskip\labelsep \itshape #1\@addpunct{.}]\ignorespaces
+}{
+  \popQED\endtrivlist\@endpefalse
+  \addvspace{6pt plus 6pt}
+}
+\makeatother
+
+% AIMS theorem environments
+\swapnumbers 
+\theoremstyle{plain}
+\newtheorem{thm}[subsection]{Theorem}
+\theoremstyle{definition} 
+\newtheorem{lem}[subsection]{Lemma}
+\newtheorem{cor}[subsection]{Corollary}
+\newtheorem{conj}[subsection]{Conjecture}
+\newtheorem{pro}[subsection]{Proposition}
+\newtheorem{exa}[subsection]{Example}
+\newtheorem{defn}[subsection]{Definition}
+\newtheorem{rem}[subsection]{Remark}
+
+\numberwithin{equation}{section}
+
+% Title & Author
+\title{DFlowNovo: Continuous-Time Discrete Flow Matching and Dynamic Knapsack Guidance for High-Throughput De Novo Peptide Sequencing}
+
+\author{Jo\"el G\'ed\'eon (joel.gedeon@aims.ac.za)\\
+African Institute for Mathematical Sciences (AIMS South Africa)\\
+\\
+{\small Supervised by: Dr. Kevin Eloff and Prof. Ulrich Paquet}\\
+{\small InstaDeep and African Institute for Mathematical Sciences}
+}
+
+\date{{\small September 2026}\\%
+  {\scriptsize\it Submitted in partial fulfillment of 
+    a structured master's degree at AIMS South Africa}\\%
+  \vspace{0.5cm}{\includegraphics{images/AIMS_SA_Logo.pdf}}}
+
+\begin{document}
+\pagestyle{empty}
+\maketitle
+
+\pagenumbering{roman}
+\input{abstract}
+\tableofcontents
+\newpage
+
+\pagenumbering{arabic}
+\pagestyle{myheadings}
+
+\input{chapter1}
+\input{chapter2}
+\input{chapter3}
+\input{chapter4}
+\input{chapter5}
+\input{chapter6}
+
+\input{acknowledgement}
+
+\renewcommand{\bibname}{References}
+\bibliographystyle{myabbrvnat}
+\bibliography{references}
+\addcontentsline{toc}{chapter}{References}
+
+\end{document}

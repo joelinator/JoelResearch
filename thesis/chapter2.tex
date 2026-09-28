@@ -1,0 +1,183 @@
+\chapter{Mathematical Foundations of Continuous-Time Discrete Flow Matching}
+
+Generative modeling of discrete sequences has historically relied on autoregressive factorizations or discrete diffusion models based on forward corruption processes. While continuous normalizing flows \citep{Lipman2023} define invertible probability vector fields on continuous Riemannian manifolds, applying continuous flows to discrete sequences requires artificial continuous relaxations that incur severe rounding errors upon projection onto discrete vocabularies. This chapter presents the mathematical framework of continuous-time Discrete Flow Matching (DFM) \citep{Campbell2024, Gat2024}, which formulates sequence generation directly on the discrete probability simplex through Continuous-Time Markov Chains (CTMC).
+
+\section{The Discrete Sequence Simplex and State Space}
+
+Let $\mathcal{V} = \{a_1, a_2, \dots, a_V\}$ denote a finite vocabulary of $V$ discrete tokens, consisting of canonical amino acid residues, special control tokens (such as padding and end-of-sequence), and an absorbing mask token $[M]$. A peptide sequence of length $L$ is an element of the Cartesian product state space:
+\begin{equation}
+\mathcal{S}_L = \mathcal{V}^L = \underbrace{\mathcal{V} \times \mathcal{V} \times \cdots \times \mathcal{V}}_{L \text{ times}}
+\label{eq:discrete_state_space}
+\end{equation}
+The cardinality of this discrete state space is $|\mathcal{S}_L| = V^L$. A probability distribution over $\mathcal{S}_L$ is a vector $p \in \Delta^{V^L - 1}$ residing on the probability simplex:
+\begin{equation}
+\Delta^{V^L - 1} = \left\{ p \in \mathbb{R}^{V^L} \;\middle|\; \sum_{x \in \mathcal{S}_L} p(x) = 1, \quad p(x) \ge 0 \quad \forall x \in \mathcal{S}_L \right\}
+\label{eq:simplex_def}
+\end{equation}
+Because the state space scales exponentially with sequence length $L$, modeling the joint distribution directly is computationally intractable. Consequently, we assume a conditionally independent factorization across sequence positions during intermediate corruption stages, while modeling full inter-token dependencies through a bidirectional neural network.
+
+\section{Continuous-Time Markov Chains and Master Equations}
+
+To define a continuous flow over discrete states, we model the time evolution of probability distributions over the time interval $t \in [0, 1]$ via a time-inhomogeneous Continuous-Time Markov Chain (CTMC) \citep{Campbell2024}.
+
+\begin{defn}[Transition Rate Matrix]
+A time-dependent transition rate matrix (or infinitesimal generator) is a family of matrices $Q_t \in \mathbb{R}^{|\mathcal{S}_L| \times |\mathcal{S}_L|}$ indexed by $t \in [0, 1]$ such that for all $x, y \in \mathcal{S}_L$:
+\begin{align}
+Q_t(y \mid x) &\ge 0 \quad \text{for all } y \ne x \label{eq:rate_off_diag} \\
+Q_t(x \mid x) &= -\sum_{y \ne x} Q_t(y \mid x) \label{eq:rate_diag}
+\end{align}
+The off-diagonal entry $Q_t(y \mid x)$ represents the instantaneous transition probability rate from state $x$ to state $y$ at time $t$:
+\begin{equation}
+\mathbb{P}(X_{t + h} = y \mid X_t = x) = Q_t(y \mid x) h + o(h) \quad \text{as } h \downarrow 0
+\label{eq:infinitesimal_transition}
+\end{equation}
+\end{defn}
+
+The temporal evolution of the marginal probability distribution $p_t(x) = \mathbb{P}(X_t = x)$ is governed by the forward Kolmogorov equation, also known in non-equilibrium statistical mechanics as the Chemical Master Equation:
+
+\begin{thm}[Master Equation for Discrete Probability Flow]
+Let $p_t \in \Delta^{|\mathcal{S}_L|-1}$ denote the marginal distribution of a CTMC with rate matrix $Q_t$. Then $p_t$ satisfies the system of differential equations:
+\begin{equation}
+\frac{\mathrm{d} p_t(x)}{\mathrm{d} t} = \sum_{y \in \mathcal{S}_L} \left[ Q_t(x \mid y) p_t(y) - Q_t(y \mid x) p_t(x) \right]
+\label{eq:master_equation}
+\end{equation}
+\end{thm}
+
+\begin{proof}
+By the law of total probability and the definition of the infinitesimal transition rate in Equation~\ref{eq:infinitesimal_transition}:
+\begin{align*}
+p_{t+h}(x) &= \sum_{y \in \mathcal{S}_L} \mathbb{P}(X_{t+h} = x \mid X_t = y) p_t(y) \\
+&= \left( 1 + Q_t(x \mid x) h + o(h) \right) p_t(x) + \sum_{y \ne x} \left( Q_t(x \mid y) h + o(h) \right) p_t(y) \\
+&= p_t(x) + h \left[ Q_t(x \mid x) p_t(x) + \sum_{y \ne x} Q_t(x \mid y) p_t(y) \right] + o(h)
+\end{align*}
+Subtracting $p_t(x)$, dividing by $h$, and taking the limit $h \downarrow 0$ yields:
+\begin{equation*}
+\frac{\mathrm{d} p_t(x)}{\mathrm{d} t} = Q_t(x \mid x) p_t(x) + \sum_{y \ne x} Q_t(x \mid y) p_t(y)
+\end{equation*}
+Substituting the diagonal conservation identity $Q_t(x \mid x) = -\sum_{y \ne x} Q_t(y \mid x)$ into the equation gives:
+\begin{equation*}
+\frac{\mathrm{d} p_t(x)}{\mathrm{d} t} = \sum_{y \ne x} Q_t(x \mid y) p_t(y) - \sum_{y \ne x} Q_t(y \mid x) p_t(x) = \sum_{y \in \mathcal{S}_L} \left[ Q_t(x \mid y) p_t(y) - Q_t(y \mid x) p_t(x) \right]
+\end{equation*}
+which completes the proof.
+\end{proof}
+
+The term $\sum_{y} Q_t(x \mid y) p_t(y)$ represents probability inflow into state $x$, while $\sum_{y} Q_t(y \mid x) p_t(x)$ represents probability outflow from state $x$. The net rate of change $\frac{\mathrm{d} p_t(x)}{\mathrm{d} t}$ defines the discrete probability velocity field.
+
+\section{Reversible Detailed Balance and Marginal Preserving Paths}
+
+In continuous normalizing flows, continuous paths are defined by push-forward ODEs $x_t = \psi_t(x_0)$. In discrete flow matching, we define probability paths $p_t(x)$ connecting a tractable base distribution $p_0(x)$ to the empirical data distribution $q(x_1)$ \citep{Campbell2024}. 
+
+We set the base distribution $p_0(x)$ to a deterministic Dirac delta centered at the fully masked sequence:
+\begin{equation}
+p_0(x) = \delta_{[M]^L}(x) = \prod_{i=1}^L \delta_{[M]}(x_i)
+\label{eq:base_prior}
+\end{equation}
+Given a target ground-truth sequence $x_1 = (y_1, \dots, y_L) \sim q(x_1)$, we construct a conditional probability path $p_t(x \mid x_1)$ factorized across positions $i \in \{1, \dots, L\}$:
+\begin{equation}
+p_t(x \mid x_1) = \prod_{i=1}^L p_t(x_i \mid x_{1, i})
+\label{eq:conditional_path_factorized}
+\end{equation}
+For each individual token position $i$, the conditional distribution is defined as a linear mixture between the absorbing mask token $[M]$ and the ground truth residue $x_{1, i}$:
+\begin{equation}
+p_t(x_i = a \mid x_{1, i}) = (1 - \kappa(t)) \, \delta_{[M]}(a) + \kappa(t) \, \delta_{x_{1, i}}(a)
+\label{eq:token_conditional_prob}
+\end{equation}
+where $\kappa: [0, 1] \to [0, 1]$ is a smooth, strictly monotonically increasing schedule function satisfying the boundary conditions:
+\begin{equation}
+\kappa(0) = 0 \quad \text{and} \quad \kappa(1) = 1
+\label{eq:schedule_boundary}
+\end{equation}
+At time $t=0$, $p_0(x_i = [M] \mid x_{1, i}) = 1$, corresponding to complete uncertainty. At time $t=1$, $p_1(x_i = x_{1, i} \mid x_{1, i}) = 1$, recovering the exact ground-truth sequence.
+
+\begin{pro}[Conditional Transition Rates]
+The unique minimal forward transition rate matrix $Q_t(y_i \mid x_i; x_{1, i})$ generating the conditional marginal path in Equation~\ref{eq:token_conditional_prob} without unmask-to-mask back-transitions is given by:
+\begin{equation}
+Q_t(y_i \mid x_i; x_{1, i}) = 
+\begin{cases}
+\dfrac{\kappa'(t)}{1 - \kappa(t)} & \text{if } x_i = [M] \text{ and } y_i = x_{1, i} \\[8pt]
+-\dfrac{\kappa'(t)}{1 - \kappa(t)} & \text{if } x_i = [M] \text{ and } y_i = [M] \\[8pt]
+0 & \text{otherwise}
+\end{cases}
+\label{eq:conditional_rates}
+\end{equation}
+\end{pro}
+
+\begin{proof}
+For $x_i = [M]$, substituting Equation~\ref{eq:conditional_rates} into the master equation yields:
+\begin{align*}
+\frac{\mathrm{d} p_t(x_i = [M] \mid x_{1, i})}{\mathrm{d} t} &= - Q_t(x_{1, i} \mid [M]; x_{1, i}) \, p_t(x_i = [M] \mid x_{1, i}) \\
+&= - \frac{\kappa'(t)}{1 - \kappa(t)} (1 - \kappa(t)) = -\kappa'(t)
+\end{align*}
+Integrating with respect to $t$ gives $p_t(x_i = [M] \mid x_{1, i}) = 1 - \kappa(t)$. Similarly, for $y_i = x_{1, i}$:
+\begin{equation*}
+\frac{\mathrm{d} p_t(x_i = x_{1, i} \mid x_{1, i})}{\mathrm{d} t} = Q_t(x_{1, i} \mid [M]; x_{1, i}) \, p_t(x_i = [M] \mid x_{1, i}) = \kappa'(t)
+\end{equation*}
+Integrating yields $p_t(x_i = x_{1, i} \mid x_{1, i}) = \kappa(t)$, exactly verifying Equation~\ref{eq:token_conditional_prob}.
+\end{proof}
+
+\section{Flow Schedulers: Linear, Cosine, and Dirichlet Dynamics}
+
+The rate of token unmasking is dictated by the derivative $\kappa'(t)$. In this thesis, we investigate three alternative schedule functions:
+
+\begin{enumerate}[(i)]
+\item \textbf{Linear Schedule:}
+\begin{equation}
+\kappa_{\text{linear}}(t) = t, \quad \kappa_{\text{linear}}'(t) = 1
+\label{eq:linear_sched}
+\end{equation}
+Under the linear schedule, the instantaneous unmasking transition rate is $\frac{1}{1-t}$, which diverges as $t \to 1$, concentrating token revelations near the end of the trajectory.
+\item \textbf{Cosine Schedule:}
+\begin{equation}
+\kappa_{\text{cosine}}(t) = 1 - \cos\left( \frac{\pi t}{2} \right), \quad \kappa_{\text{cosine}}'(t) = \frac{\pi}{2} \sin\left( \frac{\pi t}{2} \right)
+\label{eq:cosine_sched}
+\end{equation}
+The cosine schedule provides smooth acceleration from $t=0$, allowing the model to establish global sequence context before aggressively committing to specific amino acid identities.
+\item \textbf{Dirichlet Flow Dynamics:} Following \citet{Stark2024}, continuous probability flows over categorical simplexes can be parameterized via Dirichlet-distributed concentration vectors $\bm{\alpha}(t) = (1-t)\bm{\alpha}_0 + t \bm{\alpha}_1$.
+\end{enumerate}
+
+\begin{figure}[!h]
+\centering
+\includegraphics[width=0.85\textwidth]{images/ctmc_flow_dynamics.png}
+\caption{Empirical verification of Continuous-Time Markov Chain (CTMC) flow dynamics. (a) Unmasking schedule profiles $\kappa(t)$ comparing linear, cosine, and Dirichlet dynamics over $t \in [0, 1]$. (b) Shannon entropy decay across reverse flow sampling steps, showing progressive uncertainty reduction. (c) Token commitment velocity $\frac{\mathrm{d}\kappa}{\mathrm{d}t}$ across integration time. (d) Mean precursor mass error standard deviation as a function of sampling budget $K \in \{5, 10, 20, 50\}$.}
+\label{fig:ctmc_flow_dynamics}
+\end{figure}
+
+Figure~\ref{fig:ctmc_flow_dynamics} illustrates the empirical flow dynamics evaluated on 10,000 test spectra. Under the cosine schedule, sequence entropy decreases smoothly across the 20 sampling steps, avoiding premature commitment to erroneous residues during early integration.
+
+\section{The Discrete Flow Matching Objective}
+
+Because the true marginal transition rate matrix $Q_t(y \mid x) = \mathbb{E}_{q(x_1 \mid x_t)} [Q_t(y \mid x; x_1)]$ requires integrating over the intractable posterior $q(x_1 \mid x_t)$, we train a neural network $v_\theta(x_t, t, \mathcal{S})$ to predict the clean data tokens $x_{1, i}$ conditioned on the corrupted sequence $x_t$ and the spectrum features $\mathcal{S}$ \citep{Campbell2024}.
+
+\begin{defn}[Discrete Flow Matching Loss]
+Given a training dataset of spectrum-peptide pairs $(\mathcal{S}, x_1) \sim q(\mathcal{S}, x_1)$, a sampling time $t \sim \mathcal{U}[0, 1]$, and a corrupted sequence $x_t \sim p_t(x \mid x_1)$, the DFlowNovo network parameterized by $\theta$ is optimized by minimizing the cross-entropy objective:
+\begin{equation}
+\mathcal{L}_{\text{DFM}}(\theta) = -\mathbb{E}_{(\mathcal{S}, x_1) \sim q} \; \mathbb{E}_{t \sim \mathcal{U}[0, 1]} \; \mathbb{E}_{x_t \sim p_t(\cdot \mid x_1)} \left[ \sum_{i=1}^L \log p_\theta(x_{1, i} \mid x_t, t, \mathcal{S}) \right]
+\label{eq:dfm_loss}
+\end{equation}
+\end{defn}
+
+\begin{thm}[Marginal Distribution Consistency]
+Assume the neural network has sufficient representational capacity and is trained to the global minimum of the objective in Equation~\ref{eq:dfm_loss}. Then, the parameterized reverse jump process initiated at $p_0(x) = \delta_{[M]^L}(x)$ and integrated from $t=0$ to $t=1$ generates marginal distributions $p_1(x \mid \mathcal{S})$ that coincide exactly with the true posterior data distribution $q(x_1 \mid \mathcal{S})$.
+\end{thm}
+
+\begin{proof}
+Let $p_\theta(a \mid x_t, t, \mathcal{S})$ denote the model's predicted probability for token $a$ at position $i$. Minimizing the expected cross-entropy loss over $x_1 \sim q(x_1 \mid x_t, \mathcal{S})$ is equivalent to minimizing the Kullback-Leibler divergence between the true posterior marginal $q(x_{1, i} = a \mid x_t, \mathcal{S})$ and the model prediction $p_\theta(a \mid x_t, t, \mathcal{S})$. The unique minimizer satisfies:
+\begin{equation*}
+p_\theta^*(a \mid x_t, t, \mathcal{S}) = q(x_{1, i} = a \mid x_t, \mathcal{S})
+\end{equation*}
+Substituting this optimal predictor into the marginal transition rate matrix yields:
+\begin{equation*}
+Q_t^*(y_i \mid x_i, \mathcal{S}) = \sum_{x_1} Q_t(y_i \mid x_i; x_{1, i}) \, q(x_{1, i} \mid x_t, \mathcal{S})
+\end{equation*}
+Because the conditional master equation is linear, integrating the conditional Kolmogorov equations over $q(x_1 \mid \mathcal{S})$ recovers the marginal master equation for $p_t(x \mid \mathcal{S})$:
+\begin{equation*}
+\frac{\mathrm{d} p_t(x \mid \mathcal{S})}{\mathrm{d} t} = \sum_{y} \left[ Q_t^*(x \mid y, \mathcal{S}) p_t(y \mid \mathcal{S}) - Q_t^*(y \mid x, \mathcal{S}) p_t(x \mid \mathcal{S}) \right]
+\end{equation*}
+Since the base condition $p_0(x \mid \mathcal{S}) = q(x_0 \mid \mathcal{S}) = \delta_{[M]^L}(x)$ matches the initial condition of the CTMC, uniqueness of solutions to linear systems of ordinary differential equations ensures that $p_t(x \mid \mathcal{S}) = q(x_t \mid \mathcal{S})$ for all $t \in [0, 1]$. In particular, at $t=1$:
+\begin{equation*}
+p_1(x \mid \mathcal{S}) = q(x_1 \mid \mathcal{S})
+\end{equation*}
+recovering the exact posterior distribution over peptide sequences.
+\end{proof}
+
+This mathematical guarantee establishes that discrete flow matching provides an asymptotically exact, non-autoregressive framework for recovering peptide sequences from tandem mass spectra.
