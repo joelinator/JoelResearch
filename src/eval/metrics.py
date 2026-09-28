@@ -339,7 +339,7 @@ class DenovoMetrics:
     peptide_recall_mass: float
     peptide_f1_mass: float
 
-    # Exact Match Level (I/L Conflated Equality - SOTA Standard)
+    # Exact Match Level (I/L Conflated Equality - Standard Benchmark)
     exact_peptide_accuracy_il: float = 0.0
     peptide_precision_exact_il: float = 0.0
     peptide_recall_exact_il: float = 0.0
@@ -369,7 +369,7 @@ class DenovoMetrics:
     pr_auc_mass: float = 0.0
     p_pr_auc80_mass: float = 0.0
 
-    # Fixed-Precision Coverage Benchmarks (SOTA Standard)
+    # Fixed-Precision Coverage Benchmarks
     coverage_at_80: float = 0.0
     coverage_at_90: float = 0.0
     coverage_at_95: float = 0.0

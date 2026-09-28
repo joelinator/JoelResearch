@@ -1,5 +1,5 @@
 """
-Unit tests for SOTA suggestions implementation:
+Unit tests for reachability and evaluation utilities:
 - Exact Reachability Dynamic Programming (ExactReachabilityDP)
 - Multi-feature Fragment Ladder Scoring (compute_fragment_matching_scores)
 - Evidence-Conditioned Enzymatic Cleavage Prior (compute_terminal_prior)

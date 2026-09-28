@@ -447,7 +447,7 @@ def predict_peptide(
     use_peak_evidence: bool = True,
 ) -> tuple[torch.Tensor, torch.Tensor, list[str]] | tuple[torch.Tensor, torch.Tensor, list[str], torch.Tensor]:
     """
-    Run de novo inference with Top-k Length Beam Decoding, Dynamic Knapsack Filtering, and SOTA scoring.
+    Run de novo inference with Top-k Length Beam Decoding, Dynamic Knapsack Filtering, and fragment ladder scoring.
 
     Predicts the top-k most likely peptide lengths from the length classifier,
     runs discrete flow matching integration with dynamic mass budget logit masking,

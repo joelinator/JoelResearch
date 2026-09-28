@@ -1,5 +1,5 @@
 """
-Unit tests for user modifications:
+Unit tests for loss functions, padding masks, and checkpoint resumption:
 1. Cumulative mass loss (mass_loss_hubert_cum)
 2. DecoderBlock and DFMPeptideDecoder self-attention key padding masking
 3. Lightning checkpoint resumption with default learning rate

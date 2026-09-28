@@ -2,7 +2,7 @@
 """
 Comprehensive publication-quality benchmark visualization script:
 Compares:
-1. DFlowNovo SOTA (30-Epoch Joint Balanced with exact DP knapsack & composite ladders)
+1. DFlowNovo (30-Epoch Joint Balanced with exact DP knapsack & composite ladders)
 2. InstaNovo v1.2.0 (Latest, MassIVE-KB Supervised)
 3. InstaNovo v1.0.0 (First Version, Nature Communications 2024 Base)
 4. Baselines: Casanovo, PointNovo, DeepNovo
@@ -56,7 +56,7 @@ def main():
 
     # 2. Comprehensive Model Benchmark Database
     models_data = {
-        "DFlowNovo (30ep SOTA)": {
+        "DFlowNovo (30ep Balanced)": {
             "color": "#1E88E5",  # Strong Blue
             "hatch": "",
             "params": "59.5M",
@@ -314,7 +314,7 @@ def main():
                      ha='center', va='bottom', fontsize=8.5, fontweight="bold", xytext=(0, 2), textcoords='offset points')
 
     plt.suptitle("Comprehensive De Novo Peptide Sequencing Benchmark Across Full Test Splits\n"
-                 "DFlowNovo (30-Epoch SOTA) vs. InstaNovo v1.2.0 vs. InstaNovo v1.0.0 vs. Baselines",
+                 "DFlowNovo vs. InstaNovo v1.2.0 vs. InstaNovo v1.0.0 vs. Baselines",
                  fontsize=14, fontweight="bold", y=0.98)
 
     out_fig_docs = DOCS_FIG_DIR / "full_benchmark_comparison_30ep.png"

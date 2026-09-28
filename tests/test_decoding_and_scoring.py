@@ -1,5 +1,5 @@
 """
-Tests for SOTA Enhancements in DFM De Novo Peptide Sequencing:
+Tests for decoding and scoring components in DFM De Novo Peptide Sequencing:
 1. Confidence-based rank-ordered discrete flow unmasking and temperature control
 2. Theoretical b/y fragment ion matching & spectral intensity scoring
 3. Spectrum peak dropout data augmentation
@@ -222,4 +222,4 @@ if __name__ == "__main__":
     test_label_smoothing_loss()
     test_ema_callback_mechanics()
     test_il_equivalence_metric()
-    print("All SOTA enhancement tests passed successfully!")
+    print("All decoding and scoring tests passed successfully!")
