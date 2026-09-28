@@ -25,16 +25,16 @@
 In tandem mass spectrometry (MS/MS), identifying peptide sequences directly from raw fragmentation spectra without matching against reference databases—known as ***de novo* peptide sequencing**—is essential when studying cancer neoantigens, non-model organisms, and diverse antibody repertoires.
 
 Existing approaches typically rely on one of two paradigms:
-1. **Autoregressive Transformers** (*Casanovo, InstaNovo*): These models predict sequences left-to-right. While effective on human data, their $O(L)$ step-by-step decoding can be slow, early prediction errors propagate down the sequence, and accuracy often degrades when evaluated across divergent non-human species.
-2. **Continuous Normalizing Flows** (*PowerNovo*): These models generate continuous latent representations, but rounding those continuous vectors onto discrete amino acid masses causes noticeable discretization loss (reaching 3.16% strict exact match on Nine-Species).
+1. **Autoregressive Transformers** (*Casanovo* [Yilmaz et al., 2022], *InstaNovo* [Eloff et al., 2025]): These models predict sequences left-to-right. While effective on human data, their $O(L)$ step-by-step decoding can be slow, early prediction errors propagate down the sequence, and accuracy often degrades when evaluated across divergent non-human species.
+2. **Continuous Normalizing Flows** (*PowerNovo* [Petrovskiy et al., 2026]): These models generate continuous latent representations, but rounding those continuous vectors onto discrete amino acid masses causes noticeable discretization loss (reaching 3.16% strict exact match on Nine-Species).
 
-This document outlines the development of **DFlowNovo**, which frames *de novo* peptide sequencing as **continuous-time Discrete Flow Matching (DFM)** directly over the discrete amino acid simplex, coupled with **polynomial-time Dynamic Programming Knapsack Reachability (`KnapsackDP`)**.
+This document outlines the development of **DFlowNovo**, which frames *de novo* peptide sequencing as **continuous-time Discrete Flow Matching (DFM)** [Campbell et al., 2024; Lipman et al., 2023; Gat et al., 2024] directly over the discrete amino acid simplex, coupled with **polynomial-time Dynamic Programming Knapsack Reachability (`KnapsackDP`)** [Dancik et al., 1999].
 
 Through iterative development—addressing cross-species generalization, mitigating catastrophic forgetting with a balanced multi-domain curriculum, and implementing targeted architectural and loss reweighting refinements—DFlowNovo achieves strong performance across standard benchmarks:
-* **68.28% Strict Exact Match** on the 104k Nine-Species test benchmark (surpassing InstaNovo v1.2's 65.48% and v1.0's 53.20%).
+* **68.28% Strict Exact Match** on the 104k Nine-Species test benchmark [Tran et al., 2017] (surpassing InstaNovo v1.2's 65.48% and v1.0's 53.20%).
 * **86,412 accepted PSMs** at 80% precision (+31,412 compared to InstaNovo v1.0).
 * **227.1–255.8 spectra/second** decoding speed on an NVIDIA GPU (4.33× to 4.94× faster than autoregressive baselines).
-* **Cross-domain stability**: Retaining 56.79% I/L accuracy and 35.81% strict match on synthetic human test data, resolving long peptide degradation ($L \ge 23$ strict exact match up to 33.6% on Nine-Species and 9.6% on HC-PT).
+* **Cross-domain stability**: Retaining 56.79% I/L accuracy and 35.81% strict match on synthetic human test data [Zolg et al., 2017], resolving long peptide degradation ($L \ge 23$ strict exact match up to 33.6% on Nine-Species and 9.6% on HC-PT).
 
 ---
 
@@ -363,3 +363,17 @@ This outline provides a structured framework for research presentations and semi
 * **Nine-Species Evaluation Metrics**: [`artifacts/eval_dfm_30ep_ninespecies_test_metrics.json`](file:///home/joelgedeon_aims_ac_za/dfm-joelresearch/artifacts/eval_dfm_30ep_ninespecies_test_metrics.json)
 * **HC-PT Evaluation Metrics**: [`artifacts/eval_dfm_30ep_hcpt_test_metrics.json`](file:///home/joelgedeon_aims_ac_za/dfm-joelresearch/artifacts/eval_dfm_30ep_hcpt_test_metrics.json)
 * **Full Benchmark Summary JSON**: [`artifacts/full_benchmark_comparison.json`](file:///home/joelgedeon_aims_ac_za/dfm-joelresearch/artifacts/full_benchmark_comparison.json)
+
+---
+
+## References
+
+- **Campbell, A., Yim, J., Barzilay, R., Rainforth, T., & Jaakkola, T. (2024)**. Generative flows on discrete state-spaces: Enabling multimodal flows with applications to protein co-design. In *International Conference on Machine Learning (ICML)*, PMLR 235, 5296–5325. arXiv:2402.04997.
+- **Dancik, V., Addona, T. A., Clauser, K. R., Vath, J. E., & Pevzner, P. A. (1999)**. De novo peptide sequencing via tandem mass spectrometry. *Journal of Computational Biology*, 6(3–4), 327–342.
+- **Eloff, K., Kalogeropoulos, K., Mabona, A., Morell, O., Catzel, R., et al. (2025)**. InstaNovo enables diffusion-powered de novo peptide sequencing in large-scale proteomics experiments. *Nature Machine Intelligence*, 7, 565–579.
+- **Gat, I., Remez, T., Shaul, N., Kreuk, F., Chen, R. T. Q., Synnaeve, G., Adi, Y., & Lipman, Y. (2024)**. Discrete Flow Matching. In *Advances in Neural Information Processing Systems (NeurIPS)*, 37. arXiv:2407.15595.
+- **Lipman, Y., Chen, R. T. Q., Ben-Hamu, H., Nickel, M., & Le, M. (2023)**. Flow matching for generative modeling. In *International Conference on Learning Representations (ICLR)*. arXiv:2210.02747.
+- **Petrovskiy, D. V., Nikolsky, K. S., Rudnev, V. R., Kulikova, L. I., Butkova, T. V., Malsagova, K. A., Kopylov, A. T., & Kaysheva, A. L. (2026)**. PowerNovo2: A generative flow-based approach to non-autoregressive de novo peptide sequencing. *PLOS Computational Biology*.
+- **Tran, N. H., Zhang, X., Xin, L., Shan, B., & Li, M. (2017)**. De novo peptide sequencing by deep learning. *Proceedings of the National Academy of Sciences (PNAS)*, 114(31), 8247–8252.
+- **Yilmaz, M., Fondrie, W. E., Bittremieux, W., Oh, S., & Noble, W. S. (2022)**. De novo mass spectrometry peptide sequencing with a transformer model. *Nature Machine Intelligence*, 4(11), 1001–1008.
+- **Zolg, D. P., Wilhelm, M., Schnatbaum, K., Zerweck, J., Knaute, T., Delanghe, B., et al. (2017)**. Building ProteomeTools based on a complete synthetic human proteome. *Nature Methods*, 14(3), 259–265.
