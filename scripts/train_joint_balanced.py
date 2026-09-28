@@ -173,6 +173,8 @@ def parse_args():
     parser.add_argument("--decoder-blocks", type=int, default=6, help="Number of AdaLN decoder blocks (default: 6)")
     parser.add_argument("--decoder-heads", type=int, default=8, help="Number of decoder attention heads (default: 8)")
     parser.add_argument("--mlp-hidden-dim", type=int, default=1536, help="Decoder SwiGLU MLP dimension (default: 1536)")
+    parser.add_argument("--use-length-weighted-loss", action="store_true", default=False, help="Weight loss proportionally to peptide length")
+    parser.add_argument("--length-weight-alpha", type=float, default=0.5, help="Exponent for length weighting: (L/12)^alpha")
     parser.add_argument("--limit-train-batches", type=int, default=0)
     parser.add_argument("--limit-val-batches", type=int, default=0)
     return parser.parse_args()

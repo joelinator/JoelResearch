@@ -4,6 +4,7 @@ from .loss import (
     gamma_schedule,
     lambda_schedule,
     length_loss,
+    length_weighted_peptide_loss,
     loss_weights,
     mass_loss_hubert,
     mass_loss_hubert_cum,

@@ -346,6 +346,68 @@ def knapsack_filter_logits_vectorized(
     return logits
 
 
+def resolve_sequential_knapsack(
+    x_t: torch.Tensor,
+    logits: torch.Tensor,
+    active_mask: torch.Tensor,
+    target_residue_mass: torch.Tensor,
+    mask_id: int,
+    mass_table: torch.Tensor,
+    full_mass_table: torch.Tensor,
+    tol: float = 1.0,
+    valid_aa_masses: torch.Tensor | None = None,
+    pairs_2: torch.Tensor | None = None,
+    min_aa_mass: float = 57.021464,
+    max_aa_mass: float = 186.079313,
+    reachability_dp: ExactReachabilityDP | None = None,
+    use_exact_dp: bool = True,
+) -> torch.Tensor:
+    """
+    Sequentially resolves residual masked positions one-by-one with exact DP reachability updates.
+    Prevents joint knapsack collisions when two or more positions are unmasked in the final step.
+    """
+    x_res = x_t.clone()
+    batch_size = x_res.shape[0]
+    batch_indices = torch.arange(batch_size, device=x_res.device)
+
+    # Loop at most max_len times (typically 1-3 iterations)
+    for _ in range(x_res.shape[1]):
+        is_masked = (x_res == mask_id) & active_mask
+        if not is_masked.any():
+            break
+
+        filtered_logits = knapsack_filter_logits_vectorized(
+            logits=logits.clone(),
+            x_t=x_res,
+            target_residue_mass=target_residue_mass,
+            active_mask=active_mask,
+            mask_id=mask_id,
+            mass_table=mass_table,
+            full_mass_table=full_mass_table,
+            tol=tol,
+            valid_aa_masses=valid_aa_masses,
+            pairs_2=pairs_2,
+            min_aa_mass=min_aa_mass,
+            max_aa_mass=max_aa_mass,
+            reachability_dp=reachability_dp,
+            use_exact_dp=use_exact_dp,
+        )
+
+        conf = filtered_logits.max(dim=-1).values
+        conf_masked = torch.where(is_masked, conf, torch.full_like(conf, -1e9))
+
+        best_pos = conf_masked.argmax(dim=-1)
+        has_masked = is_masked.any(dim=-1)
+
+        active_b = batch_indices[has_masked]
+        active_pos = best_pos[has_masked]
+
+        chosen_tokens = filtered_logits[active_b, active_pos].argmax(dim=-1)
+        x_res[active_b, active_pos] = chosen_tokens
+
+    return x_res
+
+
 @torch.no_grad()
 def predict_peptide(
     mz_array: torch.Tensor,
@@ -381,6 +443,8 @@ def predict_peptide(
     eta: float = 0.0,
     enzyme: str | None = "trypsin",
     use_composite_ladders: bool = True,
+    use_sequential_knapsack: bool = True,
+    use_peak_evidence: bool = True,
 ) -> tuple[torch.Tensor, torch.Tensor, list[str]] | tuple[torch.Tensor, torch.Tensor, list[str], torch.Tensor]:
     """
     Run de novo inference with Top-k Length Beam Decoding, Dynamic Knapsack Filtering, and SOTA scoring.
@@ -595,6 +659,28 @@ def predict_peptide(
                 use_exact_dp=use_exact_dp_knapsack,
             )
 
+        confidence_bonus = None
+        if use_peak_evidence and mz_array_exp is not None and noising_scheme == "mask":
+            x_1_cand = logits.argmax(dim=-1)
+            cand_masses = full_mass_table[x_1_cand.clamp(0, len(full_mass_table) - 1)] * active_mask.float()
+            b_masses = cand_masses.cumsum(dim=-1) + M_H
+            valid_peaks = ~spectrum_mask_exp
+
+            sub_len = min(120, mz_array_exp.shape[1])
+            mz_sub = mz_array_exp[:, :sub_len]
+            valid_sub = valid_peaks[:, :sub_len]
+
+            b_diff = (mz_sub.unsqueeze(1) - b_masses.unsqueeze(-1)).abs()
+            b_match = (b_diff <= tolerance_da) & valid_sub.unsqueeze(1)
+            has_b = b_match.any(dim=-1)
+
+            y_masses = target_residue_mass_exp.unsqueeze(-1) - (b_masses - M_H) + M_H2O + M_H
+            y_diff = (mz_sub.unsqueeze(1) - y_masses.unsqueeze(-1)).abs()
+            y_match = (y_diff <= tolerance_da) & valid_sub.unsqueeze(1)
+            has_y = y_match.any(dim=-1)
+
+            confidence_bonus = torch.where((has_b | has_y) & active_mask, 0.25, 0.0)
+
         if noising_scheme == "mask":
             x_t = inference_sample_mask(
                 kt,
@@ -609,6 +695,7 @@ def predict_peptide(
                 kt_next=kt_next,
                 eta=eta,
                 is_final_step=(step == num_steps - 1),
+                confidence_bonus=confidence_bonus,
             )
         else:
             x_t = sample_step(
@@ -623,12 +710,29 @@ def predict_peptide(
             )
         x_t = apply_length_padding(x_t, cand_lengths_flat, pad_id)
 
-    # Final unmasking safety: if any active position is still masked, unmask via argmax logits
+    # Final unmasking safety: if any active position is still masked, unmask via sequential knapsack
     mask_token_id = vocabulary.get("<mask_token>", vocabulary.get("<mask" + ">"))
     if mask_token_id is not None and last_logits is not None:
         rem_mask = (x_t == mask_token_id) & active_mask
         if rem_mask.any():
-            if use_knapsack_filter:
+            if use_sequential_knapsack:
+                x_t = resolve_sequential_knapsack(
+                    x_t=x_t,
+                    logits=last_logits,
+                    active_mask=active_mask,
+                    target_residue_mass=target_residue_mass_exp,
+                    mask_id=mask_token_id,
+                    mass_table=mass_table,
+                    full_mass_table=full_mass_table,
+                    tol=knapsack_tol_da,
+                    valid_aa_masses=valid_aa_masses,
+                    pairs_2=pairs_2,
+                    min_aa_mass=min_aa_mass,
+                    max_aa_mass=max_aa_mass,
+                    reachability_dp=reachability_dp,
+                    use_exact_dp=use_exact_dp_knapsack,
+                )
+            elif use_knapsack_filter:
                 final_logits = knapsack_filter_logits_vectorized(
                     logits=last_logits.clone(),
                     x_t=x_t,

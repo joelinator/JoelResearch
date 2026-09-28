@@ -228,3 +228,7 @@ scratch/
 artifacts/
 *.log
 .env
+models/*.ckpt
+*.ckpt
+.gradio/
+val_metrics/
