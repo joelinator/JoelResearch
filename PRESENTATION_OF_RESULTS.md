@@ -210,6 +210,18 @@ We evaluated the finalized **30-Epoch Retrained DFlowNovo** checkpoint against m
 | | **PointNovo** | 32.1M | Continuous Order-Invariant | 26.10% | 32.40% | 52.80% | 34.60% | 60.50% | 30.10% (79,876 PSMs) | 18.2 spec/s |
 | | **DeepNovo** | 28.4M | Bidirectional LSTM | 22.30% | 28.10% | 49.50% | 29.80% | 55.60% | 25.40% (67,403 PSMs) | 14.5 spec/s |
 
+#### Experimental Protocol for Master Benchmark:
+- **Datasets**: Complete held-out test splits from Nine-Species ($N = 104,163$ across 9 organisms) and Human Core ProteomeTools ($N = 265,369$ synthetic human peptides).
+- **Spectrometry & Preprocessing**: Thermo Orbitrap HCD spectra; top 200 centroided peaks; square-root intensity transform; complementary mass coordinates $m^{\text{comp}} = M_{\text{prec}} + 2m_p - m_j$.
+- **Sampling & Guidance**: $K = 20$ Euler reverse flow steps under cosine schedule with Dynamic Knapsack reachability table ($T[k, b]$ at $\Delta m = 0.02\text{ Da}$, tolerance window $\tau = 1.0\text{ Da}$) and greedy selection ($S=1$).
+- **Scoring Criteria**: Strict exact match requires exact string equality; $I/L$-conflated treats Leucine and Isoleucine ($113.08406\text{ Da}$) as equivalent; residue F1 aligns prefix masses within $\pm 0.1\text{ Da}$.
+- **Hardware**: Dedicated NVIDIA H100 80GB SXM5 GPU (PyTorch 2.1, CUDA 12.2), batch size 128.
+
+#### Scientific & Physical Interpretation:
+1. **Nine-Species Superiority**: DFlowNovo achieves **68.28% strict exact match** and **83.01% residue F1**, surpassing InstaNovo v1.2.0 (15.45% strict match, 65.48% conflated) and Casanovo (48.10%). DFlowNovo leverages bidirectional spectral cross-attention to resolve subtle secondary fragmentation peaks across diverse biological proteomes.
+2. **Physical Cause of HC-PT Isobaric Gap**: On HC-PT, DFlowNovo achieves 56.79% $I/L$-conflated match vs 35.81% strict match. This 20.98% gap arises from the monoisotopic equivalence of Leucine and Isoleucine ($113.08406\text{ Da}$), which cannot be separated in standard HCD spectra without radical-driven $w$-ion side-chain fragmentation.
+3. **Inference Latency Advantage**: Because DFlowNovo updates all token positions concurrently in 20 fixed integration steps ($\mathcal{O}(K)$), per-spectrum latency is flat ($\approx 5.8\text{ ms}$), achieving **227.1–255.8 spectra/second** (a 4.33× to 4.94× speedup over InstaNovo and up to 9.1× faster on long peptides).
+
 ---
 
 ### 4.2 Key Observations from the Empirical Data
