@@ -180,8 +180,8 @@ We benchmarked DFlowNovo against InstaNovo v1.2.0, Casanovo, and PowerNovo2 acro
 
 ### 6.2 Analysis of Results
 
-#### 1. Outperforming Autoregressive SOTA on Nine-Species
-With length-weighted fine-tuning, DFlowNovo achieves **68.28%** strict sequence accuracy on the Nine-Species benchmark, surpassing InstaNovo's **65.48%** ($+2.80\%$) and establishing a new state of the art while remaining fully non-autoregressive. In residue F1, DFlowNovo achieves **83.01%**, exceeding InstaNovo's 82.30%.
+#### 1. Outperforming Autoregressive Baselines on Nine-Species
+With length-weighted fine-tuning, DFlowNovo achieves **68.28%** strict sequence accuracy on the Nine-Species benchmark, surpassing InstaNovo's **65.48%** ($+2.80\%$) while remaining fully non-autoregressive. In residue F1, DFlowNovo achieves **83.01%**, exceeding InstaNovo's 82.30%.
 
 #### 2. Throughput and Computational Efficiency
 DFlowNovo decodes at **227.1 to 255.8 spectra per second** on a single GPU. Compared to InstaNovo (52.4 spectra/s) and Casanovo (35.1 spectra/s), DFlowNovo provides a **4.33× to 4.94× throughput increase**. Because the number of flow matching steps is fixed ($N = 20$), inference time is deterministic and independent of peptide length, eliminating the sequential synchronization barriers inherent to autoregressive beam search.

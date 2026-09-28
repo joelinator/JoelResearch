@@ -96,7 +96,7 @@ flowchart TD
     Phase2 --> E2["Nine-Species improves to 65.63%<br>HC-PT drops to 12.85% (Catastrophic forgetting)"]
     E2 --> Phase3["3. Joint Balanced Curriculum (50/50 Interleaving)"]
     Phase3 --> E3["Nine-Species: 64.92% | HC-PT: 34.93%<br>(Performance preserved on both benchmarks)"]
-    E3 --> Phase4["4. Targeted SOTA Architectural Refinements"]
+    E3 --> Phase4["4. Targeted Architectural Refinements"]
     Phase4 --> E4["Final 30-Epoch Model: 65.08% Strict Match<br>84,597 Accepted PSMs | 174 spec/s Throughput"]
 ```
 
@@ -183,7 +183,7 @@ Based on diagnostic profiling, we integrated five targeted enhancements into the
 
 ## 4. Empirical Benchmark Results
 
-We evaluated the finalized **30-Epoch Retrained SOTA DFlowNovo** checkpoint against major *de novo* sequencing architectures across **369,532 test spectra**.
+We evaluated the finalized **30-Epoch Retrained DFlowNovo** checkpoint against major *de novo* sequencing architectures across **369,532 test spectra**.
 
 ![Comprehensive Benchmark Comparison](docs/figures/full_benchmark_comparison_30ep.png)
 
@@ -191,7 +191,7 @@ We evaluated the finalized **30-Epoch Retrained SOTA DFlowNovo** checkpoint agai
 
 | Dataset Split | Model Architecture | Parameters | Paradigm | Strict Exact Match | I/L Exact Match | Residue F1 | Precursor Mass Match | Length Accuracy | Coverage @ 80% Prec | Throughput |
 | :--- | :--- | :---: | :--- | :---: | :---: | :---: | :---: | :---: | :---: | :---: |
-| **Nine-Species Full Test**<br>($N = 104,163$) | **DFlowNovo (Frozen SOTA)** | **59.5M** | **Discrete Flow Matching** | **68.28%** | **68.44%** | **83.01%** | **67.45%** | **84.42%** | **80.15% (86,412 PSMs)** | **227.1 spec/s** |
+| **Nine-Species Full Test**<br>($N = 104,163$) | **DFlowNovo (Production)** | **59.5M** | **Discrete Flow Matching** | **68.28%** | **68.44%** | **83.01%** | **67.45%** | **84.42%** | **80.15% (86,412 PSMs)** | **227.1 spec/s** |
 | | **DFlowNovo (30ep Baseline)** | 59.5M | Discrete Flow Matching | 65.08% | 65.29% | 81.80% | 67.02% | 83.62% | 78.22% (84,597 PSMs) | 174.0 spec/s |
 | | **DFlowNovo (8ep Joint)** | 59.5M | Discrete Flow Matching | 64.92% | 65.07% | 81.97% | 66.87% | 83.27% | 77.13% (80,340 PSMs) | **185.0 spec/s** |
 | | **InstaNovo (`v1.2.0` Latest)** | 94.8M | Knapsack Autoregressive | 15.45% | **71.09%** | 76.88% | **71.10%** | 80.65% | 71.50% (74,476 PSMs) | 51.9 spec/s |
@@ -200,7 +200,7 @@ We evaluated the finalized **30-Epoch Retrained SOTA DFlowNovo** checkpoint agai
 | | **PowerNovo2** | 63.2M | Continuous Normalizing Flow | 3.16% | 33.43% | 38.06% | 34.30% | 35.10% | 28.50% (29,686 PSMs) | 45.0 spec/s |
 | | **PointNovo** | 32.1M | Continuous Order-Invariant | 48.00% | 51.80% | 70.40% | 52.90% | 70.80% | 46.50% (48,435 PSMs) | 18.2 spec/s |
 | | **DeepNovo** | 28.4M | Bidirectional LSTM | 42.80% | 45.20% | 66.60% | 46.10% | 67.40% | 41.20% (42,915 PSMs) | 14.5 spec/s |
-| **HC-PT Full Test**<br>($N = 265,369$) | **DFlowNovo (Frozen SOTA)** | **59.5M** | **Discrete Flow Matching** | **35.81%** | **56.79%** | **69.62%** | **56.40%** | **82.12%** | **66.85% (177,400 PSMs)** | **255.8 spec/s** |
+| **HC-PT Full Test**<br>($N = 265,369$) | **DFlowNovo (Production)** | **59.5M** | **Discrete Flow Matching** | **35.81%** | **56.79%** | **69.62%** | **56.40%** | **82.12%** | **66.85% (177,400 PSMs)** | **255.8 spec/s** |
 | | **DFlowNovo (30ep Baseline)** | 59.5M | Discrete Flow Matching | 34.84% | 55.88% | 69.74% | 55.95% | 81.84% | 65.99% (175,383 PSMs) | 174.0 spec/s |
 | | **DFlowNovo (8ep Joint)** | 59.5M | Discrete Flow Matching | 34.93% | 55.95% | 70.04% | 56.04% | 81.55% | 66.01% (175,181 PSMs) | **185.0 spec/s** |
 | | **InstaNovo (`v1.2.0` Latest)** | 94.8M | Knapsack Autoregressive | **63.03%** | **66.15%** | **76.87%** | **73.20%** | 78.27% | **91.47% (242,746 PSMs)** | 51.9 spec/s |
@@ -301,7 +301,7 @@ This outline provides a structured framework for research presentations and semi
   > *"When trained solely on synthetic human peptides (HC-PT), the model performed well on that data (36.4% strict match), but dropped to 12.0% when evaluated zero-shot on the Nine-Species biological benchmark. Real biological spectra present wider variations in cleavage patterns and chemical modifications."*
 
 #### Slide 5: Catastrophic Forgetting in Sequential Fine-Tuning
-* **Visual**: Strategy A chart showing Nine-Species rising to 65.6% while HC-PT drops to 12.8%.
+* **Visual**: Sequential fine-tuning chart showing Nine-Species rising to 65.6% while HC-PT drops to 12.8%.
 * **Speaker Notes**:
   > *"Sequential fine-tuning on the Nine-Species dataset raised its accuracy to 65.6%. However, re-evaluating on HC-PT revealed that accuracy fell from 36.4% to 12.8%, showing that sequential adaptation caused catastrophic forgetting of earlier representations."*
 
@@ -350,4 +350,4 @@ This outline provides a structured framework for research presentations and semi
 * **Comprehensive Benchmark Plot**: [`docs/figures/full_benchmark_comparison_30ep.png`](file:///home/joelgedeon_aims_ac_za/dfm-joelresearch/docs/figures/full_benchmark_comparison_30ep.png)
 * **Nine-Species Evaluation Metrics**: [`artifacts/eval_dfm_30ep_ninespecies_test_metrics.json`](file:///home/joelgedeon_aims_ac_za/dfm-joelresearch/artifacts/eval_dfm_30ep_ninespecies_test_metrics.json)
 * **HC-PT Evaluation Metrics**: [`artifacts/eval_dfm_30ep_hcpt_test_metrics.json`](file:///home/joelgedeon_aims_ac_za/dfm-joelresearch/artifacts/eval_dfm_30ep_hcpt_test_metrics.json)
-* **Full Benchmark Summary JSON**: [`artifacts/full_benchmark_comparison_sota_30ep.json`](file:///home/joelgedeon_aims_ac_za/dfm-joelresearch/artifacts/full_benchmark_comparison_sota_30ep.json)
+* **Full Benchmark Summary JSON**: [`artifacts/full_benchmark_comparison.json`](file:///home/joelgedeon_aims_ac_za/dfm-joelresearch/artifacts/full_benchmark_comparison.json)

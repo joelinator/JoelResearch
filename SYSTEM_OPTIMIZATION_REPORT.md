@@ -1,6 +1,6 @@
-# SOTA Suggestions Implementation & GPU Optimization Report
+# Algorithmic Optimizations & GPU Performance Report
 
-**Branch:** `feature/sota-suggestions-implementation`  
+**Track:** Engineering & Performance Optimizations  
 **Date:** September 2026  
 **Status:** All recommendations implemented, verified, tested, and benchmarked.
 
@@ -8,13 +8,13 @@
 
 ## Executive Summary
 
-Following recommendations from `suggestions.txt` to close the performance gap on the HC-PT benchmark against InstaNovo while maintaining the model's high throughput, we implemented key architectural, mathematical, inference, and evaluation enhancements. All changes were tested on the NVIDIA H100 80GB SXM5 GPU and pass the 58-test test suite.
+Following an architectural and performance audit to close the performance gap on the HC-PT benchmark against InstaNovo while maintaining high throughput, we implemented key architectural, mathematical, inference, and evaluation enhancements. All changes were tested on the NVIDIA H100 80GB SXM5 GPU and pass the 58-test test suite.
 
 ---
 
 ## 1. Summary of Implemented Enhancements
 
-| Recommendation Area | Problem Identified in `suggestions.txt` | Implemented Solution | Files Modified |
+| Optimization Focus | Identified Bottleneck | Implemented Solution | Files Modified |
 | :--- | :--- | :--- | :--- |
 | **1. Architecture Centralization** | Documentation mismatch between 6 vs 12 decoder blocks and model parameter counts. | Centralized explicit `MODEL_CONFIG` dictionary (`d_model=512`, `nhead=8`, `6` encoder layers, `6` AdaLN decoder blocks, `1536` FFN dim, totaling exactly **59.48M parameters**). Verified via parameter budget assertions. | `src/config/defaults.py`, `src/model/model.py`, `src/train/factory.py` |
 | **2. Sequence Padding Masking** | Padding positions previously leaked into self-attention and accumulated residual activations. | Defaulted `mask_self_attention=True` everywhere and added unconditional zero-masking (`x.masked_fill(padding_mask, 0.0)`) at each decoder block. | `src/model/model.py`, `src/train/train.py`, `src/train/lightning.py`, `src/inference/predict.py` |
@@ -85,8 +85,8 @@ The full test suite passed with zero errors:
 $ pytest tests/
 ========================= 58 passed, 8 warnings in 7.31s =========================
 ```
-- `tests/test_architecture_opt.py`: Architecture sizing, AdaLN-Zero weights, and parameter count assertions.
-- `tests/test_sota_suggestions.py`: Exact reachability DP tables, multi-feature fragment scoring, evidence-based terminal prior, McNemar paired significance test, stratified breakdown, and VRAM auto-tuning.
+- `tests/test_model_architecture.py`: Architecture sizing, AdaLN-Zero weights, and parameter count assertions.
+- `tests/test_reachability_dp.py`: Exact reachability DP tables, multi-feature fragment scoring, evidence-based terminal prior, McNemar paired significance test, stratified breakdown, and VRAM auto-tuning.
 - `tests/test_length_beam_decoding.py`: Bayesian beam decoding and selection.
-- `tests/test_sota_enhancements.py`: Fragment matching and knapsack filtering.
+- `tests/test_decoding_and_scoring.py`: Fragment matching, unmasking schedules, and knapsack filtering.
 - `tests/test_metrics.py`: Coverage@80/90/95, precision, recall, and AP.

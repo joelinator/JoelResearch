@@ -367,7 +367,7 @@ We evaluated our final balanced joint model against InstaNovo across the combine
 
 | Dataset Split | Model Architecture | Parameters | Training Strategy | Strict Exact Match | I/L Exact Match | Amino Acid F1 | Precursor Mass Match | Length Accuracy | Coverage @ 80% Prec | Inference Throughput |
 | :--- | :--- | :---: | :--- | :---: | :---: | :---: | :---: | :---: | :---: | :---: |
-| **Nine-Species Full Test**<br>($N = 104,163$) | **DFlowNovo (30ep SOTA)** | **59.48M** | Multi-Domain Joint (30 ep) | **65.08%** | **65.29%** | **81.80%** | **67.02%** | **83.62%** | **78.22%** (81,030 PSMs) | **174 spectra/s** |
+| **Nine-Species Full Test**<br>($N = 104,163$) | **DFlowNovo (30ep Balanced)** | **59.48M** | Multi-Domain Joint (30 ep) | **65.08%** | **65.29%** | **81.80%** | **67.02%** | **83.62%** | **78.22%** (81,030 PSMs) | **174 spectra/s** |
 | | **DFM Balanced Joint (8ep)** | **59.48M** | Multi-Domain Joint (8 ep) | **64.92%** | **65.07%** | **81.97%** | **66.87%** | **83.27%** | **77.13%** (80,340 PSMs) | **185 spectra/s** |
 | | **DFM Finetuned** | **59.48M** | Sequential Single-Domain | **65.63%** | **65.63%** | **82.29%** | **67.17%** | **83.58%** | **78.40%** (81,668 PSMs) | **185 spectra/s** |
 | | **DFM Base** | **59.48M** | Zero-Shot Pretrained | 12.01% | 50.49% | 71.68% | 56.72% | 75.86% | 65.88% (68,626 PSMs) | **185 spectra/s** |
@@ -378,7 +378,7 @@ We evaluated our final balanced joint model against InstaNovo across the combine
 | | PointNovo | 32.1M | Order-Invariant Continuous | 48.00% | 51.80% | 70.40% | 52.90% | 70.80% | 46.50% (48,435 PSMs) | 18 spectra/s |
 | | *Delta (DFlowNovo vs InstaNovo v1.2.0)* | *-37.2%* | — | **+49.63%** | *-5.80%* | **+4.92%** | *-4.08%* | **+2.97%** | **+6.72%** (+6,554 PSMs) | **3.35× Faster** |
 | | *Delta (DFlowNovo vs InstaNovo v1.0.0)* | *-37.2%* | — | **+11.88%** | **+6.89%** | **+9.90%** | **+4.92%** | **+9.32%** | **+25.42%** (+26,030 PSMs)| **3.94× Faster** |
-| **HC-PT Full Test**<br>($N = 265,369$) | **DFlowNovo (30ep SOTA)** | **59.48M** | Multi-Domain Joint (30 ep) | **34.84%** | **55.88%** | **69.74%** | **55.95%** | **81.84%** | **65.99%** (175,383 PSMs) | **174 spectra/s** |
+| **HC-PT Full Test**<br>($N = 265,369$) | **DFlowNovo (30ep Balanced)** | **59.48M** | Multi-Domain Joint (30 ep) | **34.84%** | **55.88%** | **69.74%** | **55.95%** | **81.84%** | **65.99%** (175,383 PSMs) | **174 spectra/s** |
 | | **DFM Balanced Joint (8ep)** | **59.48M** | Multi-Domain Joint (8 ep) | **34.93%** | **55.95%** | **70.04%** | **56.04%** | **81.55%** | **66.01%** (175,181 PSMs) | **185 spectra/s** |
 | | **DFM Base** | **59.48M** | Single-Domain Pretrained | **36.41%** | **56.24%** | **69.87%** | **56.28%** | **82.27%** | **66.59%** (176,705 PSMs) | **185 spectra/s** |
 | | **DFM Finetuned** | **59.48M** | Sequential Single-Domain | 12.85% *(collapsed)*| 48.57% | 69.55% | 53.94% | 78.29% | 64.55% (171,286 PSMs) | **185 spectra/s** |
@@ -623,9 +623,9 @@ To re-run inference directly from model checkpoints on an NVIDIA GPU:
 # Clone repository and checkout branch
 git clone https://github.com/joelinator/JoelResearch.git
 cd JoelResearch
-git checkout feature/ptm-support
+git checkout research
 
-# Run full evaluation on Nine-Species test split using SOTA checkpoint
+# Run full evaluation on Nine-Species test split using balanced checkpoint
 python scripts/eval.py \
   --checkpoint artifacts/dfm_joint_balanced_30ep/checkpoints/dfm_balanced_best.ckpt \
   --dataset-name InstaDeepAI/ms_ninespecies_benchmark \

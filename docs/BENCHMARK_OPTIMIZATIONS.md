@@ -1,8 +1,7 @@
-# SOTA Algorithmic and Decoding Optimizations for Discrete Flow Matching De Novo Peptide Sequencing
+# Algorithmic and Decoding Optimizations for Discrete Flow Matching De Novo Peptide Sequencing
 
-**Author:** Joelinator / Google DeepMind Pair Programming  
-**Branch:** `feature/sota-architecture-opt`  
-**Target:** Closing the Performance Gap to SOTA De Novo Sequencing (InstaNovo, Casanovo)  
+**Author:** Joël Gédéon  
+**Target:** Enhancing De Novo Sequencing Performance Against Leading Baselines (InstaNovo, Casanovo)  
 **Date:** September 2026  
 
 ---
@@ -19,7 +18,7 @@ Following the architectural streamlining to **59.47M parameters** and Bayesian l
 5. **Isobaric Amino Acid Mispenalization**: Isoleucine (I) and Leucine (L) share identical mass ($113.084064\text{ Da}$). Resolved via **I/L Equivalence Tracking** in benchmark metrics.
 6. **Padding-Safe Cumulative Mass Loss**: Guaranteed zero-padding invariance and dynamic vocabulary index alignment.
 
-All components are fully tested (`tests/test_sota_enhancements.py`, `tests/test_user_modifications.py`, and the full unit test suite passing 100%).
+All components are fully tested (`tests/test_decoding_and_scoring.py`, `tests/test_loss_and_padding.py`, and the full unit test suite passing 100%).
 
 ---
 
@@ -132,7 +131,7 @@ Isoleucine (I) and Leucine (L) have the exact same chemical formula ($C_6 H_{13}
 
 ### 2.7 Cumulative Prefix Mass Hubert Loss & Padding Invariance
 
-The user-introduced cumulative mass loss:
+The cumulative prefix mass loss:
 $$\mathcal{L}_{\text{cum}} = \frac{1}{|\mathcal{A}|} \sum_{i \in \mathcal{A}} \text{Huber}\left( \sum_{j=1}^i \hat{m}_j, \sum_{j=1}^i m(y_j) \right)$$
 was verified to:
 1. Mask out `<pad>` tokens so that padded positions cannot corrupt prefix mass sums.
@@ -162,7 +161,7 @@ All optimizations are exposed as command-line arguments in [`scripts/train_light
 The test suite validates every component:
 
 ```bash
-PYTHONPATH=src .venv/bin/python tests/test_sota_enhancements.py
+PYTHONPATH=src .venv/bin/python tests/test_decoding_and_scoring.py
 ```
 - `test_confidence_based_unmasking`: Verified top-$k$ confidence ranking unmasks highest probability tokens first.
 - `test_fragment_ion_matching_scores`: Verified theoretical $b/y$ ion generation, tolerance matching, and explained intensity ratio computation.

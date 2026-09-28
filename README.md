@@ -32,14 +32,14 @@ The framework was benchmarked against existing de novo peptide sequencing method
 - **HC-PT ProteomeTools Benchmark**: $N = 265,369$ full test spectra of synthetic human peptides.
 
 <div align="center">
-  <img src="docs/figures/full_benchmark_comparison_30ep.png" width="98%" alt="Full Benchmark Comparison 30-Epoch SOTA vs InstaNovo v1.2.0 and v1.0.0" />
+  <img src="docs/figures/full_benchmark_comparison_30ep.png" width="98%" alt="Full Benchmark Comparison 30-Epoch Balanced vs InstaNovo v1.2.0 and v1.0.0" />
 </div>
 
 ### Empirical Performance Summary (Full Test Splits)
 
 | Model Architecture | Paradigm | Params | Inference Speed | Nine-Species Strict Match | Nine-Species I/L Match | Nine-Species Residue F1 | HC-PT Full Strict Match | HC-PT Full I/L Match | HC-PT Full Residue F1 |
 | :--- | :--- | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: |
-| **DFlowNovo (Frozen SOTA)** | **Discrete Flow Matching (Length-Weighted DP)** | **59.5M** | **227.1–255.8 spec/s** | **68.28%** | **68.44%** | **83.01%** | **35.81%** | **56.79%** | **69.62%** |
+| **DFlowNovo (Production)** | **Discrete Flow Matching (Length-Weighted DP)** | **59.5M** | **227.1–255.8 spec/s** | **68.28%** | **68.44%** | **83.01%** | **35.81%** | **56.79%** | **69.62%** |
 | **DFlowNovo (30ep Baseline)** | Discrete Flow Matching (Exact DP Knapsack) | 59.5M | 174.0 spec/s | 65.08% | 65.29% | 81.80% | 34.84% | 55.88% | 69.74% |
 | **DFlowNovo (8ep Joint)** | Discrete Flow Matching (Fast Knapsack) | 59.5M | 185.0 spec/s | 64.92% | 65.07% | 81.97% | 34.93% | 55.95% | 70.04% |
 | **InstaNovo (`v1.2.0` Latest)** | Knapsack Autoregressive (MassIVE-KB) | 94.8M | 51.9 spec/s | 15.45% | **71.09%** | 76.88% | **63.03%** | **66.15%** | **76.87%** |
@@ -115,7 +115,7 @@ python scripts/download_dataset.py \
 ```
 
 ### 2. De Novo Sequencing (Inference)
-Sequence raw spectra from an MGF or Parquet file using the SOTA checkpoint:
+Sequence raw spectra from an MGF or Parquet file using the production checkpoint:
 ```bash
 python scripts/infer.py \
     --checkpoint artifacts/dfm_joint_balanced_30ep/checkpoints/dfm_balanced_best.ckpt \
@@ -152,7 +152,7 @@ python scripts/train_lightning.py \
     --output-dir artifacts/dfm_training
 ```
 
-**Joint Multi-Domain Balanced Training (30-Epoch SOTA Multi-Domain Model):**
+**Joint Multi-Domain Balanced Training (30-Epoch Balanced Multi-Domain Model):**
 ```bash
 python scripts/train_joint_balanced.py \
     --epochs 30 \
@@ -167,8 +167,8 @@ python scripts/train_joint_balanced.py \
 ### 5. Reproducing Benchmark Figures
 Generate all 300 DPI publication-grade comparison plots:
 ```bash
-# 7-Model SOTA Benchmark Figure (DFlowNovo 30ep vs InstaNovo v1.2.0 vs v1.0.0 vs Casanovo vs PowerNovo2)
-python scripts/plot_full_benchmark_sota_30ep.py
+# 7-Model Benchmark Figure (DFlowNovo 30ep vs InstaNovo v1.2.0 vs v1.0.0 vs Casanovo vs PowerNovo2)
+python scripts/plot_benchmark_comparison.py
 
 # Multi-domain & Knapsack ablation figures
 python scripts/generate_publication_figures.py
@@ -225,15 +225,15 @@ dfm-joelresearch/
 │   ├── prepare_benchmark_mgf.py# Standardized MGF benchmark split preparation
 │   ├── run_casanovo_powernovo2_benchmark.py # External baseline execution harness
 │   ├── plot_four_way_benchmark.py # 6-model benchmark comparison figure generator
-│   ├── plot_full_benchmark_sota_30ep.py # 7-model 30-epoch SOTA benchmark figure generator
+│   ├── plot_benchmark_comparison.py # Comparative benchmark plotting script
 │   └── generate_publication_figures.py # Master figure generation pipeline
 │
 ├── notebooks/                  # Interactive tutorial
 │   └── dfm_de_novo_tutorial.ipynb # Self-contained end-to-end tutorial notebook
 │
 ├── docs/                       # Theoretical and architectural documentation
-│   ├── ARCHITECTURE_OPTIMIZATIONS.md
-│   ├── SOTA_OPTIMIZATIONS.md
+│   ├── ARCHITECTURE_DESIGN.md
+│   ├── BENCHMARK_OPTIMIZATIONS.md
 │   └── figures/                # Publication-quality 300 DPI figures
 │       ├── full_benchmark_comparison_30ep.png
 │       ├── four_way_benchmark_comparison.png
