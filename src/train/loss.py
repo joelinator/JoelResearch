@@ -202,3 +202,36 @@ def peptide_loss(logits, peptide, pad_id: int, label_smoothing: float = 0.0, los
         peptide.reshape(-1),
     )
 
+
+def length_weighted_peptide_loss(
+    logits: torch.Tensor,
+    peptide: torch.Tensor,
+    true_length: torch.Tensor,
+    pad_id: int,
+    label_smoothing: float = 0.0,
+    alpha: float = 0.5,
+) -> torch.Tensor:
+    """
+    Length-weighted cross-entropy loss over active residues.
+    Upweights longer peptides proportionally to (L / 12.0)^alpha,
+    normalizing weights across the batch to keep gradient scale stable.
+    """
+    B, L, C = logits.shape
+    ce_per_token = F.cross_entropy(
+        logits.view(-1, C),
+        peptide.view(-1),
+        ignore_index=pad_id,
+        label_smoothing=label_smoothing,
+        reduction="none",
+    ).view(B, L)
+
+    active_mask = (peptide != pad_id).float()
+    seq_loss = (ce_per_token * active_mask).sum(dim=-1) / active_mask.sum(dim=-1).clamp(min=1.0)
+
+    # Length-based weighting factor
+    weights = (true_length.float() / 12.0).pow(alpha)
+    weights = weights / weights.mean().clamp(min=1e-6)
+
+    return (seq_loss * weights).mean()
+
+

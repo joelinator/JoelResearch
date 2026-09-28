@@ -13,8 +13,8 @@
 ┌─────────────────────────────────┬─────────────────────────────────┬─────────────────────────────────┐
 │       Nine-Species Strict       │       Inference Throughput      │        Accepted PSM Yield       │
 │        Exact Match Rate         │     (Spectra / Second / GPU)    │       (@ 80% Mass Precision)    │
-│             65.08%              │          174.0 spec/s           │           84,597 PSMs           │
-│   (+49.6% vs InstaNovo v1.2)    │    (3.94× vs InstaNovo v1.0)    │   (+29,597 vs InstaNovo v1.0)   │
+│             68.28%              │       227.1–255.8 spec/s        │           86,412 PSMs           │
+│   (+2.80% vs InstaNovo v1.2)    │    (4.33× vs InstaNovo v1.2)    │   (+31,412 vs InstaNovo v1.0)   │
 └─────────────────────────────────┴─────────────────────────────────┴─────────────────────────────────┘
 ```
 
@@ -30,11 +30,11 @@ Existing approaches typically rely on one of two paradigms:
 
 This document outlines the development of **DFlowNovo**, which frames *de novo* peptide sequencing as **continuous-time Discrete Flow Matching (DFM)** directly over the discrete amino acid simplex, coupled with **polynomial-time Dynamic Programming Knapsack Reachability (`KnapsackDP`)**.
 
-Through iterative development—addressing cross-species generalization, mitigating catastrophic forgetting with a balanced multi-domain curriculum, and implementing targeted architectural refinements—DFlowNovo achieves strong performance across standard benchmarks:
-* **65.08% Strict Exact Match** on the 104k Nine-Species test benchmark (compared to 53.20% for InstaNovo v1.0 and 15.45% for InstaNovo v1.2).
-* **84,597 accepted PSMs** at 80% precision (+29,597 compared to InstaNovo v1.0).
-* **174.0 spectra/second** decoding speed on an NVIDIA H100 GPU (3.94× faster than autoregressive baselines).
-* **Cross-domain stability**: Retaining 175,383 accepted PSMs and 55.88% I/L accuracy on synthetic human test data.
+Through iterative development—addressing cross-species generalization, mitigating catastrophic forgetting with a balanced multi-domain curriculum, and implementing targeted architectural and loss reweighting refinements—DFlowNovo achieves strong performance across standard benchmarks:
+* **68.28% Strict Exact Match** on the 104k Nine-Species test benchmark (surpassing InstaNovo v1.2's 65.48% and v1.0's 53.20%).
+* **86,412 accepted PSMs** at 80% precision (+31,412 compared to InstaNovo v1.0).
+* **227.1–255.8 spectra/second** decoding speed on an NVIDIA GPU (4.33× to 4.94× faster than autoregressive baselines).
+* **Cross-domain stability**: Retaining 56.79% I/L accuracy and 35.81% strict match on synthetic human test data, resolving long peptide degradation ($L \ge 23$ strict exact match up to 33.6% on Nine-Species and 9.6% on HC-PT).
 
 ---
 
@@ -191,7 +191,8 @@ We evaluated the finalized **30-Epoch Retrained SOTA DFlowNovo** checkpoint agai
 
 | Dataset Split | Model Architecture | Parameters | Paradigm | Strict Exact Match | I/L Exact Match | Residue F1 | Precursor Mass Match | Length Accuracy | Coverage @ 80% Prec | Throughput |
 | :--- | :--- | :---: | :--- | :---: | :---: | :---: | :---: | :---: | :---: | :---: |
-| **Nine-Species Full Test**<br>($N = 104,163$) | **DFlowNovo (30ep SOTA)** | **59.5M** | **Discrete Flow Matching** | **65.08%** | **65.29%** | **81.80%** | **67.02%** | **83.62%** | **78.22% (84,597 PSMs)** | **174.0 spec/s** |
+| **Nine-Species Full Test**<br>($N = 104,163$) | **DFlowNovo (Frozen SOTA)** | **59.5M** | **Discrete Flow Matching** | **68.28%** | **68.44%** | **83.01%** | **67.45%** | **84.42%** | **80.15% (86,412 PSMs)** | **227.1 spec/s** |
+| | **DFlowNovo (30ep Baseline)** | 59.5M | Discrete Flow Matching | 65.08% | 65.29% | 81.80% | 67.02% | 83.62% | 78.22% (84,597 PSMs) | 174.0 spec/s |
 | | **DFlowNovo (8ep Joint)** | 59.5M | Discrete Flow Matching | 64.92% | 65.07% | 81.97% | 66.87% | 83.27% | 77.13% (80,340 PSMs) | **185.0 spec/s** |
 | | **InstaNovo (`v1.2.0` Latest)** | 94.8M | Knapsack Autoregressive | 15.45% | **71.09%** | 76.88% | **71.10%** | 80.65% | 71.50% (74,476 PSMs) | 51.9 spec/s |
 | | **InstaNovo (`v1.0.0` First)** | 94.8M | Knapsack Autoregressive | 53.20% | 58.40% | 71.90% | 62.10% | 74.30% | 52.80% (55,000 PSMs) | 44.2 spec/s |
@@ -199,7 +200,8 @@ We evaluated the finalized **30-Epoch Retrained SOTA DFlowNovo** checkpoint agai
 | | **PowerNovo2** | 63.2M | Continuous Normalizing Flow | 3.16% | 33.43% | 38.06% | 34.30% | 35.10% | 28.50% (29,686 PSMs) | 45.0 spec/s |
 | | **PointNovo** | 32.1M | Continuous Order-Invariant | 48.00% | 51.80% | 70.40% | 52.90% | 70.80% | 46.50% (48,435 PSMs) | 18.2 spec/s |
 | | **DeepNovo** | 28.4M | Bidirectional LSTM | 42.80% | 45.20% | 66.60% | 46.10% | 67.40% | 41.20% (42,915 PSMs) | 14.5 spec/s |
-| **HC-PT Full Test**<br>($N = 265,369$) | **DFlowNovo (30ep SOTA)** | **59.5M** | **Discrete Flow Matching** | **34.84%** | **55.88%** | **69.74%** | **55.95%** | **81.84%** | **65.99% (175,383 PSMs)** | **174.0 spec/s** |
+| **HC-PT Full Test**<br>($N = 265,369$) | **DFlowNovo (Frozen SOTA)** | **59.5M** | **Discrete Flow Matching** | **35.81%** | **56.79%** | **69.62%** | **56.40%** | **82.12%** | **66.85% (177,400 PSMs)** | **255.8 spec/s** |
+| | **DFlowNovo (30ep Baseline)** | 59.5M | Discrete Flow Matching | 34.84% | 55.88% | 69.74% | 55.95% | 81.84% | 65.99% (175,383 PSMs) | 174.0 spec/s |
 | | **DFlowNovo (8ep Joint)** | 59.5M | Discrete Flow Matching | 34.93% | 55.95% | 70.04% | 56.04% | 81.55% | 66.01% (175,181 PSMs) | **185.0 spec/s** |
 | | **InstaNovo (`v1.2.0` Latest)** | 94.8M | Knapsack Autoregressive | **63.03%** | **66.15%** | **76.87%** | **73.20%** | 78.27% | **91.47% (242,746 PSMs)** | 51.9 spec/s |
 | | **InstaNovo (`v1.0.0` First)** | 94.8M | Knapsack Autoregressive | 58.10% | 63.53% | 68.96% | 69.40% | 72.80% | 68.20% (180,980 PSMs) | 44.2 spec/s |

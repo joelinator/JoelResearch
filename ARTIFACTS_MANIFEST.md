@@ -42,7 +42,13 @@ Contains per-spectrum predictions across all **369,532 held-out test spectra**:
 ### B. Benchmark Evaluation Metrics (JSON)
 Complete summary metrics (strict exact match, I/L exact match, residue precision/recall/F1, length accuracy, precursor mass match, coverage @ 80% precision):
 
-- **30-Epoch SOTA Multi-Domain Model**:
+- **Frozen Production Model (Length-Weighted SOTA)**:
+  - Canonical Checkpoint: `models/frozen_production_model.ckpt` (pointing to `artifacts/dfm_length_weighted_10ep/checkpoints/best-joint-gen-exact-epoch=01-exact=0.4746.ckpt`)
+  - `artifacts/dfm_length_weighted_10ep/hcpt_50k_evaluation.json`: HC-PT 50k stratified metrics (35.81% strict exact match, 56.79% I/L match).
+  - `artifacts/dfm_length_weighted_10ep/ninespecies_50k_evaluation.json`: Nine-Species 50k stratified metrics (68.28% strict exact match).
+  - `artifacts/reports/LENGTH_WEIGHTED_50K_EVALUATION_REPORT.md`: Comprehensive 50,000-spectra length-weighted benchmark report.
+  - `artifacts/reports/REFINED_DECODING_50K_EVALUATION_REPORT.md`: Full 50,000-spectra decoding refinements and physical error analysis.
+- **30-Epoch Baseline Multi-Domain Model**:
   - `artifacts/eval_dfm_30ep_ninespecies_test_metrics.json`: Nine-Species full test metrics (65.08% strict exact match).
   - `artifacts/eval_dfm_30ep_hcpt_test_metrics.json`: HC-PT full test metrics (55.88% I/L exact match).
   - `artifacts/full_benchmark_comparison_sota_30ep.json`: 7-model cross-paradigm benchmark summary metrics.

@@ -94,6 +94,7 @@ def inference_sample_mask(
     kt_next: torch.Tensor | None = None,
     eta: float = 0.0,
     is_final_step: bool = False,
+    confidence_bonus: torch.Tensor | None = None,
 ):
     """
     Reverse mask step for discrete flow matching. Only active positions may change.
@@ -118,6 +119,7 @@ def inference_sample_mask(
              satisfying detailed balance, enabling error correction and diverse stochastic paths.
         is_final_step: If True, disables re-masking on the final integration step so sequences
                        terminate clean.
+        confidence_bonus: Optional additive boost tensor (B, L) based on physical peak evidence.
     """
     if isinstance(temperature, torch.Tensor):
         t_clamped = temperature.view(-1, 1, 1).clamp(min=1e-3)
@@ -149,6 +151,8 @@ def inference_sample_mask(
     if strategy == "confidence":
         # Confidence is maximum predicted probability across classes
         confidence = probs.max(dim=-1).values
+        if confidence_bonus is not None:
+            confidence = confidence + confidence_bonus
         # Exclude already unmasked or inactive positions
         confidence = confidence.masked_fill(~is_masked, -1e9)
 

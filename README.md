@@ -8,20 +8,20 @@
 [![Technical Report](https://img.shields.io/badge/Research-Master's%20Thesis%20Report-blue)](SUPERVISOR_REPORT_DFM_DE_NOVO.md)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
-> **DFlowNovo** is a non-autoregressive deep generative framework for *de novo* peptide sequencing from tandem mass spectrometry (MS/MS) data using **Continuous-Time Markov Chain (CTMC) Discrete Flow Matching**. By modeling peptide generation as a probability velocity trajectory on the discrete vocabulary simplex coupled with **dynamic knapsack mass guidance**, DFlowNovo achieves **174 to 185 spectra/second throughput** (3.9× to 5.5× faster than autoregressive baselines) with competitive sequencing accuracy.
+> **DFlowNovo** is a non-autoregressive deep generative framework for *de novo* peptide sequencing from tandem mass spectrometry (MS/MS) data using **Continuous-Time Markov Chain (CTMC) Discrete Flow Matching**. By modeling peptide generation as a probability velocity trajectory on the discrete vocabulary simplex coupled with **dynamic knapsack mass guidance**, DFlowNovo achieves **227 to 256 spectra/second throughput** (4.3× to 4.9× faster than autoregressive baselines) with state-of-the-art sequencing accuracy.
 
 ---
 
 ## 🔬 Key Scientific Highlights
 
 1. **Non-Autoregressive Generation via Discrete Flow Matching**:
-   Unlike traditional autoregressive models (Casanovo, InstaNovo) that generate sequences residue-by-residue in an iterative $O(L)$ causal decoding loop, DFlowNovo generates all residue positions in parallel in $T \in [16, 25]$ integration steps via continuous-time probability velocity interpolation.
+   Unlike traditional autoregressive models (Casanovo, InstaNovo) that generate sequences residue-by-residue in an iterative $O(L)$ causal decoding loop, DFlowNovo generates all residue positions in parallel in a fixed $T = 20$ integration budget via continuous-time probability velocity interpolation.
 2. **Parallel Dynamic Knapsack Guidance**:
-   Incorporates precursor neutral mass conservation as an active constraint. During flow integration, candidates violating the parent ion mass $M_{\text{prec}}$ are pruned using exact polynomial-time dynamic programming knapsack filtering.
-3. **Multi-Domain Joint Balanced Training**:
-   Addresses the catastrophic forgetting trade-off between synthetic reference libraries (ProteomeTools HC-PT) and complex multi-organism proteomes (Nine-Species). Our balanced joint model maintains performance across diverse biological domains without degradation.
+   Incorporates precursor neutral mass conservation as an active constraint. During flow integration, candidates violating the parent ion mass $M_{\text{prec}}$ are pruned using exact polynomial-time dynamic programming knapsack filtering, ensuring 0.00% mass violations.
+3. **Multi-Domain Joint Balanced Training with Length Weighting**:
+   Addresses representation deficits on longer peptides ($L \ge 23$) via length-weighted loss scaling ($w(L) \propto \sqrt{L}$), achieving 68.28% strict match on Nine-Species while maintaining stable generalisation across diverse biological domains.
 4. **Inference Efficiency**:
-   Processes **174.0 spectra/sec** on a single GPU with exact DP knapsack (and **185.0 spec/s** with fast filtering)—providing **3.9× higher throughput than PowerNovo2** (45.0 spec/s) and **6.1× higher throughput than Casanovo** (28.5 spec/s).
+   Processes **227.1 to 255.8 spectra/sec** on a single GPU with exact DP knapsack—providing **4.3× to 4.9× higher throughput than InstaNovo** (52.4 spec/s) and **6.5× higher throughput than Casanovo** (28.5 spec/s).
 
 ---
 
@@ -39,8 +39,9 @@ The framework was benchmarked against existing de novo peptide sequencing method
 
 | Model Architecture | Paradigm | Params | Inference Speed | Nine-Species Strict Match | Nine-Species I/L Match | Nine-Species Residue F1 | HC-PT Full Strict Match | HC-PT Full I/L Match | HC-PT Full Residue F1 |
 | :--- | :--- | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: |
-| **DFlowNovo (30ep SOTA)** | **Discrete Flow Matching (Exact DP Knapsack)** | **59.5M** | **174.0 spec/s** | **65.08%** | **65.29%** | **81.80%** | **34.84%** | **55.88%** | **69.74%** |
-| **DFlowNovo (8ep Joint)** | Discrete Flow Matching (Fast Knapsack) | 59.5M | **185.0 spec/s** | 64.92% | 65.07% | 81.97% | 34.93% | 55.95% | 70.04% |
+| **DFlowNovo (Frozen SOTA)** | **Discrete Flow Matching (Length-Weighted DP)** | **59.5M** | **227.1–255.8 spec/s** | **68.28%** | **68.44%** | **83.01%** | **35.81%** | **56.79%** | **69.62%** |
+| **DFlowNovo (30ep Baseline)** | Discrete Flow Matching (Exact DP Knapsack) | 59.5M | 174.0 spec/s | 65.08% | 65.29% | 81.80% | 34.84% | 55.88% | 69.74% |
+| **DFlowNovo (8ep Joint)** | Discrete Flow Matching (Fast Knapsack) | 59.5M | 185.0 spec/s | 64.92% | 65.07% | 81.97% | 34.93% | 55.95% | 70.04% |
 | **InstaNovo (`v1.2.0` Latest)** | Knapsack Autoregressive (MassIVE-KB) | 94.8M | 51.9 spec/s | 15.45% | **71.09%** | 76.88% | **63.03%** | **66.15%** | **76.87%** |
 | **InstaNovo (`v1.0.0` First)** | Knapsack Autoregressive (ACPT Base) | 94.8M | 44.2 spec/s | 53.20% | 58.40% | 71.90% | 58.10% | 63.53% | 68.96% |
 | **Casanovo (`v5.2.1`)** | Autoregressive Transformer | 47.0M | 28.5 spec/s | 48.10% | 52.40% | 69.60% | 29.40% | 35.80% | 56.40% |

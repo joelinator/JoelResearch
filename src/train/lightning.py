@@ -18,6 +18,7 @@ from train.loss import (
     gamma_schedule,
     lambda_schedule,
     length_loss,
+    length_weighted_peptide_loss,
     mass_loss_hubert,
     mass_loss_hubert_cum,
     peptide_loss,
@@ -127,12 +128,22 @@ class DFMLightningModule(pl.LightningModule):
         )
 
         label_smoothing = self.args.get("label_smoothing", 0.0) if mode == "train" else 0.0
-        decoder_loss = peptide_loss(
-            peptide_logits,
-            sequence,
-            pad_id=self.vocabulary["<pad>"],
-            label_smoothing=label_smoothing,
-        )
+        if self.args.get("use_length_weighted_loss", False) and mode == "train":
+            decoder_loss = length_weighted_peptide_loss(
+                peptide_logits,
+                sequence,
+                true_length=true_length,
+                pad_id=self.vocabulary["<pad>"],
+                label_smoothing=label_smoothing,
+                alpha=self.args.get("length_weight_alpha", 0.5),
+            )
+        else:
+            decoder_loss = peptide_loss(
+                peptide_logits,
+                sequence,
+                pad_id=self.vocabulary["<pad>"],
+                label_smoothing=label_smoothing,
+            )
         len_loss = length_loss(length_logits, true_length)
 
         epoch = self.current_epoch
