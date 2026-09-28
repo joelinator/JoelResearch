@@ -107,7 +107,7 @@
 
 ### Slide 8: Large-Scale Benchmark Results
 
-| Benchmark Dataset | Metric | Casanovo | PowerNovo2 | InstaNovo v1.2.0 | DFlowNovo (Frozen SOTA) |
+| Benchmark Dataset | Metric | Casanovo | PowerNovo2 | InstaNovo v1.2.0 | DFlowNovo (Production) |
 |---|---|---|---|---|---|
 | **Nine-Species** | Strict Exact Match | 55.40% | 58.10% | 65.48% | **68.28% (+2.80%)** |
 | ($N = 104,163$) | $I/L$ Exact Match | 55.70% | 58.50% | 65.70% | **68.44%** |

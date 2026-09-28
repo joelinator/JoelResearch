@@ -24,14 +24,14 @@ Contains per-spectrum predictions across all **369,532 held-out test spectra**:
 
 1. **Nine-Species Full Test Split ($N = 104,163$ spectra)**:
    - `artifacts/eval_joint_balanced/joint_ninespecies_full_test_preds.csv`: Predictions from the Balanced Joint model (8 epochs).
-   - `artifacts/eval_strategy_a/base_ninespecies_full_test_preds.csv`: Predictions from the Base model (HC-PT trained only).
-   - `artifacts/eval_strategy_a/finetuned_ninespecies_full_test_preds.csv`: Predictions from the Finetuned model (Nine-Species Phase 2).
+   - `artifacts/eval_sequential_finetune/base_ninespecies_full_test_preds.csv`: Predictions from the Base model (HC-PT trained only).
+   - `artifacts/eval_sequential_finetune/finetuned_ninespecies_full_test_preds.csv`: Predictions from the Finetuned model (Nine-Species Phase 2).
    - `artifacts/instanovo_eval/ninespecies_full_test_preds.csv`: InstaNovo baseline predictions (`v1.2.0`, 5-beam search). Includes `predictions`, `log_probs`, individual candidate beams (`predictions_beam_0` to `4`), `delta_mass_ppm`, `scan_number`, and `spectrum_id`.
 
 2. **HC-PT ProteomeTools Full Test Split ($N = 265,369$ spectra)**:
    - `artifacts/eval_joint_balanced/joint_hcpt_full_test_preds.csv`: Predictions from the Balanced Joint model.
-   - `artifacts/eval_strategy_a/base_hcpt_full_test_preds.csv`: Predictions from the Base model.
-   - `artifacts/eval_strategy_a/finetuned_hcpt_full_test_preds.csv`: Predictions from the Finetuned model (illustrating catastrophic forgetting).
+   - `artifacts/eval_sequential_finetune/base_hcpt_full_test_preds.csv`: Predictions from the Base model.
+   - `artifacts/eval_sequential_finetune/finetuned_hcpt_full_test_preds.csv`: Predictions from the Finetuned model (illustrating catastrophic forgetting).
    - `artifacts/instanovo_eval/hcpt_full_test_preds.csv`: InstaNovo baseline predictions (`v1.2.0`, 5-beam search).
 
 *DFM CSV schema:* `target,prediction,score,exact_match,mass_match,target_length,pred_length`  
@@ -42,7 +42,7 @@ Contains per-spectrum predictions across all **369,532 held-out test spectra**:
 ### B. Benchmark Evaluation Metrics (JSON)
 Complete summary metrics (strict exact match, I/L exact match, residue precision/recall/F1, length accuracy, precursor mass match, coverage @ 80% precision):
 
-- **Frozen Production Model (Length-Weighted SOTA)**:
+- **Frozen Production Model (Length-Weighted)**:
   - Canonical Checkpoint: `models/frozen_production_model.ckpt` (pointing to `artifacts/dfm_length_weighted_10ep/checkpoints/best-joint-gen-exact-epoch=01-exact=0.4746.ckpt`)
   - `artifacts/dfm_length_weighted_10ep/hcpt_50k_evaluation.json`: HC-PT 50k stratified metrics (35.81% strict exact match, 56.79% I/L match).
   - `artifacts/dfm_length_weighted_10ep/ninespecies_50k_evaluation.json`: Nine-Species 50k stratified metrics (68.28% strict exact match).
@@ -51,7 +51,7 @@ Complete summary metrics (strict exact match, I/L exact match, residue precision
 - **30-Epoch Baseline Multi-Domain Model**:
   - `artifacts/eval_dfm_30ep_ninespecies_test_metrics.json`: Nine-Species full test metrics (65.08% strict exact match).
   - `artifacts/eval_dfm_30ep_hcpt_test_metrics.json`: HC-PT full test metrics (55.88% I/L exact match).
-  - `artifacts/full_benchmark_comparison_sota_30ep.json`: 7-model cross-paradigm benchmark summary metrics.
+  - `artifacts/full_benchmark_comparison.json`: 7-model cross-paradigm benchmark summary metrics.
   - `docs/figures/full_benchmark_comparison_30ep.png`: Publication-grade comparative figure.
 - **Joint Balanced Model (8ep)**:
   - `artifacts/eval_joint_balanced/joint_ninespecies_full_test_metrics.json`
@@ -60,10 +60,10 @@ Complete summary metrics (strict exact match, I/L exact match, residue precision
   - `artifacts/instanovo_eval/ninespecies_full_test_metrics.json`
   - `artifacts/instanovo_eval/hcpt_full_test_metrics.json`
 - **Multi-Step Dynamic Knapsack Filter Ablation**:
-  - `artifacts/eval_strategy_a/base_ninespecies_full_test_metrics.json`
-  - `artifacts/eval_strategy_a/base_hcpt_full_test_metrics.json`
-  - `artifacts/eval_strategy_a/finetuned_ninespecies_full_test_metrics.json`
-  - `artifacts/eval_strategy_a/finetuned_hcpt_full_test_metrics.json`
+  - `artifacts/eval_sequential_finetune/base_ninespecies_full_test_metrics.json`
+  - `artifacts/eval_sequential_finetune/base_hcpt_full_test_metrics.json`
+  - `artifacts/eval_sequential_finetune/finetuned_ninespecies_full_test_metrics.json`
+  - `artifacts/eval_sequential_finetune/finetuned_hcpt_full_test_metrics.json`
 - **Per-Species & Scheduling Studies**:
   - `artifacts/ninespecies_full_benchmark_results.json`
   - `artifacts/ninespecies_full_benchmark_summary.json`

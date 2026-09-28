@@ -1,8 +1,7 @@
 # Comprehensive Architectural Optimizations and Mathematical Foundations for Discrete Flow Matching De Novo Peptide Sequencing
 
-**Author:** Joelinator / Google DeepMind Pair Programming  
-**Branch:** `feature/sota-architecture-opt`  
-**Target:** Surpassing InstaNovo with 50–60M Parameters & State-of-the-Art (SOTA) Accuracy  
+**Author:** Joël Gédéon  
+**Target:** High-Accuracy Non-Autoregressive Sequencing with 50–60M Parameters  
 **Date:** September 2026  
 
 ---
@@ -34,10 +33,10 @@
 
 ## 1. Executive Summary
 
-This document details the mathematical theory, architectural redesign, and empirical validation conducted to elevate the **Discrete Flow Matching (DFM) De Novo Peptide Sequencing model** to State-of-the-Art (SOTA) performance, surpassing autoregressive baselines such as **InstaNovo** and **Casanovo**.
+This document details the mathematical theory, architectural redesign, and empirical validation conducted to elevate the **Discrete Flow Matching (DFM) De Novo Peptide Sequencing model** to competitive performance against autoregressive baselines such as **InstaNovo** and **Casanovo**.
 
 The primary objectives achieved in this optimization campaign are:
-1. **Parameter Reduction to 50–60M Target**: The previous architecture had **70.82M parameters**. Through the elimination of redundant intermediate projections, consolidation of feed-forward layers, and direct linear projection decoding, the parameter count is now **59,465,394 (~59.47M)**, fitting squarely inside the user-specified **50–60M** budget.
+1. **Parameter Reduction to 50–60M Target**: The previous architecture had **70.82M parameters**. Through the elimination of redundant intermediate projections, consolidation of feed-forward layers, and direct linear projection decoding, the parameter count is now **59,465,394 (~59.47M)**, fitting squarely inside the **50–60M** budget.
 2. **Elimination of Saturation / Plateauing at ~20 Epochs**: Diagnosis of the training log (`artifacts/dfm_pl_run_20260902_184635/`) revealed gradient vanishing in Post-LN encoder layers, residual degradation from non-identity AdaLN initialization, length classifier overfitting past epoch 16, and vanishing mass loss gradients. These bottlenecks were systematically resolved with Pre-LN backbones, AdaLN-Zero gating, dropout regularization, and Huber gradient scaling.
 3. **Resolution of the 61% Generative Length Accuracy Collapse**: Validation logs revealed an anomaly where teacher-forced length accuracy was **78.8%** (and **83.4%** on raw test batches), but generative inference collapsed to **61.09%**. The root cause was an uncalibrated beam search metric that ignored the classifier's length prior $\log P(L \mid \mathcal{S})$ and used crude Daltons mass penalties. A Bayesian joint posterior scoring framework was derived, improving length accuracy to **92.58%** (+18.0%) and exact peptide sequence accuracy to **41.02%** (+6.3% absolute gain).
 
@@ -73,8 +72,7 @@ DFM formulates generation as continuous-time probability flow over discrete cate
 
 ## 3. Parameter Budget Engineering (70.82M $\to$ 59.47M)
 
-The user specified:
-> *"the total parameters of the model is something like 70M. i wanted a 50-60M parameters."*
+To ensure high inference throughput and prevent parameter bloat, the model was redesigned for a targeted 50–60M parameter budget.
 
 ### 3.1 Parameter Audit of the Baseline Model
 In the previous implementation (`artifacts/dfm_pl_run_20260902_184635/`):
@@ -169,7 +167,7 @@ graph TD
 
     LenLogits --> BayesianBeam["Bayesian Beam Search (Top-K)"]
     OutHead --> BayesianBeam
-    BayesianBeam --> FinalPeptide["SOTA Peptide Sequence Y*"]
+    BayesianBeam --> FinalPeptide["Optimal Peptide Sequence Y*"]
 ```
 
 ### 4.1 Pre-LayerNorm Residual Highways in SpectrumEncoder
@@ -364,7 +362,7 @@ To verify this formulation, we ran diagnostic tests on validation spectra:
 
 #### Key Takeaways:
 1. **Legacy beam search degraded performance**: Running legacy $K=3$ reduced length accuracy from 91.02% to 74.61% and exact sequence match from 38.67% to 34.77%.
-2. **Bayesian joint scoring achieved SOTA gain**: Restoring the prior $\log P(L)$ and using calibrated PPM mass error pushed length accuracy to **92.58%** (+17.97% over legacy beam search) and exact peptide sequence accuracy to **41.02%** (+6.25% absolute gain).
+2. **Bayesian joint scoring achieved significant gain**: Restoring the prior $\log P(L)$ and using calibrated PPM mass error pushed length accuracy to **92.58%** (+17.97% over legacy beam search) and exact peptide sequence accuracy to **41.02%** (+6.25% absolute gain).
 
 ---
 
