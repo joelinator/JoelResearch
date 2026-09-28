@@ -14,20 +14,20 @@ De novo peptide sequencing from tandem mass spectrometry (MS/MS) spectra enables
 
 ## 1. Introduction
 
-Tandem mass spectrometry (MS/MS) is the core analytical technique in bottom-up proteomics. Enzymatically digested proteins produce peptide fragments that are ionized, selected by mass-to-charge ratio ($m/z$), fragmented by collision-induced dissociation or higher-energy collisional dissociation (HCD), and recorded as an intensity spectrum across fragment $m/z$ values.
+Tandem mass spectrometry (MS/MS) is the core analytical technique in bottom-up proteomics [Aebersold and Mann, 2016]. Enzymatically digested proteins produce peptide fragments that are ionized, selected by mass-to-charge ratio ($m/z$), fragmented by collision-induced dissociation or higher-energy collisional dissociation (HCD) [Olsen et al., 2007], and recorded as an intensity spectrum across fragment $m/z$ values.
 
-Traditionally, peptide identification is performed by database search algorithms (such as SEQUEST, Comet, or MS-GF+), which match experimental spectra against theoretical spectra predicted from a curated reference genome. However, database search fails when the organism's genome is unsequenced, when unexpected genetic polymorphisms or post-translational modifications (PTMs) occur, or during the characterization of immunoglobulin (antibody) variable regions. Under these circumstances, de novo sequencing is required to reconstruct the peptide sequence directly from the spectrum without prior sequence templates.
+Traditionally, peptide identification is performed by database search algorithms (such as SEQUEST [Eng et al., 1994], Comet [Eng et al., 2013], or MS-GF+ [Kim and Pevzner, 2014]), which match experimental spectra against theoretical spectra predicted from a curated reference genome. However, database search fails when the organism's genome is unsequenced, when unexpected genetic polymorphisms or post-translational modifications (PTMs) occur, or during the characterization of immunoglobulin (antibody) variable regions. Under these circumstances, de novo sequencing is required to reconstruct the peptide sequence directly from the spectrum without prior sequence templates.
 
-Early de novo sequencing algorithms relied on graph-theoretical approaches, such as spectrum graphs (Sherenga, Lutefisk, PEAKS), where peaks correspond to nodes and edges represent mass differences corresponding to amino acid residues. While theoretically sound, spectrum graphs struggle with incomplete fragmentation, internal cleavage fragments, and chemical noise.
+Early de novo sequencing algorithms relied on graph-theoretical approaches, such as spectrum graphs (Sherenga [Dancik et al., 1999], Lutefisk [Taylor and Johnson, 1997], PEAKS [Ma et al., 2003]), where peaks correspond to nodes and edges represent mass differences corresponding to amino acid residues. While theoretically sound, spectrum graphs struggle with incomplete fragmentation, internal cleavage fragments, and chemical noise.
 
-Deep learning renewed de novo sequencing performance. DeepNovo and PointNovo introduced convolutional and recurrent neural networks with knapsack beam search. Recently, Casanovo and InstaNovo demonstrated substantial accuracy gains by employing autoregressive transformer architectures. InstaNovo frames peptide prediction as autoregressive translation from peak tokens to amino acid tokens, guided by a dynamic programming knapsack beam search that prunes partial sequences violating the precursor mass budget.
+Deep learning renewed de novo sequencing performance. DeepNovo [Tran et al., 2017] and PointNovo [Qiao et al., 2021] introduced convolutional and recurrent neural networks with knapsack beam search. Recently, Casanovo [Yilmaz et al., 2022] and InstaNovo [Eloff et al., 2025] demonstrated substantial accuracy gains by employing autoregressive transformer architectures. InstaNovo frames peptide prediction as autoregressive translation from peak tokens to amino acid tokens, guided by a dynamic programming knapsack beam search that prunes partial sequences violating the precursor mass budget. In parallel, continuous normalizing flow methods such as PowerNovo2 [Petrovskiy et al., 2026] explored non-autoregressive decoding, but suffered from rounding discretization error when mapping continuous latent vectors back to discrete amino acids.
 
 Despite their success, autoregressive models present three key limitations:
 1. **Sequential inference latency**: Autoregressive decoding requires $L$ sequential transformer forward passes for a peptide of length $L$, creating an inference bottleneck for high-throughput mass spectrometry facilities that generate tens of millions of spectra per day.
 2. **Exposure bias and error propagation**: Left-to-right generation cannot revise earlier residue assignments if later spectral evidence contradicts them.
 3. **Unidirectional mass constraint enforcement**: In autoregressive generation, mass constraints act as a filter during beam expansion, but the model cannot condition token generation at position $i$ on residues assigned at position $j > i$.
 
-To address these limitations, we propose **DFlowNovo**, a discrete flow matching framework for de novo peptide sequencing. Flow matching defines continuous-time probability paths that transport probability mass from a tractable prior (such as a fully masked sequence) to the target empirical distribution over discrete sequences. By conditioning the velocity field on both spectral peak representations and an exact dynamic programming reachability constraint, DFlowNovo generates full-length peptide sequences in parallel across a fixed number of integration steps ($N = 20$), offering predictable latency and high GPU throughput.
+To address these limitations, we propose **DFlowNovo**, a discrete flow matching framework for de novo peptide sequencing based on continuous-time Markov chains (CTMCs) over discrete categorical state spaces [Campbell et al., 2024; Gat et al., 2024; Stark et al., 2024]. Flow matching [Lipman et al., 2023] defines continuous-time probability paths that transport probability mass from a tractable prior (such as a fully masked sequence) to the target empirical distribution over discrete sequences. By conditioning the velocity field on both spectral peak representations and an exact dynamic programming reachability constraint [Dancik et al., 1999], DFlowNovo generates full-length peptide sequences in parallel across a fixed number of integration steps ($N = 20$), offering predictable latency and high GPU throughput.
 
 ---
 
@@ -42,17 +42,17 @@ An experimental MS/MS spectrum is represented as a tuple $S = (M_{\text{prec}}, 
 - $\mathcal{P} = \{(m_j, I_j)\}_{j=1}^{P}$ is a set of $P$ detected peaks with mass-to-charge ratios $m_j$ and normalized intensities $I_j \in [0, 1]$.
 - In addition, we compute the complementary mass for each peak:
   $$m_j^{\text{comp}} = M_{\text{prec}} + 2 m_{\text{H}^+} - m_j$$
-  allowing simultaneous representation of potential $b$- and $y$-ion pairs.
+  allowing simultaneous representation of potential $b$- and $y$-ion pairs [Roepstorff and Fohlman, 1984; Biemann, 1988].
 
 A target peptide is an amino acid sequence $Y = (y_1, y_2, \dots, y_L)$ of length $L$, where each token $y_i$ belongs to a vocabulary $\mathcal{V}$ consisting of standard amino acids, targeted post-translational modifications (e.g., oxidized methionine $\text{M(ox)}$, carbamidomethylated cysteine $\text{C(cam)}$, deamidated asparagine/glutamine), and special tokens ($\langle\text{pad}\rangle, \langle\text{mask}\rangle$).
 
 The physical mass conservation law requires that the sum of residue masses plus the mass of water equals the neutral precursor mass within instrument tolerance $\tau$:
 $$\left| \sum_{i=1}^L m(y_i) + M_{\text{H}_2\text{O}} - M_{\text{prec}} \right| \le \tau$$
-where $M_{\text{H}_2\text{O}} = 18.010565\text{ Da}$, and $\tau$ is typically 10–20 ppm on modern Orbitrap mass spectrometers.
+where $M_{\text{H}_2\text{O}} = 18.010565\text{ Da}$, and $\tau$ is typically 10–20 ppm on modern Orbitrap mass spectrometers [Olsen et al., 2007].
 
 ### 2.2 Discrete Flow Matching Formulation
 
-Let $\Delta^{|\mathcal{V}|-1}$ denote the probability simplex over the vocabulary $\mathcal{V}$. Discrete flow matching defines a time-dependent probability path $p_t(x)$ for $t \in [0, 1]$ between a prior distribution $p_0(x)$ at $t=0$ and the data distribution $p_1(x)$ at $t=1$.
+Let $\Delta^{|\mathcal{V}|-1}$ denote the probability simplex over the vocabulary $\mathcal{V}$. Discrete flow matching [Campbell et al., 2024; Gat et al., 2024] defines a time-dependent probability path $p_t(x)$ for $t \in [0, 1]$ between a prior distribution $p_0(x)$ at $t=0$ and the data distribution $p_1(x)$ at $t=1$.
 
 We adopt an absorbing-state masking Dirichlet path. At $t=0$, all sequence positions are initialized to an absorbing mask token $\mathbf{m} = \langle\text{mask}\rangle$. For a training sequence $x_1 \sim q(x)$, the conditional distribution at time $t$ is:
 $$p_t(x | x_1) = (1 - \kappa(t)) \delta_{\mathbf{m}}(x) + \kappa(t) \delta_{x_1}(x)$$
@@ -71,11 +71,11 @@ $$\mathcal{L}_{\text{DFM}}(\theta) = \mathbb{E}_{t \sim \mathcal{U}(0, 1), x_1 \
 
 **Experimental Protocol**: Evaluated on an empirical Orbitrap HCD spectrum (`AAYQVAALPK`, precursor $m/z = 508.300$, charge $z=2$) from the ProteomeTools synthetic human benchmark. Spectra were filtered to the top 200 peaks with square-root intensity transform and complementary mass coordinates. Reverse Euler integration ran across $K = 20$ uniform time steps ($\Delta t = 0.05$) under a cosine schedule $\kappa(t) = \sin^2(\pi t / 2)$. Positional Shannon entropy $H(p_t(i)) = -\sum_{a} p(i, a) \log_2 p(i, a)$ was evaluated across all positions at each integration step.
 
-**Mechanistic Interpretation**: Token resolution does not proceed left-to-right. The C-terminal tryptic anchor (Lys10) unmasks first at $t = 0.15$ due to intense $y_1$ ($m/z \approx 147.11$) and complementary neutral loss peaks produced by trypsin cleavage. Internal positions with high fragmentation efficiency (Ala6, Tyr3, Ala7) unmask subsequently ($t = 0.25 \dots 0.40$). Positions with missing cleavage evidence (Pro9, due to cyclic backbone rigidity suppressing fragmentation) unmask last ($t \ge 0.70$) via residual mass budget conservation. Mean sequence entropy smoothly decreases from $0.43\text{ bits}$ to $0.0\text{ bits}$ across the trajectory.
+**Mechanistic Interpretation**: Token resolution does not proceed left-to-right. The C-terminal tryptic anchor (Lys10) unmasks first at $t = 0.15$ due to intense $y_1$ ($m/z \approx 147.11$) and complementary neutral loss peaks produced by trypsin cleavage. Internal positions with high fragmentation efficiency (Ala6, Tyr3, Ala7) unmask subsequently ($t = 0.25 \dots 0.40$). Positions with missing cleavage evidence (Pro9, due to cyclic backbone rigidity suppressing fragmentation, known as the proline effect [Breci et al., 2003; Paizs and Suhai, 2005]) unmask last ($t \ge 0.70$) via residual mass budget conservation. Mean sequence entropy smoothly decreases from $0.43\text{ bits}$ to $0.0\text{ bits}$ across the trajectory.
 
 ### 2.3 Exact Dynamic Programming Knapsack Filter
 
-Standard discrete flow matching generates tokens independently across positions at each step, which can produce sequences violating the precursor mass constraint. To strictly enforce physical mass conservation throughout the flow trajectory, we implement an exact dynamic programming reachability filter.
+Standard discrete flow matching generates tokens independently across positions at each step, which can produce sequences violating the precursor mass constraint. To strictly enforce physical mass conservation throughout the flow trajectory, we implement an exact dynamic programming reachability filter [Dancik et al., 1999].
 
 Let $R_t$ be the remaining unallocated mass budget at step $t$:
 $$R_t = M_{\text{prec}} - M_{\text{H}_2\text{O}} - \sum_{i \in \text{unmasked}} m(x_{t, i})$$
@@ -127,14 +127,14 @@ The DFlowNovo architecture consists of four modular components totaling 59.48 mi
 ```
 
 1. **Spectrum Encoder (16.29M parameters)**:
-   - Encodes up to 200 peak pairs $(m/z, I, m/z^{\text{comp}})$ using a 512-dimensional sinusoidal frequency embedding combined with learned linear projections of peak intensities.
-   - Six bidirectional transformer layers ($d = 512$, $n_{\text{heads}} = 8$, $d_{\text{ff}} = 1536$, pre-layer normalization).
+   - Encodes up to 200 peak pairs $(m/z, I, m/z^{\text{comp}})$ using a 512-dimensional sinusoidal frequency embedding [Vaswani et al., 2017] combined with learned linear projections of peak intensities.
+   - Six bidirectional transformer layers ($d = 512$, $n_{\text{heads}} = 8$, $d_{\text{ff}} = 1536$, pre-layer normalization) accelerated by FlashAttention [Dao et al., 2022].
 2. **Bayesian Length Classifier (0.35M parameters)**:
    - A 2-layer MLP with GELU activations operating on the pooled spectrum representation and precursor mass.
    - Predicts a categorical distribution $P(L | S)$ over peptide lengths $L \in [3, 30]$.
    - At inference time, selects the top-$K$ most probable length hypotheses ($K = 3$).
 3. **Discrete Flow Decoder (42.83M parameters)**:
-   - Six Transformer decoder blocks with adaptive layer normalization (AdaLN-Zero), SwiGLU feed-forward networks, and multi-head cross-attention into spectral peak representations.
+   - Six Transformer decoder blocks with adaptive layer normalization (AdaLN-Zero) [Peebles and Xie, 2023], SwiGLU feed-forward networks [Shazeer, 2020], and multi-head cross-attention into spectral peak representations.
    - Conditioning vectors incorporate flow time $t$, neutral precursor mass $M_{\text{prec}}$, and precursor charge state $z$.
 4. **Candidate Scoring Function**:
    - Sequences decoded across top-$K$ length hypotheses are ranked by a composite posterior objective:
@@ -148,8 +148,8 @@ The DFlowNovo architecture consists of four modular components totaling 59.48 mi
 ### 4.1 Datasets and Evaluation Protocol
 
 We evaluate DFlowNovo on two standard benchmarks:
-1. **Nine-Species Benchmark**: $N = 104,163$ test spectra spanning nine diverse organisms (yeast, bacteria, human, mouse, tomato, etc.), measured on high-resolution instruments.
-2. **Human Core ProteomeTools (HC-PT)**: $N = 265,369$ test spectra from synthetic human peptides covering broad dynamic ranges and charge states.
+1. **Nine-Species Benchmark**: $N = 104,163$ test spectra spanning nine diverse organisms (yeast, bacteria, human, mouse, tomato, etc.), measured on high-resolution instruments [Tran et al., 2017].
+2. **Human Core ProteomeTools (HC-PT)**: $N = 265,369$ test spectra from synthetic human peptides covering broad dynamic ranges and charge states [Zolg et al., 2017].
 
 Evaluation follows standard community metrics:
 - **Strict Exact Match**: Proportion of spectra where the predicted peptide string exactly matches ground truth.
@@ -165,15 +165,15 @@ Table 1 summarizes the performance of DFlowNovo against state-of-the-art de novo
 
 | Model | Architecture | Nine-Species Strict Match (%) | Nine-Species $I/L$ Match (%) | Nine-Species Residue F1 (%) | HC-PT Strict Match (%) | HC-PT $I/L$ Match (%) | HC-PT Residue F1 (%) | Throughput (spectra/s) |
 |---|---|---|---|---|---|---|---|---|
-| **Casanovo** | Autoregressive Transformer | 55.40% | 55.70% | 76.20% | 48.20% | 52.10% | 68.40% | ~35 |
-| **PowerNovo2** | Autoregressive + GNN | 58.10% | 58.50% | 78.90% | 51.30% | 54.80% | 70.10% | ~40 |
-| **InstaNovo v1.2.0** | Autoregressive + Knapsack | 65.48% | 65.70% | 82.30% | **63.03%** | **65.10%** | **78.40%** | 52.4 |
+| **Casanovo** [Yilmaz et al., 2022] | Autoregressive Transformer | 55.40% | 55.70% | 76.20% | 48.20% | 52.10% | 68.40% | ~35 |
+| **PowerNovo2** [Petrovskiy et al., 2026] | Normalizing Flow + GLOW | 58.10% | 58.50% | 78.90% | 51.30% | 54.80% | 70.10% | ~40 |
+| **InstaNovo v1.2.0** [Eloff et al., 2025] | Autoregressive + Knapsack | 65.48% | 65.70% | 82.30% | **63.03%** | **65.10%** | **78.40%** | 52.4 |
 | **DFlowNovo (Baseline 30ep)** | Discrete Flow Matching | 65.08% | 65.29% | 81.80% | 34.84% | 55.88% | 69.74% | 199.8 |
 | **DFlowNovo (Length-Weighted)** | Discrete Flow Matching | **68.28%** | **68.44%** | **83.01%** | 35.81% | 56.79% | 69.62% | **227.1** |
 
-**Experimental Protocol for Table 1**: Evaluations were performed on the complete held-out test splits: Nine-Species ($N = 104,163$) and Human Core ProteomeTools ($N = 265,369$). Casanovo (v4.0.0) and InstaNovo (v1.2.0) were run with beam size 5. DFlowNovo was evaluated with $K=20$ reverse Euler steps, cosine schedule, dynamic knapsack tolerance $\tau = 1.0\text{ Da}$, top-$K=3$ length hypotheses, and greedy unmasking ($S=1$). All models were benchmarked on a dedicated NVIDIA H100 80GB SXM5 GPU (PyTorch 2.1, CUDA 12.2) at batch size 128. Strict match requires exact string equality; $I/L$-conflated treats Leucine and Isoleucine as identical; residue F1 aligns prefix masses within $\pm 0.1\text{ Da}$.
+**Experimental Protocol for Table 1**: Evaluations were performed on the complete held-out test splits: Nine-Species ($N = 104,163$) [Tran et al., 2017] and Human Core ProteomeTools ($N = 265,369$) [Zolg et al., 2017]. Casanovo (v4.0.0) [Yilmaz et al., 2022] and InstaNovo (v1.2.0) [Eloff et al., 2025] were run with beam size 5. DFlowNovo was evaluated with $K=20$ reverse Euler steps, cosine schedule, dynamic knapsack tolerance $\tau = 1.0\text{ Da}$, top-$K=3$ length hypotheses, and greedy unmasking ($S=1$). All models were benchmarked on a dedicated NVIDIA H100 80GB SXM5 GPU (PyTorch 2.1, CUDA 12.2) at batch size 128. Strict match requires exact string equality; $I/L$-conflated treats Leucine and Isoleucine as identical; residue F1 aligns prefix masses within $\pm 0.1\text{ Da}$.
 
-**Interpretation of Table 1**: DFlowNovo (Length-Weighted) achieves top accuracy on Nine-Species (**68.28%** strict match, **83.01%** residue F1), outperforming InstaNovo (+2.80%) and Casanovo (+12.88%) while executing at **227.1 spectra/second** (a 4.33× speedup over InstaNovo). On HC-PT, DFlowNovo reaches **56.79%** under $I/L$ conflation. The 20.98% gap between strict and $I/L$-conflated match on HC-PT stems from the physical nature of HCD: Leucine and Isoleucine have identical monoisotopic mass ($113.08406\text{ Da}$) and produce identical $b/y$ fragment ions, making them indistinguishable without radical-induced side-chain fragmentation ($w$-ions).
+**Interpretation of Table 1**: DFlowNovo (Length-Weighted) achieves top accuracy on Nine-Species (**68.28%** strict match, **83.01%** residue F1), outperforming InstaNovo (+2.80%) and Casanovo (+12.88%) while executing at **227.1 spectra/second** (a 4.33× speedup over InstaNovo). On HC-PT, DFlowNovo reaches **56.79%** under $I/L$ conflation. The 20.98% gap between strict and $I/L$-conflated match on HC-PT stems from the physical nature of HCD: Leucine and Isoleucine have identical monoisotopic mass ($113.08406\text{ Da}$) and produce identical $b/y$ fragment ions, making them indistinguishable without radical-induced side-chain fragmentation ($w$-ions) [Johnson et al., 1987; Lebedev et al., 2014].
 
 ### 4.3 Precision-Coverage, Latency Scaling, and Biological Fidelity
 
@@ -280,7 +280,7 @@ To evaluate whether additional sequence recovery could be obtained during revers
 **Protocol for Decoding Refinements**: Refinements were benchmarked across 50,000 test spectra on HC-PT and Nine-Species against the standard greedy knapsack baseline ($K=3, S=1, T=20$).
 
 **Interpretation & Physical Failure Taxonomy**: Across 50,000 spectra, the refined pipeline yielded **35.80%** strict exact match on HC-PT (versus 35.81% for standard dynamic knapsack) and **68.21%** on Nine-Species (versus 68.28%). Spectral analysis identified the physical factors governing remaining errors:
-- **Isobaric $I/L$ Indistinguishability (30.88% of errors)**: Leucine and Isoleucine ($113.08406\text{ Da}$) generate identical $b$ and $y$ ions in CID/HCD collision cells. Disambiguation requires radical-driven side-chain fragmentation ($w$-ions from ETD/UVPD), making strict exact match physically underdetermined in standard Orbitrap HCD data.
+- **Isobaric $I/L$ Indistinguishability (30.88% of errors)**: Leucine and Isoleucine ($113.08406\text{ Da}$) generate identical $b$ and $y$ ions in CID/HCD collision cells. Disambiguation requires radical-driven side-chain fragmentation ($w$-ions from ETD/UVPD [Johnson et al., 1987; Lebedev et al., 2014]), making strict exact match physically underdetermined in standard Orbitrap HCD data.
 - **Unfragmented Peptide Bonds (78.9% of transposition errors)**: When adjacent residues are inverted, 78.9% lack observed cleavage peaks separating the two residues. Without physical ion evidence, local sequence ordering cannot be verified from the spectrum alone.
 
 Consequently, standard dynamic knapsack greedy unmasking ($K=3, S=1, T=20$) is retained as the production configuration, providing maximum computational efficiency (254–260 spectra/s) with full physical mass conservation.
@@ -292,17 +292,38 @@ Consequently, standard dynamic knapsack greedy unmasking ($K=3, S=1, T=20$) is r
 The results demonstrate that non-autoregressive discrete flow matching can achieve accuracy comparable to state-of-the-art autoregressive architectures while providing substantial speedups. By enforcing physical mass conservation directly during continuous-time trajectory integration, DFlowNovo avoids the primary limitation of earlier non-autoregressive models, which frequently generated physically impossible sequences.
 
 Two primary areas for future work remain:
-1. **Side-Chain and Isobaric Resolution**: Incorporating auxiliary spectral signals (such as $w$- and $v$-ion series in electron-transfer dissociation) and proteome-specific codon frequency priors to improve Leucine vs. Isoleucine disambiguation.
+1. **Side-Chain and Isobaric Resolution**: Incorporating auxiliary spectral signals (such as $w$- and $v$-ion series in electron-transfer dissociation [Johnson et al., 1987; Lebedev et al., 2014]) and proteome-specific codon frequency priors to improve Leucine vs. Isoleucine disambiguation.
 2. **Joint Hybrid Reranking**: Utilizing a lightweight candidate pool with comprehensive fragment ladder verification to resolve local adjacent-residue order ambiguities without sacrificing throughput.
 
 ---
 
 ## References
 
-1. DeepNovo: Tran, N. H., et al. "De novo peptide sequencing by deep learning." *Proceedings of the National Academy of Sciences* 114.31 (2017): 8242-8247.
-2. PointNovo: Qiao, R., et al. "PointNovo: De novo peptide sequencing via point cloud representations." *NeurIPS* (2021).
-3. Casanovo: Yilmaz, M., et al. "De novo peptide sequencing with a transformer model." *Nature Machine Intelligence* 4.9 (2022): 809-817.
-4. InstaNovo: Melser, M., et al. "InstaNovo: De novo peptide sequencing with transformer-based knapsack beam search." *bioRxiv* (2023).
-5. Flow Matching: Lipman, Y., et al. "Flow matching for generative modeling." *ICLR* (2023).
-6. Discrete Flow Matching: Campbell, A., et al. "Generative flow matching on categorical probability paths." *arXiv:2402.04997* (2024).
-7. ProteomeTools: Zolg, D. P., et al. "Building ProteomeTools based on a complete synthetic human proteome." *Nature Methods* 14.3 (2017): 259-262.
+- **Aebersold and Mann, 2016**: Aebersold, R., & Mann, M. (2016). Mass-spectrometric exploration of proteome structure and function. *Nature*, 537(7620), 347–355.
+- **Biemann, 1988**: Biemann, K. (1988). Contributions of mass spectrometry to peptide and protein structure. *Biomedical and Environmental Mass Spectrometry*, 16(1–12), 99–111.
+- **Breci et al., 2003**: Breci, L. A., Tabb, D. L., Yates, J. R., & Wysocki, V. H. (2003). Cleavage at proline residues in the collision-induced dissociation of peptide ions. *Analytical Chemistry*, 75(9), 1963–1971.
+- **Campbell et al., 2024**: Campbell, A., Yim, J., Barzilay, R., Rainforth, T., & Jaakkola, T. (2024). Generative flows on discrete state-spaces: Enabling multimodal flows with applications to protein co-design. In *International Conference on Machine Learning (ICML)*, PMLR 235, 5296–5325. arXiv:2402.04997.
+- **Dancik et al., 1999**: Dancik, V., Addona, T. A., Clauser, K. R., Vath, J. E., & Pevzner, P. A. (1999). De novo peptide sequencing via tandem mass spectrometry. *Journal of Computational Biology*, 6(3–4), 327–342.
+- **Dao et al., 2022**: Dao, T., Fu, D. Y., Ermon, S., Rudra, A., & Ré, C. (2022). FlashAttention: Fast and memory-efficient exact attention with IO-awareness. In *Advances in Neural Information Processing Systems (NeurIPS)*, 35, 16344–16359.
+- **Eloff et al., 2025**: Eloff, K., Kalogeropoulos, K., Mabona, A., Morell, O., Catzel, R., et al. (2025). InstaNovo enables diffusion-powered de novo peptide sequencing in large-scale proteomics experiments. *Nature Machine Intelligence*, 7, 565–579.
+- **Eng et al., 1994**: Eng, J. K., McCormack, A. L., & Yates, J. R. (1994). An approach to correlate tandem mass spectral data of peptides with amino acid sequences in a protein database. *Journal of the American Society for Mass Spectrometry*, 5(11), 976–989.
+- **Eng et al., 2013**: Eng, J. K., Jahan, T. A., & Hoopmann, M. R. (2013). Comet: an open-source MS/MS sequence database search tool. *Proteomics*, 13(1), 22–24.
+- **Gat et al., 2024**: Gat, I., Remez, T., Shaul, N., Kreuk, F., Chen, R. T. Q., Synnaeve, G., Adi, Y., & Lipman, Y. (2024). Discrete Flow Matching. In *Advances in Neural Information Processing Systems (NeurIPS)*, 37. arXiv:2407.15595.
+- **Johnson et al., 1987**: Johnson, R. S., Martin, S. A., & Biemann, K. (1987). Collisional fragmentation of (M+H)+ ions of peptides. Side chain specific fragments. *Analytical Chemistry*, 59(22), 2621–2625.
+- **Kim and Pevzner, 2014**: Kim, S., & Pevzner, P. A. (2014). MS-GF+ makes progress towards a universal database search tool for proteomics. *Nature Communications*, 5, 5277.
+- **Lebedev et al., 2014**: Lebedev, A. T., Damoc, E., Makarov, A. A., & Samgina, T. Y. (2014). Discrimination of leucine and isoleucine in peptides sequencing with Orbitrap Fusion mass spectrometer. *Analytical Chemistry*, 86(14), 7017–7022.
+- **Lipman et al., 2023**: Lipman, Y., Chen, R. T. Q., Ben-Hamu, H., Nickel, M., & Le, M. (2023). Flow matching for generative modeling. In *International Conference on Learning Representations (ICLR)*. arXiv:2210.02747.
+- **Ma et al., 2003**: Ma, B., Zhang, K., Hendrie, C., Liang, C., Li, M., Doherty-Kirby, A., & Lajoie, G. (2003). PEAKS: powerful software for peptide de novo sequencing by tandem mass spectrometry. *Rapid Communications in Mass Spectrometry*, 17(20), 2337–2342.
+- **Olsen et al., 2007**: Olsen, J. V., Macek, B., Lange, O., Makarov, A., Horning, S., & Mann, M. (2007). Higher-energy C-trap dissociation for peptide identification on a dual-pressure linear ion trap - Orbitrap mass spectrometer. *Nature Methods*, 4(9), 709–712.
+- **Paizs and Suhai, 2005**: Paizs, B., & Suhai, S. (2005). Fragmentation pathways of protonated peptides. *Mass Spectrometry Reviews*, 24(4), 508–548.
+- **Peebles and Xie, 2023**: Peebles, W., & Xie, S. (2023). Scalable diffusion models with transformers. In *IEEE/CVF International Conference on Computer Vision (ICCV)*, 4195–4205.
+- **Petrovskiy et al., 2026**: Petrovskiy, D. V., Nikolsky, K. S., Rudnev, V. R., Kulikova, L. I., Butkova, T. V., Malsagova, K. A., Kopylov, A. T., & Kaysheva, A. L. (2026). PowerNovo2: A generative flow-based approach to non-autoregressive de novo peptide sequencing. *PLOS Computational Biology*.
+- **Qiao et al., 2021**: Qiao, R., Tran, N. H., Zhang, X., & Li, M. (2021). PointNovo: De novo peptide sequencing via point cloud representations. *bioRxiv*, 2021-02.
+- **Roepstorff and Fohlman, 1984**: Roepstorff, P., & Fohlman, J. (1984). Proposal for a common nomenclature for sequence ions in mass spectra of peptides. *Biomedical Mass Spectrometry*, 11(11), 601.
+- **Shazeer, 2020**: Shazeer, N. (2020). GLU variants improve transformer. *arXiv preprint arXiv:2002.05202*.
+- **Stark et al., 2024**: Stark, H., Jing, B., Wang, C., Corso, G., Berger, B., Barzilay, R., & Jaakkola, T. (2024). Dirichlet flow matching with applications to DNA sequence design. In *International Conference on Learning Representations (ICLR)*. arXiv:2402.05841.
+- **Taylor and Johnson, 1997**: Taylor, J. A., & Johnson, R. S. (1997). Sequence database searches via de novo peptide sequencing by tandem mass spectrometry. *Rapid Communications in Mass Spectrometry*, 11(9), 1067–1075.
+- **Tran et al., 2017**: Tran, N. H., Zhang, X., Xin, L., Shan, B., & Li, M. (2017). De novo peptide sequencing by deep learning. *Proceedings of the National Academy of Sciences (PNAS)*, 114(31), 8247–8252.
+- **Vaswani et al., 2017**: Vaswani, A., Shazeer, N., Parmar, N., Uszkoreit, J., Jones, L., Gomez, A. N., Kaiser, Ł., & Polosukhin, I. (2017). Attention is all you need. In *Advances in Neural Information Processing Systems (NeurIPS)*, 30, 5998–6008.
+- **Yilmaz et al., 2022**: Yilmaz, M., Fondrie, W. E., Bittremieux, W., Oh, S., & Noble, W. S. (2022). De novo mass spectrometry peptide sequencing with a transformer model. *Nature Machine Intelligence*, 4(11), 1001–1008.
+- **Zolg et al., 2017**: Zolg, D. P., Wilhelm, M., Schnatbaum, K., Zerweck, J., Knaute, T., Delanghe, B., et al. (2017). Building ProteomeTools based on a complete synthetic human proteome. *Nature Methods*, 14(3), 259–265.

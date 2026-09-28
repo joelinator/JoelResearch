@@ -54,7 +54,7 @@ $$\sum_{j=1}^L m(y_j) = M_{\text{prec}} - M_{\text{H}_2\text{O}} \pm \epsilon$$
 where $m(y)$ denotes the monoisotopic residue mass of amino acid $y$, $M_{\text{H}_2\text{O}} \approx 18.010565\text{ Da}$ is the mass of water lost during peptide bond formation, and $\epsilon$ is instrument mass measurement error (typically $< 20\text{ ppm}$).
 
 ### 2.2 InstaNovo's Strengths and Inherent Bottlenecks
-**InstaNovo** (Yilmaz et al., 2024) models $P(Y \mid \mathcal{S})$ autoregressively from left to right:
+**InstaNovo** (Eloff et al., 2025) models $P(Y \mid \mathcal{S})$ autoregressively from left to right:
 $$P_{\text{autoregressive}}(Y \mid \mathcal{S}) = \prod_{j=1}^L P(y_j \mid y_{<j}, \mathcal{S}, M_{\text{prec}}, z)$$
 
 While InstaNovo established strong performance, it suffers from several fundamental bottlenecks:
@@ -495,17 +495,19 @@ $$\text{Length Accuracy} = \frac{1}{N} \sum_{i=1}^N \mathbb{I}(\hat{L}^{(i)} = L
 ## 8. Scientific References
 
 1. **InstaNovo**:
-   - Yilmaz, M. et al. (2024). *De Novo Peptide Sequencing with InstaNovo: Resolving Complex Proteomes via Deep Autoregressive Models*. *Nature Machine Intelligence* / bioRxiv.
-   - Melkebeke, M. et al. (2024). *InstaNovo+: Accurate De Novo Peptide Sequencing with Mass-Constrained Beam Search*.
+   - Eloff, K., Kalogeropoulos, K., Mabona, A., Morell, O., Catzel, R., et al. (2025). InstaNovo enables diffusion-powered de novo peptide sequencing in large-scale proteomics experiments. *Nature Machine Intelligence*, 7, 565–579.
 2. **Casanovo**:
-   - Yilmaz, M., Fondrie, W. E., Bittremieux, W., Oh, S., & Noble, W. S. (2022). *De novo mass spectrometry peptide sequencing with a transformer model*. *Proceedings of the National Academy of Sciences (PNAS)*, 119(42), e2212450119.
+   - Yilmaz, M., Fondrie, W. E., Bittremieux, W., Oh, S., & Noble, W. S. (2022). De novo mass spectrometry peptide sequencing with a transformer model. *Nature Machine Intelligence*, 4(11), 1001–1008.
 3. **Discrete Flow Matching**:
-   - Campbell, A., Benton, J., De Bortoli, V., Shi, Y., & Doucet, A. (2024). *A Continuous-Time Framework for Discrete Denoising Models and Categorical Flow Matching*. *ICML 2024*.
-   - Lipman, Y., Chen, R. T. Q., Ben-Hamu, H., Nicklas, M., & Le, M. (2023). *Flow Matching for Generative Modeling*. *ICLR 2023*.
+   - Campbell, A., Yim, J., Barzilay, R., Rainforth, T., & Jaakkola, T. (2024). Generative flows on discrete state-spaces: Enabling multimodal flows with applications to protein co-design. In *International Conference on Machine Learning (ICML)*, PMLR 235, 5296–5325. arXiv:2402.04997.
+   - Gat, I., Remez, T., Shaul, N., Kreuk, F., Chen, R. T. Q., Synnaeve, G., Adi, Y., & Lipman, Y. (2024). Discrete Flow Matching. In *Advances in Neural Information Processing Systems (NeurIPS)*, 37. arXiv:2407.15595.
+   - Lipman, Y., Chen, R. T. Q., Ben-Hamu, H., Nickel, M., & Le, M. (2023). Flow matching for generative modeling. In *International Conference on Learning Representations (ICLR)*. arXiv:2210.02747.
 4. **Diffusion Transformers & AdaLN-Zero**:
-   - Peebles, W., & Xie, S. (2023). *Scalable Diffusion Models with Transformers (DiT)*. *IEEE/CVF International Conference on Computer Vision (ICCV)*, 4195–4205.
+   - Peebles, W., & Xie, S. (2023). Scalable diffusion models with transformers. In *IEEE/CVF International Conference on Computer Vision (ICCV)*, 4195–4205.
 5. **Gated Architectures & SwiGLU**:
-   - Shazeer, N. (2020). *GLU Variants Improve Transformer*. *arXiv:2002.05202*.
-   - Touvron, H. et al. (2023). *LLaMA: Open and Efficient Foundation Language Models*. *arXiv:2302.13971*.
+   - Shazeer, N. (2020). GLU variants improve transformer. *arXiv preprint arXiv:2002.05202*.
+   - Touvron, H. et al. (2023). LLaMA: Open and efficient foundation language models. *arXiv preprint arXiv:2302.13971*.
 6. **Pre-LayerNorm Foundations**:
-   - Xiong, R. et al. (2020). *On Layer Normalization in the Transformer Architecture*. *ICML 2020*.
+   - Xiong, R. et al. (2020). On layer normalization in the transformer architecture. In *International Conference on Machine Learning (ICML)*, 10524–10533.
+7. **Dynamic Programming Spectrum Graph**:
+   - Dancik, V., Addona, T. A., Clauser, K. R., Vath, J. E., & Pevzner, P. A. (1999). De novo peptide sequencing via tandem mass spectrometry. *Journal of Computational Biology*, 6(3–4), 327–342.

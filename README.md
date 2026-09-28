@@ -264,6 +264,18 @@ If you use this codebase, models, or benchmark suite in your research, please ci
 }
 ```
 
+### Key Literature References
+
+1. **Discrete Flow Matching**: Campbell, A., Yim, J., Barzilay, R., Rainforth, T., & Jaakkola, T. (2024). Generative flows on discrete state-spaces: Enabling multimodal flows with applications to protein co-design. *ICML 2024*. [arXiv:2402.04997](https://arxiv.org/abs/2402.04997).
+2. **Continuous Flow Matching**: Lipman, Y., Chen, R. T. Q., Ben-Hamu, H., Nickel, M., & Le, M. (2023). Flow matching for generative modeling. *ICLR 2023*. [arXiv:2210.02747](https://arxiv.org/abs/2210.02747).
+3. **InstaNovo**: Eloff, K., Kalogeropoulos, K., Mabona, A., Morell, O., Catzel, R., et al. (2025). InstaNovo enables diffusion-powered de novo peptide sequencing in large-scale proteomics experiments. *Nature Machine Intelligence*, 7, 565–579. [doi:10.1038/s42256-025-01009-4](https://doi.org/10.1038/s42256-025-01009-4).
+4. **Casanovo**: Yilmaz, M., Fondrie, W. E., Bittremieux, W., Oh, S., & Noble, W. S. (2022). De novo mass spectrometry peptide sequencing with a transformer model. *Nature Machine Intelligence*, 4(11), 1001–1008. [doi:10.1038/s42256-022-00566-z](https://doi.org/10.1038/s42256-022-00566-z).
+5. **PowerNovo2**: Petrovskiy, D. V., Nikolsky, K. S., Rudnev, V. R., Kulikova, L. I., Butkova, T. V., Malsagova, K. A., Kopylov, A. T., & Kaysheva, A. L. (2026). PowerNovo2: A generative flow-based approach to non-autoregressive de novo peptide sequencing. *PLOS Computational Biology*.
+6. **DeepNovo & Nine-Species Benchmark**: Tran, N. H., Zhang, X., Xin, L., Shan, B., & Li, M. (2017). De novo peptide sequencing by deep learning. *Proceedings of the National Academy of Sciences (PNAS)*, 114(31), 8247–8252. [doi:10.1073/pnas.1705697114](https://doi.org/10.1073/pnas.1705697114).
+7. **ProteomeTools Synthetic Benchmark**: Zolg, D. P., Wilhelm, M., Schnatbaum, K., Zerweck, J., Knaute, T., Delanghe, B., et al. (2017). Building ProteomeTools based on a complete synthetic human proteome. *Nature Methods*, 14(3), 259–265. [doi:10.1038/nmeth.4153](https://doi.org/10.1038/nmeth.4153).
+8. **Dynamic Programming Spectrum Graph**: Dancik, V., Addona, T. A., Clauser, K. R., Vath, J. E., & Pevzner, P. A. (1999). De novo peptide sequencing via tandem mass spectrometry. *Journal of Computational Biology*, 6(3–4), 327–342.
+9. **Isobaric Leucine/Isoleucine Differentiation**: Lebedev, A. T., Damoc, E., Makarov, A. A., & Samgina, T. Y. (2014). Discrimination of leucine and isoleucine in peptides sequencing with Orbitrap Fusion mass spectrometer. *Analytical Chemistry*, 86(14), 7017–7022.
+
 ---
 
 ## 📜 License

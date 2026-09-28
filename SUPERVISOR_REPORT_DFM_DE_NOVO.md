@@ -26,17 +26,17 @@ In this thesis work, we formulate *de novo* peptide sequencing as a **non-autore
 ## 1. Introduction and Problem Formulation
 
 ### 1.1 Physical Principles of Tandem Mass Spectrometry (MS/MS)
-In bottom-up proteomics, complex protein mixtures are enzymatically cleaved into peptides (typically using trypsin, which hydrolyzes peptide bonds C-terminal to Lysine [K] and Arginine [R], except when followed by Proline [P]). The resulting peptides are separated by liquid chromatography, ionized via electrospray ionization (ESI), and introduced into a mass spectrometer:
+In bottom-up proteomics, complex protein mixtures are enzymatically cleaved into peptides (typically using trypsin, which hydrolyzes peptide bonds C-terminal to Lysine [K] and Arginine [R], except when followed by Proline [P] [Olsen et al., 2004]). The resulting peptides are separated by liquid chromatography, ionized via electrospray ionization (ESI), and introduced into a mass spectrometer:
 
 1. **Precursor Ion Detection (MS1)**:
    The mass spectrometer measures the intact precursor mass-to-charge ratio $(m/z)_\mathrm{prec}$ and integer charge state $z \in \{1, 2, \dots, 6\}$. The neutral precursor monoisotopic mass is defined by:
    $$M_\mathrm{prec} = z \cdot (m/z)_\mathrm{prec} - z \cdot M_\mathrm{H}$$
    where $M_\mathrm{H} = 1.007276\text{ Da}$ is the mass of a proton.
 2. **Collision-Induced Dissociation (MS2)**:
-   Precursor ions are accelerated into collision cells filled with neutral gas (e.g., Nitrogen or Argon), undergoing Higher-energy Collisional Dissociation (HCD). Cleavage occurs primarily along the peptide backbone amide bonds:
-   - **$b$-type fragment ions** retain the positive charge on the N-terminal fragment:
+   Precursor ions are accelerated into collision cells filled with neutral gas (e.g., Nitrogen or Argon), undergoing Higher-energy Collisional Dissociation (HCD) [Olsen et al., 2007; Paizs and Suhai, 2005]. Cleavage occurs primarily along the peptide backbone amide bonds:
+   - **$b$-type fragment ions** retain the positive charge on the N-terminal fragment [Roepstorff and Fohlman, 1984; Biemann, 1988]:
      $$m(b_k) = \sum_{i=1}^k m(a_i) + M_\mathrm{H}, \quad k \in \{1, \dots, L-1\}$$
-   - **$y$-type fragment ions** retain the positive charge on the C-terminal fragment:
+   - **$y$-type fragment ions** retain the positive charge on the C-terminal fragment [Roepstorff and Fohlman, 1984; Biemann, 1988]:
      $$m(y_k) = \sum_{i=L-k+1}^L m(a_i) + M_{\mathrm{H}_2\mathrm{O}} + M_\mathrm{H}, \quad k \in \{1, \dots, L-1\}$$
    - **Fundamental Mass Invariant**: The sum of all individual residue masses must equal the neutral precursor mass minus a water molecule:
      $$\sum_{i=1}^L m(a_i) = M_\mathrm{prec} - M_{\mathrm{H}_2\mathrm{O}}$$
@@ -52,7 +52,7 @@ The raw tandem mass spectrum is represented as a set of discrete peaks $\mathcal
 ```
 
 ### 1.2 Limitations of Autoregressive Architectures
-State-of-the-art models such as InstaNovo, DeepNovo, and PointNovo frame peptide sequencing as autoregressive language modeling:
+State-of-the-art models such as InstaNovo [Eloff et al., 2025], DeepNovo [Tran et al., 2017], and PointNovo [Qiao et al., 2021] frame peptide sequencing as autoregressive language modeling:
 $$p_\theta(y | \mathcal{S}) = \prod_{i=1}^L p_\theta(a_i | a_{<i}, \mathcal{S})$$
 While effective, this formulation exhibits three structural flaws:
 1. **Exposure Bias & Sequential Error Compounding**: If an early residue $a_1$ or $a_2$ is mispredicted, conditioning on erroneous prefixes drives the beam search into unrecoverable regions of sequence space.
@@ -264,11 +264,11 @@ The architecture balances representational capacity with high-throughput paralle
 - **Length Predictor**:
   - 2-layer MLP accepting the concatenated representation $[\mathbf{h}_\mathrm{CLS}; \log M_\mathrm{prec}; z]$, classifying lengths $L \in [6, 50]$ with LayerNorm and dropout. Total: **0.35M parameters**.
 - **Sequence Decoder (`DFMPeptideDecoder`)**:
-  - 6 Transformer Decoder blocks with Adaptive Layer Normalization (AdaLN-Zero) residual gating.
-  - Active amino acid tokens $x_t$ are mapped through a $32 \times 512$ embedding matrix combined with sinusoidal positional encodings.
+  - 6 Transformer Decoder blocks with Adaptive Layer Normalization (AdaLN-Zero [Peebles and Xie, 2023]) residual gating.
+  - Active amino acid tokens $x_t$ are mapped through a $32 \times 512$ embedding matrix combined with sinusoidal positional encodings [Vaswani et al., 2017].
   - Timestep $t \in [0, 1]$ is embedded using Fourier feature projections.
   - Precursor mass and charge are projected and fused into the timestep conditioning representation.
-  - Decoder blocks alternate between masked self-attention over sequence positions and multi-head cross-attention over the $N$ encoded spectral peak embeddings, followed by SwiGLU feed-forward networks ($d_\mathrm{ff} = 1536$). Total: **42.83M parameters**.
+  - Decoder blocks alternate between masked self-attention over sequence positions and multi-head cross-attention over the $N$ encoded spectral peak embeddings, followed by SwiGLU feed-forward networks ($d_\mathrm{ff} = 1536$ [Shazeer, 2020]). Total: **42.83M parameters**.
   - Classification head: Linear projection from 512 dimensions to 32 vocabulary logits.
 
 ### 5.1 Model Parameter Counts and Structural Complexity
@@ -685,7 +685,7 @@ To understand the mechanistic behavior of Discrete Flow Matching in comparison w
 2. **Large-Scale Multi-Repository Pretraining**:
    Pretraining the DFM backbone on massive public repositories (such as the 30-million spectrum MassIVE Knowledge Base used by InstaNovo+) before balanced finetuning on Nine-Species.
 3. **High-Energy Fragmentation Disambiguation ($w$-Ion Matching)**:
-   Integrating higher-energy CID/ETD fragmentation matching ($w$-ions and $d$-ions) during test-time reranking to resolve leucine vs isoleucine ambiguities directly from experimental peaks.
+   Integrating higher-energy CID/ETD fragmentation matching ($w$-ions and $d$-ions [Johnson et al., 1987; Lebedev et al., 2014]) during test-time reranking to resolve leucine vs isoleucine ambiguities directly from experimental peaks.
 4. **Graph-Conditioned Flow Matching**:
    Formulating the mass spectrum not merely as a set of peaks, but as an experimental fragment graph whose mass differences encode amino acid transitions, providing structured inductive bias to the flow velocity field.
 
@@ -734,3 +734,35 @@ This notebook provides an end-to-end interactive workflow:
 5. **Prediction Visualization**: Side-by-side inspection of ground truth vs predicted sequences across the 4 error quadrants.
 6. **Benchmark Metrics**: Computing strict exact match, I/L exact match, residue precision/recall/F1, and precursor mass matches.
 7. **Offline Analysis & Plotting**: Loading the 84 precomputed artifact files from `dfm_research_analysis_artifacts.zip` to produce publication-grade benchmark figures in seconds without GPU hardware.
+
+---
+
+## 13. References
+
+- **Aebersold, R., & Mann, M. (2016)**. Mass-spectrometric exploration of proteome structure and function. *Nature*, 537(7620), 347–355.
+- **Biemann, K. (1988)**. Contributions of mass spectrometry to peptide and protein structure. *Biomedical and Environmental Mass Spectrometry*, 16(1–12), 99–111.
+- **Breci, L. A., Tabb, D. L., Yates, J. R., & Wysocki, V. H. (2003)**. Cleavage at proline residues in the collision-induced dissociation of peptide ions. *Analytical Chemistry*, 75(9), 1963–1971.
+- **Campbell, A., Yim, J., Barzilay, R., Rainforth, T., & Jaakkola, T. (2024)**. Generative flows on discrete state-spaces: Enabling multimodal flows with applications to protein co-design. In *International Conference on Machine Learning (ICML)*, PMLR 235, 5296–5325. arXiv:2402.04997.
+- **Dancik, V., Addona, T. A., Clauser, K. R., Vath, J. E., & Pevzner, P. A. (1999)**. De novo peptide sequencing via tandem mass spectrometry. *Journal of Computational Biology*, 6(3–4), 327–342.
+- **Dao, T., Fu, D. Y., Ermon, S., Rudra, A., & Ré, C. (2022)**. FlashAttention: Fast and memory-efficient exact attention with IO-awareness. In *Advances in Neural Information Processing Systems (NeurIPS)*, 35, 16344–16359.
+- **Eloff, K., Kalogeropoulos, K., Mabona, A., Morell, O., Catzel, R., et al. (2025)**. InstaNovo enables diffusion-powered de novo peptide sequencing in large-scale proteomics experiments. *Nature Machine Intelligence*, 7, 565–579.
+- **Eng, J. K., McCormack, A. L., & Yates, J. R. (1994)**. An approach to correlate tandem mass spectral data of peptides with amino acid sequences in a protein database. *Journal of the American Society for Mass Spectrometry*, 5(11), 976–989.
+- **Gat, I., Remez, T., Shaul, N., Kreuk, F., Chen, R. T. Q., Synnaeve, G., Adi, Y., & Lipman, Y. (2024)**. Discrete Flow Matching. In *Advances in Neural Information Processing Systems (NeurIPS)*, 37. arXiv:2407.15595.
+- **Johnson, R. S., Martin, S. A., & Biemann, K. (1987)**. Collisional fragmentation of (M+H)+ ions of peptides. Side chain specific fragments. *Analytical Chemistry*, 59(22), 2621–2625.
+- **Kim, S., & Pevzner, P. A. (2014)**. MS-GF+ makes progress towards a universal database search tool for proteomics. *Nature Communications*, 5, 5277.
+- **Lebedev, A. T., Damoc, E., Makarov, A. A., & Samgina, T. Y. (2014)**. Discrimination of leucine and isoleucine in peptides sequencing with Orbitrap Fusion mass spectrometer. *Analytical Chemistry*, 86(14), 7017–7022.
+- **Lipman, Y., Chen, R. T. Q., Ben-Hamu, H., Nickel, M., & Le, M. (2023)**. Flow matching for generative modeling. In *International Conference on Learning Representations (ICLR)*. arXiv:2210.02747.
+- **Ma, B., Zhang, K., Hendrie, C., Liang, C., Li, M., Doherty-Kirby, A., & Lajoie, G. (2003)**. PEAKS: powerful software for peptide de novo sequencing by tandem mass spectrometry. *Rapid Communications in Mass Spectrometry*, 17(20), 2337–2342.
+- **Olsen, J. V., Ong, S. E., & Mann, M. (2004)**. Trypsin cleaves exclusively C-terminal to arginine and lysine residues. *Molecular & Cellular Proteomics*, 3(6), 608–614.
+- **Olsen, J. V., Macek, B., Lange, O., Makarov, A., Horning, S., & Mann, M. (2007)**. Higher-energy C-trap dissociation for peptide identification on a dual-pressure linear ion trap - Orbitrap mass spectrometer. *Nature Methods*, 4(9), 709–712.
+- **Paizs, B., & Suhai, S. (2005)**. Fragmentation pathways of protonated peptides. *Mass Spectrometry Reviews*, 24(4), 508–548.
+- **Peebles, W., & Xie, S. (2023)**. Scalable diffusion models with transformers. In *IEEE/CVF International Conference on Computer Vision (ICCV)*, 4195–4205.
+- **Petrovskiy, D. V., Nikolsky, K. S., Rudnev, V. R., Kulikova, L. I., Butkova, T. V., Malsagova, K. A., Kopylov, A. T., & Kaysheva, A. L. (2026)**. PowerNovo2: A generative flow-based approach to non-autoregressive de novo peptide sequencing. *PLOS Computational Biology*.
+- **Qiao, R., Tran, N. H., Zhang, X., & Li, M. (2021)**. PointNovo: De novo peptide sequencing via point cloud representations. *bioRxiv*, 2021-02.
+- **Roepstorff, P., & Fohlman, J. (1984)**. Proposal for a common nomenclature for sequence ions in mass spectra of peptides. *Biomedical Mass Spectrometry*, 11(11), 601.
+- **Shazeer, N. (2020)**. GLU variants improve transformer. *arXiv preprint arXiv:2002.05202*.
+- **Stark, H., Jing, B., Wang, C., Corso, G., Berger, B., Barzilay, R., & Jaakkola, T. (2024)**. Dirichlet flow matching with applications to DNA sequence design. In *International Conference on Learning Representations (ICLR)*. arXiv:2402.05841.
+- **Tran, N. H., Zhang, X., Xin, L., Shan, B., & Li, M. (2017)**. De novo peptide sequencing by deep learning. *Proceedings of the National Academy of Sciences (PNAS)*, 114(31), 8247–8252.
+- **Vaswani, A., Shazeer, N., Parmar, N., Uszkoreit, J., Jones, L., Gomez, A. N., Kaiser, Ł., & Polosukhin, I. (2017)**. Attention is all you need. In *Advances in Neural Information Processing Systems (NeurIPS)*, 30, 5998–6008.
+- **Yilmaz, M., Fondrie, W. E., Bittremieux, W., Oh, S., & Noble, W. S. (2022)**. De novo mass spectrometry peptide sequencing with a transformer model. *Nature Machine Intelligence*, 4(11), 1001–1008.
+- **Zolg, D. P., Wilhelm, M., Schnatbaum, K., Zerweck, J., Knaute, T., Delanghe, B., et al. (2017)**. Building ProteomeTools based on a complete synthetic human proteome. *Nature Methods*, 14(3), 259–265.
