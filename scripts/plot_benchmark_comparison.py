@@ -191,7 +191,7 @@ def main():
     }
 
     # Save summary JSON
-    bench_json_path = ARTIFACTS_DIR / "full_benchmark_comparison_sota_30ep.json"
+    bench_json_path = ARTIFACTS_DIR / "full_benchmark_comparison_30ep.json"
     with open(bench_json_path, "w") as f:
         json.dump(models_data, f, indent=2)
     print(f"Saved benchmark summary JSON to {bench_json_path}")
