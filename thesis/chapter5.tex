@@ -27,7 +27,7 @@ On the full ProteomeTools HC-PT test split ($N = 265,369$), DFlowNovo achieves \
 
 To determine the exact contribution of isobaric ambiguity, we analyzed all 170,340 discordant predictions. Remarkably, \textbf{30.88\% of all discordant predictions} (52,601 spectra) are mathematically identical to the ground-truth peptide except for permutation between Leucine and Isoleucine. When considering peptides with only a single residue mismatch, Leucine/Isoleucine substitution accounts for \textbf{68.4\% of all single-residue errors}.
 
-\begin{figure}[!h]
+\begin{figure}[!ht]
 \centering
 \includegraphics[width=0.85\textwidth]{images/proteomics_biological_fidelity.png}
 \caption{Proteomics biological fidelity and fragmentation error analysis. (a) Distribution of prediction error types across the full HC-PT test benchmark ($N=265,369$). Isobaric Leucine/Isoleucine substitutions constitute 30.88\% of all prediction discrepancies. (b) Cleavage suppression around Proline residues (the Proline effect). (c) Neutral loss frequencies ($\text{H}_2\text{O}$ and $\text{NH}_3$) as a function of peptide precursor charge state. (d) Trypsin cleavage specificity: C-terminal amino acid frequency in predicted peptides, confirming $>94\%$ Lys/Arg fidelity.}
@@ -56,7 +56,7 @@ The mass difference between the two side-chain radical losses is $14.015\,\text{
 
 A second major physical phenomenon governing fragmentation spectra is the \textbf{Proline Effect} \citep{Breci2003, Paizs2005}. Proline possesses a unique rigid five-membered pyrrolidine ring that incorporates the backbone $\alpha$-amino group into a tertiary amine.
 
-\begin{figure}[!h]
+\begin{figure}[!ht]
 \centering
 \includegraphics[width=0.85\textwidth]{images/qualitative_prediction_cases.png}
 \caption{Qualitative prediction cases and fragment spectrum overlays. Top: High-confidence true positive prediction with complete $b$- and $y$-ion ladders. Middle: Peptide containing a central Proline residue, showing delayed token commitment due to missing $X\text{-P}$ amide cleavage peaks. Bottom: Isobaric Leucine/Isoleucine swap illustrating identical backbone fragmentation.}
@@ -75,7 +75,7 @@ During reverse flow matching, DFlowNovo reflects this physical reality. As shown
 
 In standard biological benchmarks, peptide lengths follow a skewed distribution centered around $L \approx 12\text{--}15$, with peptides longer than $L \ge 23$ representing less than $5\%$ of training spectra. Consequently, standard cross-entropy training causes representation collapse on long peptides, where baseline models exhibit near-zero accuracy \citep{Yilmaz2022}.
 
-\begin{figure}[!h]
+\begin{figure}[!ht]
 \centering
 \includegraphics[width=0.85\textwidth]{images/length_dependent_accuracy.png}
 \caption{Length-dependent sequence accuracy across benchmarks. Baseline training without length scaling collapses on long peptides ($L \ge 23$, $<1.0\%$ strict match). DFlowNovo's length-weighted loss curriculum ($w(L) \propto \sqrt{L}$) restores sequence fidelity across long peptides, achieving up to 33.6\% strict match on Nine-Species.}

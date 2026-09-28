@@ -23,6 +23,8 @@
 \usepackage{float}
 \usepackage{moreverb}
 \usepackage{bm}
+\usepackage{algorithm}
+\usepackage{algpseudocode}
 
 % Fix spacing before theorem environments
 \makeatletter\def\thm@space@setup{%
@@ -89,6 +91,13 @@ African Institute for Mathematical Sciences (AIMS South Africa)\\
 \input{chapter4}
 \input{chapter5}
 \input{chapter6}
+
+\appendix
+\gdef\theHchapter{Appendix.\Alph{chapter}}
+\input{appendixA}
+\input{appendixB}
+\input{appendixC}
+\endappendix
 
 \input{acknowledgement}
 
