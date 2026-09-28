@@ -1,53 +1,57 @@
 \chapter{Mathematical Foundations of Continuous-Time Discrete Flow Matching}
 
-Generative modeling of discrete biological sequences has historically relied on autoregressive factorizations or discrete diffusion models based on discrete-time Markov chains. While continuous normalizing flows \citep{Lipman2023} define invertible vector fields on smooth Riemannian manifolds, adapting them to discrete sequences requires artificial continuous relaxations that suffer from rounding errors when continuous latents are mapped to discrete amino acid masses. This chapter presents the mathematical framework of continuous-time Discrete Flow Models (DFMs) developed by \citet{Campbell2024} and \citet{Gat2024}, which formulate sequence generation directly on the discrete probability simplex via Continuous-Time Markov Chains (CTMCs).
+Generative modeling of discrete sequences has historically relied on autoregressive factorizations or discrete diffusion models based on discrete-time Markov chains. While continuous normalizing flows \citep{Lipman2023,Chen2018} define invertible vector fields and probability density paths on smooth Euclidean or Riemannian manifolds, extending them to discrete categorical domains requires artificial continuous relaxations that introduce boundary mismatch, geometric distortion, and quantization errors. 
+
+This chapter presents the mathematical framework of continuous-time Discrete Flow Models (DFMs) developed by \citet{Campbell2024} and \citet{Gat2024}. By formulating probability transport directly over the discrete probability simplex via time-inhomogeneous Continuous-Time Markov Chains (CTMCs), DFMs construct simulation-free generative models that operate natively on discrete configuration spaces.
 
 \section{The Discrete Sequence Simplex and State Space}
 
-Let $\mathcal{V} = \{a_1, a_2, \dots, a_S\}$ denote a finite vocabulary of $S$ discrete tokens consisting of the canonical amino acid residues, special control tokens, and an absorbing mask state $[M]$. A peptide sequence of length $D$ is an element of the Cartesian product state space:
+Let $\mathcal{X} = \{1, 2, \dots, S\}$ denote a finite vocabulary of $S$ discrete categorical states, containing an absorbing mask state denoted by $[M] \in \mathcal{X}$. A discrete sequence of fixed dimension $D$ is an element of the Cartesian product state space:
 \begin{equation}
-\mathcal{S}_D = \mathcal{V}^D = \underbrace{\mathcal{V} \times \mathcal{V} \times \dots \times \mathcal{V}}_{D \text{ residues}}
+\mathcal{X}^D = \underbrace{\mathcal{X} \times \mathcal{X} \times \dots \times \mathcal{X}}_{D \text{ coordinates}}
 \label{eq:state_space_def}
 \end{equation}
-The cardinality of this discrete state space is $|\mathcal{S}_D| = S^D$. A probability distribution over $\mathcal{S}_D$ is a probability mass vector $p \in \Delta^{S^D - 1}$ residing on the probability simplex:
+The cardinality of this configuration space is $|\mathcal{X}^D| = S^D$. A joint probability distribution over $\mathcal{X}^D$ is represented as a probability mass vector $p \in \Delta^{S^D - 1}$ residing on the probability simplex:
 \begin{equation}
-\Delta^{S^D - 1} = \left\{ p \in \mathbb{R}^{S^D} \;\middle|\; \sum_{x \in \mathcal{S}_D} p(x) = 1, \quad p(x) \ge 0 \quad \forall x \in \mathcal{S}_D \right\}
+\Delta^{S^D - 1} = \left\{ p \in \mathbb{R}^{S^D} \;\middle|\; \sum_{x \in \mathcal{X}^D} p(x) = 1, \quad p(x) \ge 0 \quad \forall x \in \mathcal{X}^D \right\}
 \label{eq:simplex_def}
 \end{equation}
-Because the state space scales exponentially with peptide length $D$, modeling the joint probability distribution directly is intractable. Following \citet{Campbell2024}, intermediate corruption paths are factorized across positions $d \in \{1, \dots, D\}$, while inter-residue dependencies are modeled through a bidirectional neural network.
+For any individual coordinate $d \in \{1, \dots, D\}$, the marginal distribution $p^d$ resides on the $(S-1)$-dimensional categorical simplex $\Delta^{S-1}$.
+
+Because $|\mathcal{X}^D|$ scales exponentially with dimension $D$, parameterizing joint transition matrices over $\mathcal{X}^D \times \mathcal{X}^D$ is computationally intractable. Following \citet{Campbell2024}, intermediate conditional probability paths are factorized across coordinates $d \in \{1, \dots, D\}$, while global dependencies among coordinates are learned through a parameterized score network modeling the posterior distribution.
 
 \section{Continuous-Time Markov Chains and the Kolmogorov Equation}
 
-To define continuous probability flows over discrete states, we model sequence trajectories $x_t \in \mathcal{S}_D$ over time $t \in [0, 1]$ via a time-inhomogeneous Continuous-Time Markov Chain (CTMC) \citep{Campbell2024}.
+To define continuous probability flows over discrete states, sequence trajectories $\{X_t\}_{t \in [0, 1]}$ on $\mathcal{X}^D$ are modeled as time-inhomogeneous Continuous-Time Markov Chains (CTMCs) \citep{Campbell2024}.
 
 \begin{defn}[Transition Rate Matrix]
-A time-dependent transition rate matrix (infinitesimal generator) is a matrix-valued function $R_t \in \mathbb{R}^{S \times S}$ indexed by $t \in [0, 1]$ satisfying:
+A time-dependent transition rate matrix (infinitesimal generator) is a matrix-valued function $R_t \in \mathbb{R}^{S \times S}$ indexed by continuous time $t \in [0, 1]$ satisfying:
 \begin{align}
-R_t(x_t, j) &\ge 0 \quad \text{for all } j \ne x_t \label{eq:rate_off_diag} \\
-R_t(x_t, x_t) &= - \sum_{k \ne x_t} R_t(x_t, k) \label{eq:rate_diag_cons}
+R_t(i, j) &\ge 0 \quad \text{for all } j \ne i \label{eq:rate_off_diag} \\
+R_t(i, i) &= - \sum_{k \ne i} R_t(i, k) \label{eq:rate_diag_cons}
 \end{align}
-The off-diagonal entry $R_t(x_t, j)$ specifies the instantaneous transition probability rate from state $x_t$ to state $j$ at time $t$:
+The off-diagonal entry $R_t(i, j)$ specifies the instantaneous transition rate from state $i$ to state $j$ at time $t$:
 \begin{equation}
-\mathbb{P}(X_{t+h} = j \mid X_t = x_t) = \delta\{x_t, j\} + R_t(x_t, j) h + o(h) \quad \text{as } h \downarrow 0
+\mathbb{P}(X_{t+h} = j \mid X_t = i) = \delta_{i, j} + R_t(i, j) h + o(h) \quad \text{as } h \downarrow 0
 \label{eq:infinitesimal_transition}
 \end{equation}
-where $\delta\{i, j\}$ denotes the Kronecker delta.
+where $\delta_{i, j}$ denotes the Kronecker delta.
 \end{defn}
 
 For simulation over a finite step size $\Delta t$, the sequence trajectory is integrated via Euler steps \citep{Campbell2024}:
 \begin{equation}
-x_{t+\Delta t} \sim \text{Cat}\left( \delta\{x_t, \cdot\} + R_t(x_t, \cdot) \Delta t \right)
+x_{t+\Delta t} \sim \text{Cat}\left( \delta_{x_t, \cdot} + R_t(x_t, \cdot) \Delta t \right)
 \label{eq:euler_step}
 \end{equation}
 where the sequence originates from an initial base distribution $x_0 \sim p_0$ at $t = 0$.
 
 \begin{thm}[Forward Kolmogorov Equation / Master Equation]
-Let $p_t(x_t) = \mathbb{P}(X_t = x_t)$ denote the marginal probability distribution of the CTMC at time $t$. Then $p_t$ satisfies the forward Kolmogorov differential equation:
+Let $p_t(x) = \mathbb{P}(X_t = x)$ denote the marginal probability distribution of the CTMC at time $t$. Then $p_t$ satisfies the forward Kolmogorov differential equation:
 \begin{equation}
-\partial_t p_t(x_t) = \sum_{y \in \mathcal{S}_D} R_t(y, x_t) p_t(y) = \sum_{y \ne x_t} \left[ R_t(y, x_t) p_t(y) - R_t(x_t, y) p_t(x_t) \right]
+\partial_t p_t(x) = \sum_{y \in \mathcal{X}} R_t(y, x) p_t(y) = \sum_{y \ne x} \left[ R_t(y, x) p_t(y) - R_t(x, y) p_t(x) \right]
 \label{eq:master_equation}
 \end{equation}
-Treating $p_t$ as a column vector in $\mathbb{R}^S$, Equation~\ref{eq:master_equation} is expressed compactly as:
+Treating $p_t$ as a column vector in $\Delta^{S-1}$, Equation~\ref{eq:master_equation} is expressed compactly as:
 \begin{equation}
 \partial_t p_t = R_t^\top p_t
 \label{eq:vector_ode}
@@ -57,30 +61,30 @@ Treating $p_t$ as a column vector in $\mathbb{R}^S$, Equation~\ref{eq:master_equ
 \begin{proof}
 By the law of total probability and Equation~\ref{eq:infinitesimal_transition}:
 \begin{align}
-p_{t+h}(x_t) &= \sum_{y} \mathbb{P}(X_{t+h} = x_t \mid X_t = y) p_t(y) \notag \\
-&= \left( 1 + R_t(x_t, x_t) h + o(h) \right) p_t(x_t) + \sum_{y \ne x_t} \left( R_t(y, x_t) h + o(h) \right) p_t(y) \notag \\
-&= p_t(x_t) + h \left[ R_t(x_t, x_t) p_t(x_t) + \sum_{y \ne x_t} R_t(y, x_t) p_t(y) \right] + o(h) \label{eq:proof_taylor}
+p_{t+h}(x) &= \sum_{y} \mathbb{P}(X_{t+h} = x \mid X_t = y) p_t(y) \notag \\
+&= \left( 1 + R_t(x, x) h + o(h) \right) p_t(x) + \sum_{y \ne x} \left( R_t(y, x) h + o(h) \right) p_t(y) \notag \\
+&= p_t(x) + h \left[ R_t(x, x) p_t(x) + \sum_{y \ne x} R_t(y, x) p_t(y) \right] + o(h) \label{eq:proof_taylor}
 \end{align}
-Subtracting $p_t(x_t)$, dividing by $h$, and taking the limit $h \downarrow 0$ yields:
+Subtracting $p_t(x)$, dividing by $h$, and taking the limit $h \downarrow 0$ yields:
 \begin{equation}
-\partial_t p_t(x_t) = R_t(x_t, x_t) p_t(x_t) + \sum_{y \ne x_t} R_t(y, x_t) p_t(y)
+\partial_t p_t(x) = R_t(x, x) p_t(x) + \sum_{y \ne x} R_t(y, x) p_t(y)
 \label{eq:proof_lim}
 \end{equation}
-Substituting the diagonal conservation identity $R_t(x_t, x_t) = - \sum_{y \ne x_t} R_t(x_t, y)$ from Equation~\ref{eq:rate_diag_cons} into Equation~\ref{eq:proof_lim} gives Equation~\ref{eq:master_equation}, which completes the proof.
+Substituting the diagonal conservation identity $R_t(x, x) = - \sum_{y \ne x} R_t(x, y)$ from Equation~\ref{eq:rate_diag_cons} into Equation~\ref{eq:proof_lim} yields Equation~\ref{eq:master_equation}, completing the proof.
 \end{proof}
 
-The series of distributions $\{p_t\}_{t \in [0, 1]}$ satisfying Equation~\ref{eq:vector_ode} defines a discrete probability flow on the simplex.
+The continuous trajectory of distributions $\{p_t\}_{t \in [0, 1]}$ satisfying Equation~\ref{eq:vector_ode} defines a discrete probability flow on the categorical simplex.
 
 \section{Generative and Data-Conditional Probability Flows}
 
-A Discrete Flow Model constructs a generative flow $p_t$ interpolating from a tractable noise distribution $p_{\text{noise}}$ at $t = 0$ to the empirical data distribution $p_{\text{data}}$ at $t = 1$. Because $p_t$ is intractable to model directly, the flow is decomposed into a mixture of datapoint-conditional flows $p_{t \mid 1}(\cdot \mid x_1)$ conditioned on clean targets $x_1 \sim p_{\text{data}}$ \citep{Campbell2024}:
+A Discrete Flow Model constructs a generative flow $p_t$ on $\Delta^{S^D - 1}$ interpolating from a tractable prior noise distribution $p_0$ at $t = 0$ to an empirical data distribution $p_1$ at $t = 1$. Because $p_t$ is intractable to model directly, the flow is decomposed into a continuous mixture of datapoint-conditional flows $p_{t \mid 1}(\cdot \mid x_1)$ conditioned on clean target samples $x_1 \sim p_1$ \citep{Campbell2024}:
 \begin{equation}
-p_t(x_t) = \mathbb{E}_{p_{\text{data}}(x_1)} \left[ p_{t \mid 1}(x_t \mid x_1) \right] = \sum_{x_1} p_{t \mid 1}(x_t \mid x_1) p_{\text{data}}(x_1)
+p_t(x_t) = \mathbb{E}_{x_1 \sim p_1} \left[ p_{t \mid 1}(x_t \mid x_1) \right] = \sum_{x_1 \in \mathcal{X}^D} p_{t \mid 1}(x_t \mid x_1) p_1(x_1)
 \label{eq:marginal_expectation}
 \end{equation}
-For sequence modeling, the noise prior is set to an absorbing mask token $p_{\text{noise}}(x_0) = \prod_{d=1}^D \delta\{[M], x_0^d\}$. The conditional flow factorizes across sequence dimensions $d \in \{1, \dots, D\}$:
+For sequence modeling, the prior distribution at $t = 0$ is set to a deterministic point mass on the absorbing mask state: $p_0(x_0) = \prod_{d=1}^D \delta_{x_0^d, [M]}$. The conditional flow factorizes across coordinates $d \in \{1, \dots, D\}$:
 \begin{equation}
-p_{t \mid 1}(x_t^d \mid x_1^d) = \kappa(t) \, \delta\{x_1^d, x_t^d\} + (1 - \kappa(t)) \, \delta\{[M], x_t^d\}
+p_{t \mid 1}(x_t^d \mid x_1^d) = \kappa(t) \, \delta_{x_t^d, x_1^d} + (1 - \kappa(t)) \, \delta_{x_t^d, [M]}
 \label{eq:conditional_mask_flow}
 \end{equation}
 where $\kappa: [0, 1] \to [0, 1]$ is a smooth, strictly monotonically increasing schedule function satisfying the boundary conditions $\kappa(0) = 0$ and $\kappa(1) = 1$.
@@ -88,7 +92,7 @@ where $\kappa: [0, 1] \to [0, 1]$ is a smooth, strictly monotonically increasing
 \begin{pro}[\citeauthor{Campbell2024}, Proposition 3.1]
 Let $R_t(x_t, j \mid x_1)$ denote a conditional rate matrix that generates the conditional flow $p_{t \mid 1}(x_t \mid x_1)$ via $\partial_t p_{t \mid 1} = R_t(\cdot, \cdot \mid x_1)^\top p_{t \mid 1}$. Then the marginal rate matrix defined by:
 \begin{equation}
-R_t(x_t, j) = \mathbb{E}_{p_{1 \mid t}(x_1 \mid x_t)} \left[ R_t(x_t, j \mid x_1) \right] = \sum_{x_1} R_t(x_t, j \mid x_1) \frac{p_{t \mid 1}(x_t \mid x_1) p_{\text{data}}(x_1)}{p_t(x_t)}
+R_t(x_t, j) = \mathbb{E}_{x_1 \sim p_{1 \mid t}(\cdot \mid x_t)} \left[ R_t(x_t, j \mid x_1) \right] = \sum_{x_1} R_t(x_t, j \mid x_1) \frac{p_{t \mid 1}(x_t \mid x_1) p_1(x_1)}{p_t(x_t)}
 \label{eq:campbell_prop31}
 \end{equation}
 generates the marginal probability flow $p_t(x_t)$ defined in Equation~\ref{eq:marginal_expectation}.
@@ -97,9 +101,9 @@ generates the marginal probability flow $p_t(x_t)$ defined in Equation~\ref{eq:m
 \begin{proof}
 Differentiating Equation~\ref{eq:marginal_expectation} with respect to $t$ and using the linearity of differentiation:
 \begin{align}
-\partial_t p_t(x_t) &= \sum_{x_1} \partial_t p_{t \mid 1}(x_t \mid x_1) p_{\text{data}}(x_1) \notag \\
-&= \sum_{x_1} \left( \sum_{y} R_t(y, x_t \mid x_1) p_{t \mid 1}(y \mid x_1) \right) p_{\text{data}}(x_1) \notag \\
-&= \sum_{y} \left( \sum_{x_1} R_t(y, x_t \mid x_1) \frac{p_{t \mid 1}(y \mid x_1) p_{\text{data}}(x_1)}{p_t(y)} \right) p_t(y) \notag \\
+\partial_t p_t(x_t) &= \sum_{x_1} \partial_t p_{t \mid 1}(x_t \mid x_1) p_1(x_1) \notag \\
+&= \sum_{x_1} \left( \sum_{y} R_t(y, x_t \mid x_1) p_{t \mid 1}(y \mid x_1) \right) p_1(x_1) \notag \\
+&= \sum_{y} \left( \sum_{x_1} R_t(y, x_t \mid x_1) \frac{p_{t \mid 1}(y \mid x_1) p_1(x_1)}{p_t(y)} \right) p_t(y) \notag \\
 &= \sum_{y} R_t(y, x_t) p_t(y)
 \end{align}
 which recovers the Kolmogorov forward equation for the marginal distribution.
@@ -107,9 +111,10 @@ which recovers the Kolmogorov forward equation for the marginal distribution.
 
 \section{Closed-Form Conditional Rate Matrices and Jump Minimality}
 
-To construct $R_t(x_t, j \mid x_1)$, \citet{Campbell2024} established a canonical form based on probability mass transfer.
+To construct $R_t(x_t, j \mid x_1)$, \citet{Campbell2024} established a canonical closed-form construction based on probability mass transfer.
 
 \begin{pro}[\citeauthor{Campbell2024}, Proposition 3.2]
+\label{pro:canonical_rate}
 Assuming states with zero probability mass $p_{t \mid 1}(j \mid x_1) = 0$ have vanishing time derivatives $\partial_t p_{t \mid 1}(j \mid x_1) = 0$, the canonical conditional rate matrix $R_t^*$ defined for $x_t \ne j$ by:
 \begin{equation}
 R_t^*(x_t, j \mid x_1) = \frac{\operatorname{ReLU}\left( \partial_t p_{t \mid 1}(j \mid x_1) \right)}{p_{t \mid 1}(x_t \mid x_1)}
@@ -118,19 +123,19 @@ R_t^*(x_t, j \mid x_1) = \frac{\operatorname{ReLU}\left( \partial_t p_{t \mid 1}
 with diagonal entries $R_t^*(x_t, x_t \mid x_1) = - \sum_{j \ne x_t} R_t^*(x_t, j \mid x_1)$, generates the conditional flow $p_{t \mid 1}(x_t \mid x_1)$.
 \end{pro}
 
-For the masking conditional flow in Equation~\ref{eq:conditional_mask_flow}, we differentiate each state with respect to time:
+For the masking conditional flow defined in Equation~\ref{eq:conditional_mask_flow}, differentiating each state with respect to time yields:
 \begin{equation}
 \partial_t p_{t \mid 1}(x_1^d \mid x_1^d) = \kappa'(t) > 0, \qquad \partial_t p_{t \mid 1}([M] \mid x_1^d) = -\kappa'(t) < 0
 \label{eq:flow_derivatives}
 \end{equation}
 Substituting Equation~\ref{eq:flow_derivatives} into Equation~\ref{eq:campbell_rate_canonical} yields exact closed-form conditional rates:
 \begin{enumerate}[(i)]
-\item For transition from mask state $x_t^d = [M]$ to target residue $j = x_1^d$:
+\item For transition from mask state $x_t^d = [M]$ to target state $j = x_1^d$:
 \begin{equation}
 R_t^*([M], x_1^d \mid x_1^d) = \frac{\operatorname{ReLU}(\kappa'(t))}{p_{t \mid 1}([M] \mid x_1^d)} = \frac{\kappa'(t)}{1 - \kappa(t)}
 \label{eq:rate_unmask}
 \end{equation}
-\item For reverse transition from target residue $x_t^d = x_1^d$ to mask state $j = [M]$:
+\item For reverse transition from target state $x_t^d = x_1^d$ to mask state $j = [M]$:
 \begin{equation}
 R_t^*(x_1^d, [M] \mid x_1^d) = \frac{\operatorname{ReLU}(-\kappa'(t))}{p_{t \mid 1}(x_1^d \mid x_1^d)} = \frac{0}{\kappa(t)} = 0
 \label{eq:rate_remask_zero}
@@ -138,22 +143,23 @@ R_t^*(x_1^d, [M] \mid x_1^d) = \frac{\operatorname{ReLU}(-\kappa'(t))}{p_{t \mid
 \item For any other state pair $j \notin \{x_t^d, x_1^d\}$, $R_t^*(x_t^d, j \mid x_1^d) = 0$.
 \end{enumerate}
 
-Taking the expectation over the posterior distribution $x_1^d \sim p_{1 \mid t}(x_1^d \mid x_t^d)$ parameterized by neural network $p_{1 \mid t}^\theta(x_1^d \mid x_t, \mathcal{S})$, the unconditional rate matrix for position $d$ is:
+Taking the expectation over the posterior distribution $x_1^d \sim p_{1 \mid t}(x_1^d \mid x_t)$ parameterized by a neural network denoiser $p_{1 \mid t}^\theta(x_1^d \mid x_t, t)$, the marginal rate matrix for coordinate $d$ is:
 \begin{equation}
 R_t^d(x_t^d, j) = 
 \begin{cases}
-\dfrac{\kappa'(t)}{1 - \kappa(t)} \, p_{1 \mid t}^\theta(x_1^d = j \mid x_t, \mathcal{S}) & \text{if } x_t^d = [M] \text{ and } j \ne [M] \\[10pt]
+\dfrac{\kappa'(t)}{1 - \kappa(t)} \, p_{1 \mid t}^\theta(x_1^d = j \mid x_t, t) & \text{if } x_t^d = [M] \text{ and } j \ne [M] \\[10pt]
 0 & \text{if } x_t^d \ne [M] \text{ and } j \ne x_t^d
 \end{cases}
 \label{eq:marginal_unconditional_rate}
 \end{equation}
-Equation~\ref{eq:marginal_unconditional_rate} demonstrates that under $R_t^*$, unmasked tokens never transition back to the mask state or to alternate residues.
+
+Equation~\ref{eq:marginal_unconditional_rate} demonstrates that under $R_t^*$, unmasked coordinates never transition back to the absorbing mask state or to alternate discrete tokens.
 
 \begin{pro}[\citeauthor{Campbell2024}, Proposition 3.4: Jump Minimality]
 For the masking conditional flow $p_{t \mid 1}$, the canonical rate matrix $R_t^*$ generates the probability flow while strictly minimizing the expected number of jumps across the trajectory $t \in [0, 1]$.
 \end{pro}
 
-Because each residue position jumps at most once (from $[M]$ to its predicted amino acid), setting $R_t = R_t^*$ eliminates unnecessary stochastic oscillations and enables rapid, deterministic reverse sampling.
+Because each coordinate undergoes at most one state transition (from $[M]$ to its target category), setting $R_t = R_t^*$ eliminates unnecessary stochastic oscillations and enables deterministic, minimal-variance reverse sampling.
 
 \section{Detailed Balance and Tunable CTMC Stochasticity}
 
@@ -167,7 +173,7 @@ p_{t \mid 1}(i \mid x_1) \, R_t^{\text{DB}}(i, j \mid x_1) = p_{t \mid 1}(j \mid
 \end{equation}
 Then for any parameter $\eta \in \mathbb{R}^{\ge 0}$, the combined rate matrix:
 \begin{equation}
-R_t^\eta(x_t, j \mid x_1) = R_t^*(x_t, j \mid x_1) + R_t^{\text{DB}}(x_t, j \mid x_1)
+R_t^\eta(x_t, j \mid x_1) = R_t^*(x_t, j \mid x_1) + \eta \, R_t^{\text{DB}}(x_t, j \mid x_1)
 \label{eq:rate_eta_family}
 \end{equation}
 generates the identical conditional flow $p_{t \mid 1}(x_t \mid x_1)$, and its expectation under $p_{1 \mid t}$ generates the identical marginal flow $p_t(x_t)$.
@@ -178,90 +184,205 @@ For the masking flow, substituting $i = x_1$ and $j = [M]$ into Equation~\ref{eq
 \kappa(t) \, R_t^{\text{DB}}(x_1, [M] \mid x_1) = (1 - \kappa(t)) \, R_t^{\text{DB}}([M], x_1 \mid x_1)
 \label{eq:db_mask_relation}
 \end{equation}
-Setting the re-masking rate $R_t^{\text{DB}}(x_1, [M] \mid x_1) = \eta$ defines the unmasking bonus rate:
+Setting the re-masking rate $R_t^{\text{DB}}(x_1, [M] \mid x_1) = 1$ defines the unmasking bonus rate:
 \begin{equation}
-R_t^{\text{DB}}([M], x_1 \mid x_1) = \frac{\eta \, \kappa(t)}{1 - \kappa(t)}
+R_t^{\text{DB}}([M], x_1 \mid x_1) = \frac{\kappa(t)}{1 - \kappa(t)}
 \label{eq:db_bonus_unmask}
 \end{equation}
-Combining $R_t^*$ and $R_t^{\text{DB}}$ yields the stochastic rate matrix:
+Scaling by $\eta \ge 0$ and combining $R_t^*$ and $R_t^{\text{DB}}$ yields the stochastic rate matrix:
 \begin{equation}
-R_t^\eta([M], j) = \frac{\kappa'(t) + \eta \, \kappa(t)}{1 - \kappa(t)} \, p_{1 \mid t}^\theta(x_1 = j \mid x_t, \mathcal{S})
+R_t^\eta([M], j) = \frac{\kappa'(t) + \eta \, \kappa(t)}{1 - \kappa(t)} \, p_{1 \mid t}^\theta(x_1 = j \mid x_t, t)
 \label{eq:stochastic_unmask_rate}
 \end{equation}
-While $\eta > 0$ introduces bidirectional exploratory jumps between masked and unmasked states (analogous to Langevin diffusion noise), our empirical evaluations in Chapter 4 indicate that $\eta = 0$ provides the highest sequence accuracy and fastest convergence for \emph{de novo} sequencing.
+with reverse re-masking rate $R_t^\eta(j, [M]) = \eta$. While $\eta > 0$ introduces bidirectional exploratory transitions between masked and unmasked states (analogous to discrete Langevin diffusion or reversible Glauber dynamics), setting $\eta = 0$ achieves the jump-minimal, deterministic trajectory that maximizes sampling speed.
 
-\section{Flow Schedulers: Linear, Cosine, and Dirichlet Dynamics}
+\section{Probability Interpolants, Jump Flux, and Schedule Dynamics}
 
-The rate of token unmasking across the flow trajectory is dictated by the derivative $\kappa'(t)$. We investigate three alternative schedule functions:
+\subsection{Probability Interpolant Trajectories on the Simplex}
 
+A discrete probability interpolant connects the base prior $p_0$ to the target data distribution $p_1$ through a one-parameter family of distributions $\{p_t\}_{t \in [0, 1]} \subset \Delta^{S^D - 1}$. Under coordinate factorization, the marginal distribution along coordinate $d$ for any category $j \in \mathcal{X}$ evolves as:
+\begin{equation}
+p_t^d(j) = \kappa(t) \, p_1^d(j) + (1 - \kappa(t)) \, \delta_{j, [M]}
+\label{eq:prob_interpolant_traj}
+\end{equation}
+Differentiating Equation~\ref{eq:prob_interpolant_traj} with respect to flow time $t$ yields the probability velocity vector $\partial_t p_t^d \in \mathbb{R}^S$:
+\begin{equation}
+\partial_t p_t^d(j) = 
+\begin{cases}
+\kappa'(t) \, p_1^d(j) & \text{if } j \ne [M] \\[6pt]
+-\kappa'(t) & \text{if } j = [M]
+\end{cases}
+\label{eq:prob_velocity_field}
+\end{equation}
+Summing the velocities across all categories in $\mathcal{X}$:
+\begin{equation}
+\sum_{j \in \mathcal{X}} \partial_t p_t^d(j) = \kappa'(t) \sum_{j \ne [M]} p_1^d(j) - \kappa'(t) = \kappa'(t) \cdot 1 - \kappa'(t) = 0
+\label{eq:velocity_sum_zero}
+\end{equation}
+which confirms that total probability mass is identically conserved at every continuous instant $t \in [0, 1]$.
+
+\subsection{Jump Flux and Probability Conservation Laws}
+
+The dynamics of probability transport on discrete state spaces are governed by probability currents between states. For any pair of states $u, v \in \mathcal{X}$, the net probability jump flux from $u$ to $v$ at time $t$ is defined as:
+\begin{equation}
+J_t(u \to v) = R_t(u, v) \, p_t(u) - R_t(v, u) \, p_t(v)
+\label{eq:jump_flux_def}
+\end{equation}
+Under the canonical rate matrix $R_t^*$ ($\eta = 0$), transitions between distinct unmasked states are forbidden ($R_t^*(u, v) = 0$ for $u, v \ne [M]$), and reverse re-masking rates vanish ($R_t^*(j, [M]) = 0$). Consequently, the jump flux between unmasked states is identically zero:
+\begin{equation}
+J_t^*(u \to v) = 0 \quad \forall u, v \ne [M]
+\end{equation}
+The instantaneous unmasking flux from the absorbing state $[M]$ to any state $j \ne [M]$ evaluates to:
+\begin{align}
+J_t^*([M] \to j) &= R_t^*([M], j) \, p_t([M]) - R_t^*(j, [M]) \, p_t(j) \notag \\
+&= \left( \frac{\kappa'(t)}{1 - \kappa(t)} \, p_1(j) \right) (1 - \kappa(t)) - 0 \notag \\
+&= \kappa'(t) \, p_1(j)
+\label{eq:flux_unmask_exact}
+\end{align}
+The net divergence of the probability flux entering state $j \ne [M]$ is:
+\begin{equation}
+\operatorname{div} J_t^*(j) = \sum_{u \ne j} J_t^*(u \to j) = J_t^*([M] \to j) = \kappa'(t) \, p_1(j) = \partial_t p_t(j)
+\label{eq:flux_divergence_target}
+\end{equation}
+Correspondingly, the net flux departing from the absorbing state $[M]$ is:
+\begin{equation}
+\operatorname{div} J_t^*([M]) = \sum_{j \ne [M]} J_t^*(j \to [M]) = - \sum_{j \ne [M]} J_t^*([M] \to j) = -\kappa'(t) \sum_{j \ne [M]} p_1(j) = -\kappa'(t) = \partial_t p_t([M])
+\label{eq:flux_divergence_mask}
+\end{equation}
+Equations~\ref{eq:flux_divergence_target} and \ref{eq:flux_divergence_mask} prove that the probability current generated by $R_t^*$ is strictly irrotational: probability mass flows unidirectionally from the source $[M]$ into target categories without cyclic dissipation or circulation on the simplex.
+
+\subsection{Flow Schedulers: Linear, Cosine, and Polynomial Dynamics}
+
+The rate of probability mass transfer across the flow is governed by the derivative $\kappa'(t)$. We examine three schedule functions:
 \begin{enumerate}[(i)]
 \item \textbf{Linear Schedule:}
 \begin{equation}
 \kappa_{\text{linear}}(t) = t, \qquad \kappa'_{\text{linear}}(t) = 1
 \label{eq:linear_sched}
 \end{equation}
-The instantaneous unmasking transition rate is $\frac{1}{1-t}$, which diverges as $t \to 1$, concentrating token commitments late in the trajectory.
+Under the linear schedule, the instantaneous transition rate scalar is $\frac{1}{1-t}$, which diverges as $t \to 1$. This singularity forces substantial probability mass transfer late in the trajectory.
 \item \textbf{Cosine Schedule:}
 \begin{equation}
 \kappa_{\text{cosine}}(t) = 1 - \cos\left( \frac{\pi t}{2} \right), \qquad \kappa'_{\text{cosine}}(t) = \frac{\pi}{2} \sin\left( \frac{\pi t}{2} \right)
 \label{eq:cosine_sched}
 \end{equation}
-The cosine schedule starts with $\kappa'(0) = 0$, allowing the bidirectional Transformer to construct global contextual representations from the tandem spectrum before committing to residue identities.
-\item \textbf{Dirichlet Flow Dynamics:} Following \citet{Stark2024}, continuous probability flows over categorical simplexes can be parameterized via Dirichlet-distributed concentration vectors $\alpha(t) = (1 - t) \alpha_0 + t \alpha_1$.
+The cosine schedule satisfies $\kappa'(0) = 0$. This vanishing initial derivative prevents premature commitment during early steps, enabling the bidirectional neural network to build global contextual representations across all coordinates before committing mass to specific discrete states.
+\item \textbf{Polynomial Schedule:}
+\begin{equation}
+\kappa_{\text{poly}}(t) = t^\alpha, \qquad \kappa'_{\text{poly}}(t) = \alpha t^{\alpha-1} \quad (\alpha > 1)
+\label{eq:poly_sched}
+\end{equation}
+which provides parametric control over early velocity damping and late commitment acceleration.
 \end{enumerate}
-
-\begin{figure}[!ht]
-\centering
-\includegraphics[width=0.88\textwidth]{images/ctmc_flow_dynamics.png}
-\caption{Empirical verification of Continuous-Time Markov Chain (CTMC) flow dynamics evaluated across 10,000 biological spectra. (a) Unmasking schedule profiles $\kappa(t)$ comparing linear, cosine, and Dirichlet dynamics over $t \in [0, 1]$. (b) Positional categorical Shannon entropy decay across reverse flow sampling steps, showing progressive uncertainty reduction. (c) Token commitment velocity $\frac{\mathrm{d}\kappa}{\mathrm{d}t}$ across integration time. (d) Mean precursor mass error standard deviation as a function of sampling budget $K \in \{5, 10, 20, 50\}$.}
-\label{fig:ctmc_flow_dynamics}
-\end{figure}
-
-As shown in Figure~\ref{fig:ctmc_flow_dynamics}, sequence entropy under the cosine schedule decreases smoothly across the 20 sampling steps, avoiding premature commitment to erroneous residues during early integration.
 
 \section{Discrete Flow Matching Objective and Training Algorithm}
 
-Because the exact posterior distribution $p_{1 \mid t}(x_1 \mid x_t, \mathcal{S})$ is intractable, we train a neural network $p_{1 \mid t}^\theta(x_1 \mid x_t, t, \mathcal{S})$ to predict clean peptide sequences $x_1$ conditioned on corrupted sequences $x_t$, continuous flow time $t$, and spectrum features $\mathcal{S}$ \citep{Campbell2024}.
+Because the exact posterior distribution $p_{1 \mid t}(x_1 \mid x_t)$ is intractable, we parameterize a neural network $p_{1 \mid t}^\theta(x_1 \mid x_t, t)$ to predict clean configurations $x_1 \in \mathcal{X}^D$ from corrupted states $x_t \in \mathcal{X}^D$ and continuous flow times $t \in [0, 1]$ \citep{Campbell2024}.
 
 \begin{defn}[Discrete Flow Matching Cross-Entropy Loss]
-Given a dataset of paired spectra and peptide sequences $(x_1, \mathcal{S}) \sim p_{\text{data}}$, a time $t \sim \mathcal{U}[0, 1]$, and a corrupted sequence $x_t \sim p_{t \mid 1}(x_t \mid x_1)$, the DFlowNovo network parameterized by $\theta$ is optimized by minimizing:
+Given a target distribution $p_1$ over $\mathcal{X}^D$, a uniform time distribution $t \sim \mathcal{U}[0, 1]$, and a corrupted sequence $x_t \sim p_{t \mid 1}(x_t \mid x_1)$, the discrete flow matching objective is:
 \begin{equation}
-\mathcal{L}_{\text{DFM}}(\theta) = - \mathbb{E}_{(x_1, \mathcal{S}) \sim p_{\text{data}}} \, \mathbb{E}_{t \sim \mathcal{U}[0, 1]} \, \mathbb{E}_{x_t \sim p_{t \mid 1}(x_t \mid x_1)} \left[ \frac{1}{\sum_{d=1}^D \mathbb{I}(x_t^d = [M])} \sum_{d: x_t^d = [M]} \log p_{1 \mid t}^\theta(x_1^d \mid x_t, t, \mathcal{S}) \right]
+\mathcal{L}_{\text{DFM}}(\theta) = - \mathbb{E}_{x_1 \sim p_1} \, \mathbb{E}_{t \sim \mathcal{U}[0, 1]} \, \mathbb{E}_{x_t \sim p_{t \mid 1}(x_t \mid x_1)} \left[ \frac{1}{\sum_{d=1}^D \mathbb{I}(x_t^d = [M])} \sum_{d: x_t^d = [M]} \log p_{1 \mid t}^\theta(x_1^d \mid x_t, t) \right]
 \label{eq:dfm_loss}
 \end{equation}
 \end{defn}
 
-Notice that in Equation~\ref{eq:dfm_loss}, cross-entropy is evaluated exclusively over masked token positions ($x_t^d = [M]$), matching the simulation-free training recipe of \citet{Campbell2024}. Unmasked positions already match the ground-truth target under the canonical flow $R_t^*$ and require no gradient updates.
+In Equation~\ref{eq:dfm_loss}, cross-entropy is evaluated exclusively over masked coordinate positions ($x_t^d = [M]$), consistent with simulation-free discrete flow matching \citep{Campbell2024}. Unmasked coordinates already match the ground-truth target under the canonical flow $R_t^*$ and require no gradient updates.
 
-Algorithm~\ref{alg:ctmc_training} outlines the complete training procedure for DFlowNovo.
+Algorithm~\ref{alg:ctmc_training} outlines the simulation-free training procedure for Continuous-Time Discrete Flow Matching.
 
 \begin{algorithm}[!ht]
 \caption{Continuous-Time Discrete Flow Matching (CTMC) Training}
 \label{alg:ctmc_training}
 \begin{algorithmic}[1]
-\Require Dataset of tandem spectra and ground-truth sequences $\mathcal{D} = \{(\mathcal{S}^{(n)}, Y^{(n)})\}_{n=1}^N$, schedule function $\kappa(t)$, batch size $B$, learning rate $\eta_{\text{lr}}$.
-\Ensure Optimized model parameters $\theta = \{\theta_{\text{enc}}, \theta_{\text{dec}}, \theta_{\text{len}}\}$.
-\State Initialize network parameters $\theta$ with AdaLN-Zero identity initialization ($W_{\text{ada}} = 0$).
+\Require Target data distribution $p_1$ over discrete state space $\mathcal{X}^D$ with vocabulary $\mathcal{X}$ of size $S$; schedule function $\kappa(t)$; batch size $B$; learning rate $\eta_{\text{lr}}$.
+\Ensure Optimized model parameters $\theta$.
+\State Initialize network parameters $\theta$.
 \While{not converged}
-    \State Sample a minibatch of $B$ spectrum-peptide pairs $\{(\mathcal{S}_b, x_{1, b})\}_{b=1}^B \sim \mathcal{D}$.
+    \State Sample a minibatch of clean configurations $\{x_{1, b}\}_{b=1}^B \sim p_1$.
     \State Sample continuous flow times independently: $t_b \sim \mathcal{U}(0, 1)$ for $b \in \{1, \dots, B\}$.
-    \State Compute unmasking probabilities: $\kappa_b = \kappa(t_b)$.
-    \State Corrupt clean targets to generate $x_{t, b}$:
+    \State Evaluate unmasking probabilities: $\kappa_b \gets \kappa(t_b)$.
+    \State Corrupt clean targets to generate $x_{t, b} \sim p_{t_b \mid 1}(\cdot \mid x_{1, b})$ coordinate-wise:
     \For{$b = 1$ \textbf{to} $B$}
-        \For{position $d = 1$ \textbf{to} $D_b$}
+        \For{coordinate $d = 1$ \textbf{to} $D$}
             \State Sample $u \sim \mathcal{U}(0, 1)$.
             \State $x_{t, b}^d \gets \begin{cases} x_{1, b}^d & \text{if } u < \kappa_b \\ [M] & \text{if } u \ge \kappa_b \end{cases}$
         \EndFor
     \EndFor
-    \State Compute spectrum encoder representations: $H_{\text{spec}, b} = \text{SpectrumEncoder}_{\theta}(\mathcal{S}_b)$.
-    \State Predict length logits and clean residue probabilities:
-    \State $\hat{p}_{\text{len}, b} = \text{LengthHead}_{\theta}(H_{\text{spec}, b}[CLS])$
-    \State $\hat{p}_{1 \mid t, b} = \text{Decoder}_{\theta}(x_{t, b}, t_b, M_{\text{prec}, b}, z_b, H_{\text{spec}, b})$
-    \State Compute length cross-entropy loss: $\mathcal{L}_{\text{len}} = - \frac{1}{B} \sum_{b=1}^B \log \hat{p}_{\text{len}, b}(D_b)$.
-    \State Compute sequence flow loss over masked positions:
-    \State $\mathcal{L}_{\text{seq}} = - \frac{1}{B} \sum_{b=1}^B \frac{1}{\sum_d \mathbb{I}(x_{t, b}^d = [M])} \sum_{d: x_{t, b}^d = [M]} \log \hat{p}_{1 \mid t, b}^d(x_{1, b}^d)$.
-    \State Total objective: $\mathcal{L}_{\text{total}} = \mathcal{L}_{\text{seq}} + \lambda_{\text{len}} \mathcal{L}_{\text{len}}$.
-    \State Compute gradients $\nabla_\theta \mathcal{L}_{\text{total}}$, clip norm to $1.0$, and update parameters via AdamW.
+    \State Predict posterior clean token probabilities via parameterized model:
+    \State $\hat{p}_{1 \mid t, b} \gets p_{1 \mid t}^\theta(\cdot \mid x_{t, b}, t_b) \in (\Delta^{S-1})^D$ for $b \in \{1, \dots, B\}$.
+    \State Compute discrete flow matching loss over masked coordinates:
+    \State $\mathcal{L}_{\text{DFM}}(\theta) \gets - \frac{1}{B} \sum_{b=1}^B \frac{1}{\sum_{d=1}^D \mathbb{I}(x_{t, b}^d = [M])} \sum_{d: x_{t, b}^d = [M]} \log \hat{p}_{1 \mid t, b}^d(x_{1, b}^d)$.
+    \State Compute gradients $\nabla_\theta \mathcal{L}_{\text{DFM}}(\theta)$ and update parameters $\theta$ via stochastic gradient optimization.
 \EndWhile
+\end{algorithmic}
+\end{algorithm}
+
+\section{Reverse-Time CTMC Discrete Flow Sampling}
+
+Generating a discrete sample from $p_1$ corresponds to simulating the CTMC trajectory $\{X_t\}_{t \in [0, 1]}$ initialized at $X_0 \sim p_0$ (the all-mask configuration $x_0 = ([M], \dots, [M]) \in \mathcal{X}^D$) forward along the generative time direction towards $t = 1$. 
+
+Numerical integration discretizes the continuous interval $[0, 1]$ into $K$ uniform Euler steps of size $\Delta t = 1/K$, defining discrete time grid points $t_k = k \Delta t$ for $k \in \{0, 1, \dots, K-1\}$. Over each time interval $[t, t + \Delta t]$, the transition probabilities are evaluated using the first-order Euler expansion:
+\begin{equation}
+\mathbb{P}(X_{t+\Delta t}^d = j \mid X_t^d = x_t^d) = \delta_{x_t^d, j} + R_t^d(x_t^d, j) \Delta t + o(\Delta t)
+\label{eq:euler_transition_expansion}
+\end{equation}
+Substituting the rate matrix $R_t^\eta$ from Equation~\ref{eq:stochastic_unmask_rate}:
+\begin{enumerate}[(i)]
+\item For currently masked coordinates ($x_t^d = [M]$), the cumulative unmasking probability across all states $j \ne [M]$ is:
+\begin{equation}
+\lambda_t = \sum_{j \ne [M]} R_t^d([M], j) \Delta t = \frac{\kappa'(t) + \eta \, \kappa(t)}{1 - \kappa(t)} \Delta t
+\label{eq:sampling_unmask_prob}
+\end{equation}
+With probability $\min(1, \lambda_t)$, coordinate $d$ transitions to a state sampled from the model posterior:
+\begin{equation}
+x_{t+\Delta t}^d \sim \text{Cat}\left( p_{1 \mid t}^\theta(x_1^d = \cdot \mid x_t, t) \right)
+\end{equation}
+With probability $1 - \min(1, \lambda_t)$, coordinate $d$ remains in the absorbing mask state $[M]$.
+\item For currently unmasked coordinates ($x_t^d \ne [M]$):
+\begin{itemize}
+\item If $\eta = 0$ (the canonical jump-minimal rate $R_t^*$), unmasked coordinates remain fixed for all remaining steps: $x_{t+\Delta t}^d = x_t^d$.
+\item If $\eta > 0$, coordinate $d$ re-masks ($x_{t+\Delta t}^d \gets [M]$) with probability $\eta \Delta t$, enabling exploratory stochastic search.
+\end{itemize}
+\item On the boundary step $k = K - 1$ ($t + \Delta t = 1$), all remaining masked coordinates are forcibly sampled from $p_{1 \mid t}^\theta(\cdot \mid x_t, 1)$, ensuring that the terminal configuration satisfies $x_1 \in (\mathcal{X} \setminus \{[M]\})^D$.
+\end{enumerate}
+
+Algorithm~\ref{alg:ctmc_sampling_pure} formalizes the pure mathematical reverse-time CTMC discrete flow sampling procedure.
+
+\begin{algorithm}[!ht]
+\caption{Reverse-Time CTMC Discrete Flow Sampling (Euler Method)}
+\label{alg:ctmc_sampling_pure}
+\begin{algorithmic}[1]
+\Require Sequence length $D$; trained neural denoiser $p_{1 \mid t}^\theta$; flow schedule $\kappa(t)$; integration steps $K$; stochasticity parameter $\eta \ge 0$.
+\Ensure Sampled discrete configuration $x_1 \in (\mathcal{X} \setminus \{[M]\})^D$.
+\State Initialize discrete state: $x_0 \gets ([M], [M], \dots, [M]) \in \mathcal{X}^D$.
+\State Set uniform step size: $\Delta t \gets 1 / K$.
+\For{step $k = 0$ \textbf{to} $K-1$}
+    \State Current flow time: $t \gets k \cdot \Delta t$.
+    \State Compute unmasking rate scalar: $\lambda_t \gets \frac{\kappa'(t) + \eta \, \kappa(t)}{1 - \kappa(t)} \Delta t$.
+    \State Predict clean categorical distributions: $\hat{p}_{1 \mid t} \gets p_{1 \mid t}^\theta(\cdot \mid x_t, t) \in (\Delta^{S-1})^D$.
+    \For{coordinate $d = 1$ \textbf{to} $D$}
+        \If{$x_t^d = [M]$}
+            \State Sample jump threshold: $u \sim \mathcal{U}(0, 1)$.
+            \If{$u < \min(1, \lambda_t)$ \textbf{or} $k = K - 1$} \Comment{Euler jump / forced boundary commitment}
+                \State Sample discrete token: $x_{t+\Delta t}^d \sim \text{Categorical}(\hat{p}_{1 \mid t}^d)$.
+            \Else
+                \State Retain mask state: $x_{t+\Delta t}^d \gets [M]$.
+            \EndIf
+        \Else \Comment{Coordinate currently unmasked ($x_t^d \ne [M]$)}
+            \If{$\eta > 0$} \Comment{Stochastic re-masking under detailed balance}
+                \State Sample re-mask threshold: $v \sim \mathcal{U}(0, 1)$.
+                \If{$v < \eta \, \Delta t$}
+                    \State $x_{t+\Delta t}^d \gets [M]$.
+                \Else
+                    \State $x_{t+\Delta t}^d \gets x_t^d$.
+                \EndIf
+            \Else
+                \State $x_{t+\Delta t}^d \gets x_t^d$. \Comment{Jump-minimal invariance under canonical rate $R_t^*$}
+            \EndIf
+        \EndIf
+    \EndFor
+\EndFor
+\State \Return $x_1$
 \end{algorithmic}
 \end{algorithm}

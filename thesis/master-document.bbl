@@ -1,4 +1,4 @@
-\begin{thebibliography}{29}
+\begin{thebibliography}{28}
 \providecommand{\natexlab}[1]{#1}
 \providecommand{\url}[1]{\texttt{#1}}
 \expandafter\ifx\csname urlstyle\endcsname\relax
@@ -25,6 +25,12 @@ Campbell, A., Yim, J., Barzilay, R., Rainforth, T., and Jaakkola, T.
   with applications to protein co-design.
 \newblock \emph{International Conference on Machine Learning (ICML)},
   235:\penalty0 5296--5325, 2024.
+
+\bibitem[Chen et~al.(2018)Chen, Rubanova, Bettencourt, and Duvenaud]{Chen2018}
+Chen, R. T.~Q., Rubanova, Y., Bettencourt, J., and Duvenaud, D.~K.
+\newblock Neural ordinary differential equations.
+\newblock In \emph{Advances in Neural Information Processing Systems
+  (NeurIPS)}, volume~31, pages 6571--6583, 2018.
 
 \bibitem[Dancik et~al.(1999)Dancik, Addona, Clauser, Vath, and
   Pevzner]{Dancik1999}
@@ -155,20 +161,6 @@ Roepstorff, P. and Fohlman, J.
 Shazeer, N.
 \newblock {GLU} variants improve transformer.
 \newblock \emph{arXiv preprint arXiv:2002.05202}, 2020.
-
-\bibitem[Stark et~al.(2024)Stark, Jing, Wang, Corso, Berger, Barzilay, and
-  Jaakkola]{Stark2024}
-Stark, H., Jing, B., Wang, C., Corso, G., Berger, B., Barzilay, R., and
-  Jaakkola, T.
-\newblock Dirichlet flow matching with applications to {DNA} sequence design.
-\newblock \emph{International Conference on Learning Representations (ICLR)},
-  2024.
-
-\bibitem[Touvron et~al.(2023)Touvron, Lavril, Izacard, Martinet, Lachaux,
-  et~al.]{Touvron2023}
-Touvron, H., Lavril, T., Izacard, G., Martinet, X., Lachaux, M.-A., et~al.
-\newblock {LLaMA}: Open and efficient foundation language models.
-\newblock \emph{arXiv preprint arXiv:2302.13971}, 2023.
 
 \bibitem[Tran et~al.(2017)Tran, Zhang, Xin, Shan, and Li]{Tran2017}
 Tran, N.~H., Zhang, X., Xin, L., Shan, B., and Li, M.
