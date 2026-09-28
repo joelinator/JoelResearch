@@ -25,6 +25,19 @@
 \usepackage{bm}
 \usepackage{algorithm}
 \usepackage{algpseudocode}
+\usepackage{xcolor}
+
+% Highlighting macros for sequence alignment case studies
+\definecolor{matchgreen}{RGB}{230, 248, 235}
+\definecolor{textgreen}{RGB}{20, 120, 50}
+\definecolor{swapblue}{RGB}{235, 243, 255}
+\definecolor{textblue}{RGB}{25, 80, 175}
+\definecolor{errorred}{RGB}{253, 237, 236}
+\definecolor{textred}{RGB}{185, 35, 35}
+
+\newcommand{\resmatch}[1]{\colorbox{matchgreen}{\textcolor{textgreen}{\textbf{\texttt{#1}}}}}
+\newcommand{\resiso}[1]{\colorbox{swapblue}{\textcolor{textblue}{\textbf{\texttt{#1}}}}}
+\newcommand{\reserror}[1]{\colorbox{errorred}{\textcolor{textred}{\textbf{\texttt{#1}}}}}
 
 % Fix spacing before theorem environments
 \makeatletter\def\thm@space@setup{%
