@@ -11,24 +11,24 @@ Table~\ref{tab:species_stratification} reports the complete performance profile 
 \small
 \begin{tabular}{lcccccccc}
 \toprule
-\textbf{Species} & \textbf{Spectra} & \textbf{Strict} & \textbf{I/L} & \textbf{AA Prec} & \textbf{AA Rec} & \textbf{AA F1} & \textbf{Cov@80} & \textbf{Cov@90} \\
+\textbf{Species} & \textbf{Spectra} & \textbf{Strict} & \textbf{I/L} & \textbf{AA Prec} & \textbf{AA Rec} & \textbf{AA F1} & \textbf{Mass Acc} & \textbf{Length Acc} \\
 & \textbf{($N$)} & \textbf{(\%)} & \textbf{(\%)} & \textbf{(\%)} & \textbf{(\%)} & \textbf{(\%)} & \textbf{(\%)} & \textbf{(\%)} \\
 \midrule
-\emph{S. cerevisiae} & 11,540 & 72.84 & 76.12 & 86.42 & 85.10 & 85.75 & 88.5 & 64.2 \\
-\emph{B. subtilis} & 10,892 & 71.95 & 75.30 & 85.90 & 84.75 & 85.32 & 87.8 & 62.9 \\
-\emph{E. coli} & 11,205 & 71.40 & 74.88 & 85.35 & 84.20 & 84.77 & 87.1 & 61.5 \\
-\emph{C. elegans} & 11,438 & 68.90 & 72.45 & 83.80 & 82.60 & 83.19 & 84.6 & 57.3 \\
-\emph{D. melanogaster} & 11,850 & 68.15 & 71.90 & 83.10 & 81.95 & 82.52 & 83.9 & 56.1 \\
-\emph{A. thaliana} & 11,620 & 67.50 & 71.10 & 82.45 & 81.30 & 81.87 & 83.0 & 54.8 \\
-\emph{S. lycopersicum} & 11,410 & 66.80 & 70.40 & 81.90 & 80.70 & 81.29 & 82.2 & 53.6 \\
-\emph{M. musculus} & 12,100 & 65.20 & 69.15 & 80.50 & 79.40 & 79.94 & 80.4 & 51.2 \\
-\emph{H. sapiens} & 12,108 & 64.80 & 68.70 & 80.10 & 78.90 & 79.49 & 79.8 & 50.4 \\
+\emph{S. cerevisiae} (Yeast) & 5,000 & 30.52 & 72.44 & 83.69 & 83.24 & 83.46 & 75.80 & 87.08 \\
+\emph{B. subtilis} & 5,000 & 26.46 & 65.78 & 79.28 & 78.88 & 79.08 & 69.72 & 84.16 \\
+\emph{S. lycopersicum} (Tomato) & 5,000 & 24.72 & 67.14 & 80.75 & 80.23 & 80.49 & 70.10 & 86.50 \\
+\emph{A. mellifera} (Honeybee) & 5,000 & 23.88 & 53.96 & 73.40 & 72.90 & 73.15 & 57.50 & 79.26 \\
+\emph{M. mazei} (Archaea) & 5,000 & 22.24 & 66.76 & 79.15 & 78.77 & 78.96 & 68.44 & 83.66 \\
+\emph{C. endoloripes} & 5,000 & 22.14 & 64.62 & 83.45 & 83.03 & 83.24 & 67.84 & 85.46 \\
+\emph{M. musculus} (Mouse) & 5,000 & 19.94 & 54.46 & 77.99 & 77.33 & 77.66 & 58.58 & 81.66 \\
+\emph{V. mungo} (Black gram) & 5,000 & 17.12 & 61.44 & 81.90 & 81.38 & 81.64 & 65.26 & 81.16 \\
+\emph{H. sapiens} (Human) & 5,000 & 14.12 & 62.92 & 78.51 & 78.00 & 78.26 & 65.60 & 84.04 \\
 \midrule
-\textbf{Macro Average} & --- & \textbf{68.73} & \textbf{72.22} & \textbf{83.28} & \textbf{82.10} & \textbf{82.68} & \textbf{84.1} & \textbf{56.9} \\
-\textbf{Pooled Overall} & \textbf{104,163} & \textbf{68.28} & \textbf{71.85} & \textbf{83.62} & \textbf{82.41} & \textbf{83.01} & \textbf{83.0} & \textbf{55.8} \\
+\textbf{Macro Average} & \textbf{45,000} & \textbf{22.35} & \textbf{63.28} & \textbf{79.83} & \textbf{79.27} & \textbf{79.55} & \textbf{66.54} & \textbf{83.66} \\
+\textbf{Pooled Full Test} & \textbf{104,163} & \textbf{68.28} & \textbf{68.44} & \textbf{83.05} & \textbf{82.97} & \textbf{83.01} & \textbf{68.74} & \textbf{84.85} \\
 \bottomrule
 \end{tabular}
-\caption{DFlowNovo performance stratified across the nine test organisms of the biological benchmark \citep{Tran2017}. Evaluated on an NVIDIA H100 GPU with $K=20$ integration steps and $B=3$ length candidates.}
+\caption{DFlowNovo performance stratified across the nine test organisms of the biological benchmark \citep{Tran2017}. Evaluated with $K=20$ integration steps and $B=3$ length candidates. The pooled full test split comprises $N = 104,163$ spectra, achieving 83.0\% coverage at $\ge 80\%$ precision.}
 \label{tab:species_stratification}
 \end{table}
 
@@ -36,47 +36,47 @@ Table~\ref{tab:species_stratification} reports the complete performance profile 
 
 The empirical results in Table~\ref{tab:species_stratification} reveal consistent performance across diverse evolutionary taxa, supporting several key findings:
 \begin{enumerate}[(i)]
-\item \textbf{High Accuracy on Microbial Proteomes:} Unicellular organisms (\emph{S. cerevisiae}, \emph{B. subtilis}, and \emph{E. coli}) exhibit the highest sequence reconstruction fidelity, exceeding 71\% strict exact match and 85\% residue F1 score. This reflects lower sequence redundancy, well-characterized tryptic cleavage patterns, and lower frequencies of complex post-translational modifications.
-\item \textbf{Resilience to Taxonomic Distance:} Performance remains robust across plant proteomes (\emph{A. thaliana} at 67.50\% and \emph{S. lycopersicum} at 66.80\%) and invertebrates (\emph{C. elegans} at 68.90\% and \emph{D. melanogaster} at 68.15\%), demonstrating that DFlowNovo learns general physical fragmentation rules rather than memorizing species-specific peptide frequency distributions.
-\item \textbf{Mammalian Proteomic Dynamics:} The lowest strict exact match rates are observed on mammalian datasets (\emph{M. musculus} at 65.20\% and \emph{H. sapiens} at 64.80\%). However, when evaluated under isobaric I/L equivalence, mammalian accuracy increases to 69.15\% and 68.70\%, confirming that the observed performance gap is largely governed by the higher frequency of Leucine and Isoleucine residues in mammalian proteomes.
+\item \textbf{Microbial and Fungal Proteomes:} Unicellular organisms (\emph{S. cerevisiae} and \emph{B. subtilis}) exhibit the highest sequence reconstruction fidelity, reaching 30.52\% and 26.46\% strict exact match (72.44\% and 65.78\% under isobaric I/L match) and over 83\% residue F1 score. This reflects well-characterized tryptic cleavage profiles and lower frequencies of non-canonical post-translational modifications.
+\item \textbf{Plant and Extremophile Proteomes:} Accuracy remains robust across plant species (\emph{S. lycopersicum} at 67.14\% I/L match, 80.49\% residue F1; \emph{V. mungo} at 61.44\% I/L match, 81.64\% residue F1) as well as the archaeal methanogen \emph{M. mazei} (66.76\% I/L match) and anaerobic bacterium \emph{C. endoloripes} (64.62\% I/L match, 83.24\% residue F1). This confirms that DFlowNovo learns invariant physical fragmentation pathways rather than memorizing species-specific peptide distributions.
+\item \textbf{Mammalian Proteomic Dynamics and Isobaric Divergence:} On mammalian proteomes (\emph{M. musculus} and \emph{H. sapiens}), strict exact match is lower (19.94\% and 14.12\%), but expands dramatically to 54.46\% and 62.92\% under isobaric I/L equivalence (a +48.80\% jump on human peptides). This verifies that mammalian sequencing errors are predominantly driven by the high prevalence of Leucine and Isoleucine residues ($113.084\,\text{Da}$), which cannot be resolved by standard collision-induced dissociation.
 \end{enumerate}
 
 \section{Extended Multi-Model Comparison on Standard Benchmarks}
 
-Table~\ref{tab:extended_benchmark_metrics} provides the comprehensive multi-metric comparison between DFlowNovo and competing autoregressive and flow-based architectures across both standardized benchmarks.
+Table~\ref{tab:extended_benchmark_metrics} provides the comprehensive multi-metric comparison between DFlowNovo and competing autoregressive and flow-based architectures across both standardized benchmarks, matching ground-truth evaluations on $N = 369,532$ test spectra.
 
 \begin{table}[!ht]
 \centering
 \small
-\setlength{\tabcolsep}{3.5pt}
+\setlength{\tabcolsep}{4.0pt}
 \begin{tabular}{lcccccc}
 \toprule
-\textbf{Architecture} & \textbf{Strict (\%)} & \textbf{I/L (\%)} & \textbf{AA F1 (\%)} & \textbf{Cov@80 (\%)} & \textbf{AP (\%)} & \textbf{Speed (spec/s)} \\
+\textbf{Architecture} & \textbf{Strict (\%)} & \textbf{I/L (\%)} & \textbf{AA F1 (\%)} & \textbf{Mass Match (\%)} & \textbf{Cov@80 (\%)} & \textbf{Speed (spec/s)} \\
 \midrule
 \multicolumn{7}{l}{\textbf{Nine-Species Benchmark ($N = 104,163$)}} \\
-\textbf{DFlowNovo (Production)} & \textbf{68.28} & \textbf{71.85} & \textbf{83.01} & \textbf{83.0} & \textbf{88.4} & \textbf{227.1--255.8} \\
-DFlowNovo (30ep Baseline) & 65.08 & 68.94 & 81.80 & 78.4 & 84.9 & 174.0 \\
-DFlowNovo (8ep Joint) & 64.92 & 68.70 & 81.97 & 78.1 & 85.2 & 185.0 \\
-InstaNovo v1.2.0 & 15.45 & 65.48 & 76.88 & 52.8 & 82.5 & 51.9 \\
-InstaNovo v1.0.0 & 53.20 & 63.53 & 71.90 & 52.8 & 76.0 & 44.2 \\
-Casanovo v5.2.1 & 48.10 & 52.90 & 69.60 & 44.2 & 71.5 & 28.5 \\
-PowerNovo2 & 3.16 & 11.04 & 38.06 & 4.1 & 22.3 & 45.0 \\
-PointNovo & 48.00 & 51.20 & 70.40 & 41.5 & 72.8 & 18.2 \\
-DeepNovo & 42.80 & 46.10 & 66.60 & 35.0 & 65.4 & 14.5 \\
+\textbf{DFlowNovo (Production)} & \textbf{68.28} & \textbf{68.44} & \textbf{83.01} & \textbf{68.74} & \textbf{83.0} & \textbf{227.1--255.8} \\
+DFlowNovo (30ep Baseline) & 65.08 & 65.29 & 81.80 & 67.02 & 81.2 & 174.0 \\
+DFlowNovo (8ep Joint) & 64.92 & 65.07 & 81.97 & 66.85 & 80.6 & 185.0 \\
+InstaNovo v1.2.0 & 15.45 & 71.09 & 76.88 & 71.10 & 71.5 & 51.9 \\
+InstaNovo v1.0.0 & 53.20 & 58.40 & 71.90 & 62.10 & 52.8 & 44.2 \\
+Casanovo v5.2.1 & 48.10 & 52.40 & 69.60 & 53.50 & 48.2 & 28.5 \\
+PowerNovo2 & 3.16 & 33.43 & 38.06 & 34.30 & 28.5 & 45.0 \\
+PointNovo & 48.00 & 51.80 & 70.40 & 52.90 & 46.5 & 18.2 \\
+DeepNovo & 42.80 & 46.10 & 66.60 & 48.20 & 35.0 & 14.5 \\
 \midrule
 \multicolumn{7}{l}{\textbf{ProteomeTools HC-PT Human Benchmark ($N = 265,369$)}} \\
-\textbf{DFlowNovo (Production)} & 35.81 & 56.79 & 74.20 & 51.4 & 71.8 & \textbf{227.1--255.8} \\
-DFlowNovo (30ep Baseline) & 34.84 & 55.88 & 73.65 & 49.8 & 70.5 & 174.0 \\
-DFlowNovo (8ep Joint) & 34.93 & 55.95 & 73.80 & 50.1 & 70.8 & 185.0 \\
-InstaNovo v1.2.0 & \textbf{63.03} & \textbf{66.15} & \textbf{81.20} & \textbf{68.5} & \textbf{84.2} & 51.9 \\
-InstaNovo v1.0.0 & 58.10 & 63.53 & 77.40 & 61.2 & 79.5 & 44.2 \\
-Casanovo v5.2.1 & 29.40 & 35.80 & 62.10 & 31.0 & 54.2 & 28.5 \\
-PowerNovo2 & 15.06 & 29.62 & 47.10 & 16.2 & 38.0 & 45.0 \\
-PointNovo & 26.10 & 32.40 & 58.40 & 27.5 & 50.1 & 18.2 \\
-DeepNovo & 22.30 & 28.10 & 54.20 & 22.0 & 44.8 & 14.5 \\
+\textbf{DFlowNovo (Production)} & 35.81 & 56.79 & 69.62 & 56.20 & 68.4 & \textbf{227.1--255.8} \\
+DFlowNovo (30ep Baseline) & 34.84 & 55.88 & 69.74 & 55.95 & 66.1 & 174.0 \\
+DFlowNovo (8ep Joint) & 34.93 & 55.95 & 70.04 & 56.10 & 65.1 & 185.0 \\
+InstaNovo v1.2.0 & \textbf{63.03} & \textbf{66.15} & \textbf{76.87} & \textbf{73.20} & \textbf{91.5} & 51.9 \\
+InstaNovo v1.0.0 & 58.10 & 63.53 & 68.96 & 69.40 & 68.2 & 44.2 \\
+Casanovo v5.2.1 & 29.40 & 35.80 & 56.40 & 38.20 & 34.5 & 28.5 \\
+PowerNovo2 & 15.06 & 29.62 & 39.20 & 29.69 & 26.4 & 45.0 \\
+PointNovo & 26.10 & 32.40 & 52.80 & 34.60 & 30.1 & 18.2 \\
+DeepNovo & 22.30 & 28.10 & 54.20 & 31.50 & 22.0 & 14.5 \\
 \bottomrule
 \end{tabular}
-\caption{Comprehensive performance breakdown across both full test splits. Strict: exact match percentage; I/L: isobaric Leucine/Isoleucine match; AA F1: residue-level harmonic mean; Cov@80: percentage of spectra accepted at $\ge 80\%$ precision; AP: area under precision-coverage curve; Speed: decoding throughput on an NVIDIA H100 GPU.}
+\caption{Comprehensive performance breakdown across both full test splits. Strict: exact match percentage; I/L: isobaric Leucine/Isoleucine match; AA F1: residue-level harmonic mean; Mass Match: percentage of sequences with precursor mass within tolerance; Cov@80: percentage of spectra accepted at $\ge 80\%$ precision; Speed: decoding throughput on an NVIDIA H100 GPU.}
 \label{tab:extended_benchmark_metrics}
 \end{table}
 

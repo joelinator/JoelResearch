@@ -116,7 +116,8 @@
   \fcolorbox{TealBorder}{LightTeal}{
     \begin{minipage}{0.85\textwidth}
       \centering\scriptsize\color{DarkSlate}
-      \textbf{Degree}: Master of Science in Artificial Intelligence \quad|\quad \textbf{Date}: September 30, 2026
+      \textbf{Degree}: Master of Science in Artificial Intelligence \quad|\quad \textbf{Date}: September 30, 2026\\[2pt]
+      \tiny\textbf{Code}: \texttt{https://github.com/joelinator/JoelResearch} \quad|\quad \textbf{Model}: \texttt{https://huggingface.co/joelinator/dflow-novo-model}
     \end{minipage}
   }
 \end{center}
@@ -804,16 +805,17 @@
     \item \textbf{454 MB Lean Checkpoint}: Stripped optimizer states and converted to BF16 weights for instant cloud loading.
     \item \textbf{Hugging Face Model Hub}:
     \begin{equation*}
-      \texttt{\tiny model = DFlowNovo.from\_pretrained("aims-lab/dflow-novo")}
+      \texttt{\tiny model = DFlowNovo.from\_pretrained("joelinator/dflow-novo-model")}
     \end{equation*}
     \item \textbf{Standardized I/O}: Native parsing of MGF, mzML, and Thermo raw files via Pyteomics.
   \end{itemize}
   \vspace{0.05cm}
-  \begin{exampleblock}{\scriptsize GitHub Release v0.2.0 Open Source}
+  \begin{exampleblock}{\scriptsize Open Source Repository \& Checkpoint}
     \begin{itemize}\setlength{\itemsep}{1pt}\tiny
       \item Complete reproducible training scripts (PyTorch Lightning).
       \item Precomputed KnapsackDP CUDA kernels.
-      \item Interactive tutorial: \texttt{notebooks/dfm\_tutorial.ipynb}.
+      \item Interactive tutorial: \texttt{notebooks/dfm\_de\_novo\_tutorial.ipynb}.
+      \item GitHub: \texttt{https://github.com/joelinator/JoelResearch}
     \end{itemize}
   \end{exampleblock}
 \end{column}
@@ -825,6 +827,7 @@
       \item \textbf{Animated Flow Trajectory}: Dynamic visualization of sequence unmasking across $t: 0 \to 1$.
       \item \textbf{Fragment Ladder Overlay}: Color-coded $b$- and $y$-ion assignments matching predicted residues.
       \item \textbf{Confidence \& PPM Error Gauge}: Real-time quality diagnostics for clinical lab technicians.
+      \item \textbf{Online Space}: \texttt{https://huggingface.co/spaces/joelinator/dflow-novo}
     \end{itemize}
   \end{block}
   \vspace{0.05cm}
@@ -945,8 +948,9 @@
     \end{minipage}
   }
   
-  \vspace{0.3cm}
-  {\large\bfseries\color{NavySlate} Floor Open for Committee Questions \& Discussion}
+  \vspace{0.25cm}
+  {\large\bfseries\color{NavySlate} Floor Open for Committee Questions \& Discussion}\\[0.15cm]
+  {\tiny\color{MutedGray}\textbf{GitHub}: \texttt{https://github.com/joelinator/JoelResearch} \quad$\cdot$\quad \textbf{Hugging Face}: \texttt{https://huggingface.co/joelinator/dflow-novo-model}}
 \end{center}
 \end{frame}
 

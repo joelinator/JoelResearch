@@ -14,7 +14,8 @@ Table~\ref{tab:model_hyperparameters} details the structural configuration of th
 \textbf{Component} & \textbf{Hyperparameter} & \textbf{Setting} \\
 \midrule
 \textbf{General} & Model Dimension ($d_{\text{model}}$) & 512 \\
-& Vocabulary Size ($S$) & 22 (20 canonical AAs + $[M]$ + $[PAD]$) \\
+& Embedding Vocabulary Size ($S$) & 32 (20 canonical AAs + 7 residue PTMs + 3 N-term mods + 2 special tokens) \\
+& Active Decoder Output Classes ($S_{\text{out}}$) & 30 active residue classes (excluding $[PAD]$ and $[MASK]$) \\
 & Maximum Peptide Length ($L_{\max}$) & 30 \\
 & Maximum Spectrum Peaks ($P_{\max}$) & 500 \\
 \midrule
@@ -47,6 +48,15 @@ Table~\ref{tab:model_hyperparameters} details the structural configuration of th
 \caption{Architectural hyperparameters of the DFlowNovo framework.}
 \label{tab:model_hyperparameters}
 \end{table}
+
+The embedding vocabulary size $S = 32$ encompasses:
+\begin{enumerate}[(1)]
+\item \textbf{Canonical Amino Acids ($20$ tokens):} Alanine (A), Arginine (R), Asparagine (N), Aspartate (D), Cysteine (C), Glutamate (E), Glutamine (Q), Glycine (G), Histidine (H), Isoleucine (I), Leucine (L), Lysine (K), Methionine (M), Phenylalanine (F), Proline (P), Serine (S), Threonine (T), Tryptophan (W), Tyrosine (Y), and Valine (V).
+\item \textbf{Residue Post-Translational Modifications ($7$ tokens):} Methionine oxidation ($\text{M}(\text{ox})$, $+15.9949\,\text{Da}$), Cysteine carbamidomethylation ($\text{C}(\text{cam})$, $+57.0215\,\text{Da}$), Asparagine deamidation ($\text{N}(\text{deam})$, $+0.9840\,\text{Da}$), Glutamine deamidation ($\text{Q}(\text{deam})$, $+0.9840\,\text{Da}$), Serine phosphorylation ($\text{S}(\text{ph})$, $+79.9663\,\text{Da}$), Threonine phosphorylation ($\text{T}(\text{ph})$, $+79.9663\,\text{Da}$), and Tyrosine phosphorylation ($\text{Y}(\text{ph})$, $+79.9663\,\text{Da}$).
+\item \textbf{N-Terminal Modifications ($3$ tokens):} N-terminal acetylation ($+42.0106\,\text{Da}$), N-terminal carbamylation ($+43.0058\,\text{Da}$), and N-terminal ammonia loss ($-17.0265\,\text{Da}$).
+\item \textbf{Special Tokens ($2$ tokens):} Padding token ($[PAD]$, index 30) and discrete flow mask token ($[MASK]$, index 31).
+\end{enumerate}
+The active decoder classification head projects into $S_{\text{out}} = 30$ output logits, corresponding to the 30 physically valid residue and modification classes, while $[PAD]$ and $[MASK]$ are masked from emission.
 
 \section{Optimization and Training Dynamics}
 
