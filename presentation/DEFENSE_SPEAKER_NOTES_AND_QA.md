@@ -170,7 +170,7 @@
 * **Target Time:** `10:00 – 11:30` (Duration: 90s)
 * **Visual Direction:** Point to the comparison chart on the left, contrasting synthetic-only, sequential, and joint balanced training.
 * **Spoken Script:**
-  > "Training deep models on mass spectrometry data involves navigating severe domain shifts between synthetic peptide libraries, like HC-PT, and natural biological digests, like the Nine-Species dataset.
+  > "Training deep models on mass spectrometry data involves navigating severe domain shifts between synthetic peptide libraries and natural biological digests. In our study, we sourced both benchmark datasets directly from the standardized Hugging Face repositories published by InstaDeep: `ms_proteometools` (comprising 265,369 synthetic test spectra) and `ms_ninespecies_benchmark` (comprising 104,163 biological test spectra).
   >
   > If we train exclusively on synthetic data, HC-PT accuracy reaches 36.4%, but performance on Nine-Species collapses to 12.01%.
   > Conversely, if we attempt sequential fine-tuning—first pre-training on synthetic data and then fine-tuning on Nine-Species—the model suffers severe catastrophic forgetting: Nine-Species reaches 65.6%, but HC-PT drops to 12.85%.
@@ -187,7 +187,7 @@
 * **Target Time:** `11:30 – 13:00` (Duration: 90s)
 * **Visual Direction:** Highlight the top row of the table (DFlowNovo 68.28%) and the McNemar statistical test result.
 * **Spoken Script:**
-  > "Slide 11 presents our primary benchmark evaluation on the full Nine-Species test set, encompassing 104,163 tandem mass spectra across nine phylogenetically divergent organisms, ranging from yeast to human.
+  > "Slide 11 presents our primary benchmark evaluation on the full Nine-Species test set from InstaDeep's `ms_ninespecies_benchmark` repository, encompassing 104,163 tandem mass spectra across nine phylogenetically divergent organisms, ranging from yeast to human.
   >
   > DFlowNovo establishes a new state of the art, achieving **68.28% strict exact match** and **83.01% amino acid F1 score**, while processing **227.1 spectra per second**.
   >

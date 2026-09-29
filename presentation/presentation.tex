@@ -470,7 +470,7 @@
 % =============================================================================
 % SLIDE 10: Multi-Domain Training: Joint Balanced Curriculum
 % =============================================================================
-\begin{frame}{Multi-Domain Training Strategy}{Overcoming Catastrophic Forgetting via Joint Balanced Curriculum}
+\begin{frame}{Multi-Domain Training Strategy}{Curated from InstaDeep Hugging Face Repositories (\texttt{ms\_ninespecies} \& \texttt{ms\_proteometools})}
 \begin{columns}[T]
 \begin{column}{0.48\textwidth}
   \centering
@@ -478,6 +478,16 @@
 \end{column}
 
 \begin{column}{0.50\textwidth}
+  \fcolorbox{PrimaryBlue}{CardBg}{
+    \begin{minipage}{0.95\textwidth}
+      \tiny\textbf{Dataset Origin (Published by InstaDeep on Hugging Face)}:
+      \begin{itemize}\setlength{\itemsep}{0pt}\tiny
+        \item \texttt{InstaDeepAI/ms\_ninespecies\_benchmark} (104k test)
+        \item \texttt{InstaDeepAI/ms\_proteometools} (265k test)
+      \end{itemize}
+    \end{minipage}
+  }
+  \vspace{0.05cm}
   \textbf{\footnotesize The Cross-Species Domain Gap}
   \begin{itemize}\setlength{\itemsep}{1pt}\scriptsize
     \item \textbf{Synthetic Only}: HC-PT 36.4\%, but Nine-Species collapses to \textbf{12.01\%}.
@@ -486,7 +496,7 @@
   \vspace{0.05cm}
   \begin{exampleblock}{\scriptsize Joint Balanced Curriculum}
     \begin{itemize}\setlength{\itemsep}{1pt}\tiny
-      \item \textbf{50/50 Batch Interleaving}: Equal representation of biological and synthetic spectra per mini-batch.
+      \item \textbf{50/50 Batch Interleaving}: Equal biological/synthetic spectra per batch.
       \item \textbf{EMA Shadow Weights} ($\beta = 0.999$) for trajectory stability.
       \item \textbf{Cosine LR Schedule} ($3 \times 10^{-4}$ with 2k warmup).
     \end{itemize}
@@ -494,7 +504,7 @@
   \vspace{0.05cm}
   \fcolorbox{TealBorder}{LightTeal}{
     \begin{minipage}{0.95\textwidth}
-      \centering\tiny\textbf{Generalization}: Nine-Species \textbf{64.92\%} and HC-PT \textbf{34.93\%} retained simultaneously. 2.0 min/epoch on H100!
+      \centering\tiny\textbf{Generalization}: Nine-Species \textbf{64.92\%} and HC-PT \textbf{34.93\%} retained simultaneously.
     \end{minipage}
   }
 \end{column}
@@ -504,7 +514,7 @@
 % =============================================================================
 % SLIDE 11: Primary Benchmark Results: SOTA on Nine-Species
 % =============================================================================
-\begin{frame}{Primary Benchmark Results: SOTA on Nine-Species}{Comprehensive Evaluation on 104,163 Spectra Across 9 Divergent Organisms}
+\begin{frame}{Primary Benchmark Results: SOTA on Nine-Species}{104,163 Spectra Across 9 Organisms (\texttt{InstaDeepAI/ms\_ninespecies\_benchmark})}
 \begin{columns}[T]
 \begin{column}{0.48\textwidth}
   \centering
@@ -548,7 +558,7 @@
 % =============================================================================
 % SLIDE 12: Cross-Domain Generalization & Isobaric Ambiguity
 % =============================================================================
-\begin{frame}{Cross-Domain Generalization \& The Isobaric Dilemma}{The Physical Boundary of Leucine vs. Isoleucine ($113.084\,\text{Da}$)}
+\begin{frame}{Cross-Domain Generalization \& The Isobaric Dilemma}{265,369 Synthetic Peptides (\texttt{InstaDeepAI/ms\_proteometools}) --- Physical Boundary of L/I}
 \begin{columns}[T]
 \begin{column}{0.50\textwidth}
   \centering
@@ -815,6 +825,7 @@
       \item Complete reproducible training scripts (PyTorch Lightning).
       \item Precomputed KnapsackDP CUDA kernels.
       \item Interactive tutorial: \texttt{notebooks/dfm\_de\_novo\_tutorial.ipynb}.
+      \item Datasets: \texttt{InstaDeepAI/ms\_ninespecies} \& \texttt{ms\_proteometools}.
       \item GitHub: \texttt{https://github.com/joelinator/JoelResearch}
     \end{itemize}
   \end{exampleblock}

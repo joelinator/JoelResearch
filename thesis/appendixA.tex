@@ -1,6 +1,6 @@
 \chapter{Detailed Benchmark Results and Per-Species Stratification}
 
-This appendix provides exhaustive empirical evaluations stratified across the nine evolutionary divergent species comprising the standardized 104,163-spectrum biological benchmark \citep{Tran2017}. Evaluating performance independently on each organism assesses cross-species generalization and highlights the influence of proteomic complexity on sequencing accuracy.
+This appendix provides exhaustive empirical evaluations stratified across the nine evolutionary divergent species comprising the standardized 104,163-spectrum biological benchmark \citep{Tran2017} (published on the Hugging Face Hub as \texttt{InstaDeepAI/ms\_ninespecies\_benchmark}). Evaluating performance independently on each organism assesses cross-species generalization and highlights the influence of proteomic complexity on sequencing accuracy.
 
 \section{Per-Species Benchmark Stratification}
 
@@ -28,7 +28,7 @@ Table~\ref{tab:species_stratification} reports the complete performance profile 
 \textbf{Pooled Full Test} & \textbf{104,163} & \textbf{68.28} & \textbf{68.44} & \textbf{83.05} & \textbf{82.97} & \textbf{83.01} & \textbf{68.74} & \textbf{84.85} \\
 \bottomrule
 \end{tabular}
-\caption{DFlowNovo performance stratified across the nine test organisms of the biological benchmark \citep{Tran2017}. Evaluated with $K=20$ integration steps and $B=3$ length candidates. The pooled full test split comprises $N = 104,163$ spectra, achieving 83.0\% coverage at $\ge 80\%$ precision.}
+\caption{DFlowNovo performance stratified across the nine test organisms of the biological benchmark \citep{Tran2017} (from Hugging Face repository \texttt{InstaDeepAI/ms\_ninespecies\_benchmark}). Evaluated with $K=20$ integration steps and $B=3$ length candidates. The pooled full test split comprises $N = 104,163$ spectra, achieving 83.0\% coverage at $\ge 80\%$ precision.}
 \label{tab:species_stratification}
 \end{table}
 
@@ -43,7 +43,7 @@ The empirical results in Table~\ref{tab:species_stratification} reveal consisten
 
 \section{Extended Multi-Model Comparison on Standard Benchmarks}
 
-Table~\ref{tab:extended_benchmark_metrics} provides the comprehensive multi-metric comparison between DFlowNovo and competing autoregressive and flow-based architectures across both standardized benchmarks, matching ground-truth evaluations on $N = 369,532$ test spectra.
+Table~\ref{tab:extended_benchmark_metrics} provides the comprehensive multi-metric comparison between DFlowNovo and competing autoregressive and flow-based architectures across both standardized benchmarks (\texttt{InstaDeepAI/ms\_ninespecies\_benchmark} and \texttt{InstaDeepAI/ms\_proteometools}), matching ground-truth evaluations on $N = 369,532$ test spectra.
 
 \begin{table}[!ht]
 \centering
