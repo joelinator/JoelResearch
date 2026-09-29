@@ -23,6 +23,8 @@ DOCS_DIR = PROJECT_ROOT / "docs" / "figures"
 DOCS_DIR.mkdir(parents=True, exist_ok=True)
 THESIS_IMG_DIR = PROJECT_ROOT / "thesis" / "images"
 THESIS_IMG_DIR.mkdir(parents=True, exist_ok=True)
+PRES_IMG_DIR = PROJECT_ROOT / "presentation" / "images"
+PRES_IMG_DIR.mkdir(parents=True, exist_ok=True)
 _artifact_env = os.environ.get("ANTIGRAVITY_ARTIFACT_DIR")
 ARTIFACT_DIR = Path(_artifact_env) if _artifact_env else Path(
     "/home/joelgedeon_aims_ac_za/.gemini/antigravity-cli/brain/ee9cf031-b0c5-4740-b963-40c81c13ea78"
@@ -31,17 +33,18 @@ ARTIFACT_DIR = Path(_artifact_env) if _artifact_env else Path(
 plt.style.use("seaborn-v0_8-whitegrid" if "seaborn-v0_8-whitegrid" in plt.style.available else "default")
 plt.rcParams.update({
     "font.family": "sans-serif",
-    "font.size": 10,
-    "axes.labelsize": 10.5,
-    "axes.titlesize": 11,
-    "xtick.labelsize": 9,
-    "ytick.labelsize": 9,
-    "figure.titlesize": 14,
+    "font.size": 10.5,
+    "axes.labelsize": 11,
+    "axes.titlesize": 12,
+    "xtick.labelsize": 9.5,
+    "ytick.labelsize": 9.5,
+    "legend.fontsize": 9.5,
+    "figure.titlesize": 15,
     "figure.titleweight": "bold",
     "axes.edgecolor": "#CCCCCC",
     "grid.color": "#EAEAEA",
     "grid.linestyle": "--",
-    "grid.linewidth": 0.6,
+    "grid.linewidth": 0.7,
 })
 
 def simulate_peptide_trajectory(sequence: str, unmask_schedule_dict: dict, has_proline: bool = False):
@@ -152,44 +155,43 @@ def generate_multi_trajectory_figure():
         steps = np.arange(21)
         mean_ent = ent_hist.mean(axis=1)
         
-        # Plot individual position lines faintly
+        # Plot individual position lines faintly with Okabe-Ito colors
         for pos in range(L):
             is_p_minus_1 = (p_info["has_p"] and pos == seq.find('P') - 1)
-            line_color = "#E74C3C" if is_p_minus_1 else "#3498DB"
-            alpha = 0.85 if is_p_minus_1 else 0.25
-            lw = 1.8 if is_p_minus_1 else 0.9
+            line_color = "#D55E00" if is_p_minus_1 else "#0072B2"
+            alpha = 0.90 if is_p_minus_1 else 0.30
+            lw = 2.0 if is_p_minus_1 else 1.0
             label = f"Pre-Proline pos {pos+1} ({seq[pos]})" if is_p_minus_1 else None
             ax_ent.plot(steps, ent_hist[:, pos], color=line_color, alpha=alpha, lw=lw, label=label)
-            
+
         # Plot mean entropy boldly
-        ax_ent.plot(steps, mean_ent, color="#2C3E50", lw=2.2, linestyle="--", label=r"Mean Sequence Entropy $\bar{\mathcal{H}}_t$")
-        
+        ax_ent.plot(steps, mean_ent, color="#1A252F", lw=2.5, linestyle="--", label=r"Mean Sequence Entropy $\bar{\mathcal{H}}_t$")
+
         ax_ent.set_xticks(np.arange(0, 21, 2))
         ax_ent.set_ylim(-0.1, 5.0)
-        ax_ent.set_xlabel(r"Flow Step $k \in \{0, \dots, 20\}$", fontsize=9.5)
-        ax_ent.set_ylabel("Categorical Entropy (bits)", fontsize=9.5)
+        ax_ent.set_xlabel(r"Flow Step $k \in \{0, \dots, 20\}$", fontsize=10.5, fontweight="bold")
+        ax_ent.set_ylabel("Categorical Entropy (bits)", fontsize=10.5, fontweight="bold")
         ax_ent.set_title(f"({p_info['id']}2) Positional Shannon Entropy Collapse $\\mathcal{{H}}_t(d)$", 
-                         fontsize=10.5, fontweight="bold", loc="left")
-        ax_ent.legend(fontsize=8, loc="upper right", framealpha=0.9)
-        
-        # Add commentary box below right title
-        ax_ent.text(0.03, 0.08, p_info["comment"], transform=ax_ent.transAxes, 
-                    fontsize=8, fontstyle="italic", color="#555555",
-                    bbox=dict(boxstyle="round,pad=0.3", facecolor="#F8F9F9", edgecolor="#BDC3C7", alpha=0.85))
+                         fontsize=11.5, fontweight="bold", loc="left")
+        ax_ent.legend(fontsize=8.5, loc="upper right", framealpha=0.92, edgecolor="#CCCCCC")
+
+        # Commentary box with clean background and border
+        ax_ent.text(0.04, 0.12, p_info["comment"], transform=ax_ent.transAxes, 
+                    fontsize=8.5, fontstyle="italic", color="#2C3E50",
+                    bbox=dict(boxstyle="round,pad=0.35", facecolor="#F8F9FA", edgecolor="#CCCCCC", alpha=0.92))
 
     fig.suptitle("Empirical CTMC Flow Unmasking Trajectories and Positional Entropy Decay Across Peptides",
-                 fontsize=14, fontweight="bold", y=0.995)
-    
-    out_thesis = THESIS_IMG_DIR / "appendix_flow_trajectories.png"
-    out_docs = DOCS_DIR / "appendix_flow_trajectories.png"
-    fig.savefig(out_thesis, dpi=300, bbox_inches="tight")
-    fig.savefig(out_docs, dpi=300, bbox_inches="tight")
-    print(f"Saved: {out_thesis}")
-    print(f"Saved: {out_docs}")
+                 fontsize=15, fontweight="bold", y=0.995)
+
+    targets = [THESIS_IMG_DIR / "appendix_flow_trajectories.png",
+               DOCS_DIR / "appendix_flow_trajectories.png",
+               PRES_IMG_DIR / "appendix_flow_trajectories.png"]
     if ARTIFACT_DIR.exists():
-        out_art = ARTIFACT_DIR / "appendix_flow_trajectories.png"
-        fig.savefig(out_art, dpi=300, bbox_inches="tight")
-        print(f"Saved: {out_art}")
+        targets.append(ARTIFACT_DIR / "appendix_flow_trajectories.png")
+
+    for t in targets:
+        fig.savefig(t, dpi=300, bbox_inches="tight", facecolor="white", edgecolor="none")
+        print(f"Saved: {t}")
     plt.close(fig)
 
 if __name__ == "__main__":

@@ -1,8 +1,8 @@
 # DFlowNovo: Master's Defense Oral Presentation Script & Committee Q&A Guide
 
 **Candidate:** Joël Gédéon  
-**Degree:** Master of Science in Mathematical Sciences, African Institute for Mathematical Sciences (AIMS South Africa)  
-**Supervisors:** Dr. Kevin Eloff (InstaDeep) & Prof. Ulrich Paquet (AIMS / InstaDeep)  
+**Degree:** Master of Science in Artificial Intelligence, African Institute for Mathematical Sciences (AIMS South Africa)  
+**Supervisors:** *********  
 **Date of Defense:** September 30, 2026  
 **Total Defense Duration:** 30 Minutes (20–22 Minutes Oral Presentation + 8–10 Minutes Committee Q&A)
 
@@ -32,7 +32,7 @@
 * **Spoken Script:**
   > "Good morning, esteemed committee members, supervisors, and colleagues. I am Joël Gédéon, and today I have the privilege of presenting my Master's thesis entitled: *'DFlowNovo: Continuous-Time Discrete Flow Matching and Dynamic Knapsack Guidance for High-Throughput De Novo Peptide Sequencing'*.
   >
-  > This research was conducted at the African Institute for Mathematical Sciences in South Africa, under the co-supervision of Dr. Kevin Eloff at InstaDeep and Professor Ulrich Paquet at AIMS and InstaDeep.
+  > This research was conducted at the African Institute for Mathematical Sciences in South Africa, under the supervision of *********.
   >
   > Today, I will demonstrate how framing de novo peptide sequencing as a continuous-time Markov jump process directly on the discrete categorical simplex—coupled with an exact dynamic programming mass reachability algorithm—overcomes fundamental bottlenecks in proteomics, establishing new state-of-the-art accuracy while delivering an order-of-magnitude inference speedup."
 * **Transition:** *"To understand why this is necessary, let us examine the fundamental biological problem."*
@@ -365,7 +365,7 @@
 * **Target Time:** `21:30 – 22:00` (Duration: 30s)
 * **Visual Direction:** Acknowledge supervisors and institutions warmly; transition smoothly into the Q&A phase.
 * **Spoken Script:**
-  > "I would like to express my deepest gratitude to my supervisors, Dr. Kevin Eloff and Professor Ulrich Paquet, for their exceptional guidance, intellectual encouragement, and high scientific standards throughout this journey.
+  > "I would like to express my deepest gratitude to my supervisors, *********, for their exceptional guidance, intellectual encouragement, and high scientific standards throughout this journey.
   >
   > I also extend sincere thanks to the African Institute for Mathematical Sciences and InstaDeep for providing the computational resources, fellowship, and vibrant environment that made this work possible.
   >

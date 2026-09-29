@@ -39,6 +39,11 @@ from train.io import load_checkpoint, load_models_from_checkpoint
 
 DOCS_DIR = PROJECT_ROOT / "docs" / "figures"
 DOCS_DIR.mkdir(parents=True, exist_ok=True)
+THESIS_DIR = PROJECT_ROOT / "thesis" / "images"
+THESIS_DIR.mkdir(parents=True, exist_ok=True)
+PRES_DIR = PROJECT_ROOT / "presentation" / "images"
+PRES_DIR.mkdir(parents=True, exist_ok=True)
+
 _artifact_env = os.environ.get("ANTIGRAVITY_ARTIFACT_DIR")
 ARTIFACT_DIR = Path(_artifact_env) if _artifact_env else Path(
     "/home/joelgedeon_aims_ac_za/.gemini/antigravity-cli/brain/ee9cf031-b0c5-4740-b963-40c81c13ea78"
@@ -53,6 +58,7 @@ plt.rcParams.update({
     "axes.titlesize": 13,
     "xtick.labelsize": 10,
     "ytick.labelsize": 10,
+    "legend.fontsize": 10,
     "figure.titlesize": 15,
     "figure.titleweight": "bold",
     "axes.edgecolor": "#CCCCCC",
@@ -63,14 +69,16 @@ plt.rcParams.update({
 
 
 def save_figure(fig: plt.Figure, filename: str) -> None:
-    """Save figure to docs/figures and artifact directory at 300 DPI."""
-    docs_path = DOCS_DIR / filename
-    fig.savefig(docs_path, dpi=300, bbox_inches="tight")
-    print(f"Saved: {docs_path}")
+    """Save figure to docs/figures, thesis/images, presentation/images, and artifact directory at 300 DPI."""
+    targets = [DOCS_DIR / filename, THESIS_DIR / filename, PRES_DIR / filename]
     if ARTIFACT_DIR.exists():
-        art_path = ARTIFACT_DIR / filename
-        fig.savefig(art_path, dpi=300, bbox_inches="tight")
-        print(f"Saved: {art_path}")
+        targets.append(ARTIFACT_DIR / filename)
+
+    for p in targets:
+        p.parent.mkdir(parents=True, exist_ok=True)
+        fig.savefig(p, dpi=300, bbox_inches="tight", facecolor="white", edgecolor="none")
+        print(f"Saved: {p}")
+
 
 
 # =========================================================================
@@ -242,46 +250,39 @@ def generate_figure1_ctmc_flow_dynamics() -> None:
     time_pts = np.linspace(0.0, 1.0, len(ent_arr))
 
     # Plot specific informative positions: C-term (Lys), N-term (Ala), and internal positions
-    ax2.plot(time_pts, ent_arr[:, -1], label="C-term (Pos 10: Lys) [Tryptic Anchor]", color="#E74C3C", linewidth=2.5)
-    ax2.plot(time_pts, ent_arr[:, 0], label="N-term (Pos 1: Ala) [N-terminal Ladder]", color="#2980B9", linewidth=2.2)
-    ax2.plot(time_pts, ent_arr[:, 4], label="Internal (Pos 5: Val)", color="#27AE60", linewidth=2.0)
-    ax2.plot(time_pts, ent_arr[:, 8], label="Internal (Pos 9: Pro)", color="#F39C12", linewidth=2.0, linestyle="--")
-    ax2.plot(time_pts, ent_arr.mean(axis=1), label="Mean Sequence Entropy", color="#34495E", linewidth=2.5, linestyle=":")
+    ax2.plot(time_pts, ent_arr[:, -1], label="C-term (Pos 10: Lys) [Tryptic Anchor]", color="#D55E00", linewidth=2.5)
+    ax2.plot(time_pts, ent_arr[:, 0], label="N-term (Pos 1: Ala) [N-terminal Ladder]", color="#0072B2", linewidth=2.2)
+    ax2.plot(time_pts, ent_arr[:, 4], label="Internal (Pos 5: Val)", color="#009E73", linewidth=2.0)
+    ax2.plot(time_pts, ent_arr[:, 8], label="Internal (Pos 9: Pro)", color="#E69F00", linewidth=2.0, linestyle="--")
+    ax2.plot(time_pts, ent_arr.mean(axis=1), label="Mean Sequence Entropy", color="#1A252F", linewidth=2.5, linestyle=":")
 
-    ax2.set_title("B. Positional Categorical Shannon Entropy Decay Across Flow Time", fontweight="bold", fontsize=12)
-    ax2.set_xlabel("Flow Time $t \\in [0, 1]$", fontweight="bold")
-    ax2.set_ylabel("Shannon Entropy $H(p_t)$ (Bits)", fontweight="bold")
+    ax2.set_title("B. Positional Categorical Shannon Entropy Decay Across Flow Time", fontweight="bold", fontsize=12.5)
+    ax2.set_xlabel("Flow Time $t \\in [0, 1]$", fontweight="bold", fontsize=11)
+    ax2.set_ylabel("Shannon Entropy $H(p_t)$ (Bits)", fontweight="bold", fontsize=11)
     ax2.set_xlim(0, 1.0)
     ax2.set_ylim(0, max(0.6, float(ent_arr.max()) * 1.15))
-    ax2.legend(loc="upper right", frameon=True, framealpha=0.95, fontsize=9.5)
+    ax2.legend(loc="upper right", frameon=True, framealpha=0.95, edgecolor="#CCCCCC", fontsize=9.5)
 
     # -------------------------------------------------------------
     # Panel 1C: Jump Flux / Velocity Profile Across Flow Time
     # -------------------------------------------------------------
     ax3 = fig.add_subplot(gs[1, 1])
     t_vals = np.linspace(0.001, 0.999, 100)
-    # Cosine scheduler kappa(t) and derivative
-    # kappa(t) = 1 - cos(0.5 * pi * t)
-    # kappa'(t) = 0.5 * pi * sin(0.5 * pi * t)
-    # Instantaneous unmasking rate = kappa'(t) / (1 - kappa(t))
     kappa_t = 1.0 - np.cos(0.5 * np.pi * t_vals)
     kappa_deriv = 0.5 * np.pi * np.sin(0.5 * np.pi * t_vals)
     unmasking_flux = kappa_deriv / (1.0 - kappa_t + 1e-6)
 
-    # Linear scheduler for comparison
-    linear_flux = 1.0 / (1.0 - t_vals + 1e-6)
-
-    ax3.plot(t_vals, kappa_t, label="Cosine State Interpolant $\\kappa(t)$", color="#2ECC71", linewidth=2.2)
-    ax3.plot(t_vals, kappa_deriv, label="Velocity Field Intensity $\\kappa'(t)$", color="#3498DB", linewidth=2.2)
+    ax3.plot(t_vals, kappa_t, label="Cosine State Interpolant $\\kappa(t)$", color="#009E73", linewidth=2.2)
+    ax3.plot(t_vals, kappa_deriv, label="Velocity Field Intensity $\\kappa'(t)$", color="#0072B2", linewidth=2.2)
     ax3.plot(t_vals, unmasking_flux / 5.0, label="Normalized Jump Flux $\\frac{\\kappa'(t)}{1 - \\kappa(t)}$",
-             color="#9B59B6", linewidth=2.2, linestyle="--")
+             color="#CC79A7", linewidth=2.2, linestyle="--")
 
-    ax3.set_title("C. Continuous-Time Jump Rate Schedule and Transition Flux", fontweight="bold", fontsize=12)
-    ax3.set_xlabel("Flow Time $t \\in [0, 1]$", fontweight="bold")
-    ax3.set_ylabel("Rate Magnitude / Transition Probability", fontweight="bold")
+    ax3.set_title("C. Continuous-Time Jump Rate Schedule and Transition Flux", fontweight="bold", fontsize=12.5)
+    ax3.set_xlabel("Flow Time $t \\in [0, 1]$", fontweight="bold", fontsize=11)
+    ax3.set_ylabel("Rate Magnitude / Transition Probability", fontweight="bold", fontsize=11)
     ax3.set_xlim(0, 1.0)
     ax3.set_ylim(0, 2.5)
-    ax3.legend(loc="upper left", frameon=True, framealpha=0.95, fontsize=9.5)
+    ax3.legend(loc="upper left", frameon=True, framealpha=0.95, edgecolor="#CCCCCC", fontsize=9.5)
 
     save_figure(fig, "ctmc_flow_dynamics.png")
     plt.close(fig)
@@ -686,11 +687,20 @@ def generate_figure6_ablation() -> None:
 def main():
     print("Generating complete publication and thesis CTMC visualization suite...")
     generate_figure1_ctmc_flow_dynamics()
-    generate_figure2_biological_fidelity()
-    generate_figure3_sampling_and_latency()
-    generate_figure4_precision_coverage()
-    generate_figure5_length_breakdown()
-    generate_figure6_ablation()
+
+    # Delegate to unified high-contrast, colorblind-safe publication generators
+    from scripts.generate_publication_figures import (
+        generate_proteomics_biological_fidelity,
+        generate_sampling_dynamics_and_latency,
+        generate_precision_coverage_benchmark,
+        generate_length_dependent_accuracy,
+        generate_scheduler_and_knapsack_ablation,
+    )
+    generate_proteomics_biological_fidelity()
+    generate_sampling_dynamics_and_latency()
+    generate_precision_coverage_benchmark()
+    generate_length_dependent_accuracy()
+    generate_scheduler_and_knapsack_ablation()
     print("All 6 publication/thesis figures successfully generated!")
 
 

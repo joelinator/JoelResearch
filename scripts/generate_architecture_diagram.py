@@ -4,214 +4,368 @@ from matplotlib.patches import FancyBboxPatch, FancyArrowPatch
 from pathlib import Path
 
 def create_architecture_diagram():
-    fig = plt.figure(figsize=(16, 12), dpi=300)
+    # 16:9 Aspect Ratio, publication quality (300 DPI)
+    fig = plt.figure(figsize=(16, 9), dpi=300)
     ax = fig.add_axes([0, 0, 1, 1])
     ax.set_xlim(0, 16)
-    ax.set_ylim(0, 12)
+    ax.set_ylim(0, 9)
     ax.axis('off')
 
-    # Background canvas
-    bg = patches.Rectangle((0, 0), 16, 12, facecolor='#F8FAFC', edgecolor='none')
-    ax.add_patch(bg)
+    # Ultra-clean canvas background (Slate-50)
+    canvas_bg = patches.Rectangle((0, 0), 16, 9, facecolor='#F8FAFC', edgecolor='none')
+    ax.add_patch(canvas_bg)
 
-    # Title header
-    ax.text(8.0, 11.6, "DFlowNovo: Architectural Framework and Iterative Decoding Pipeline", 
-            ha='center', va='center', fontsize=17, fontweight='bold', color='#0F172A')
-    ax.text(8.0, 11.3, "Continuous-Time Discrete Flow Matching with Exact KnapsackDP Reachability and Bayesian Beam Guidance", 
-            ha='center', va='center', fontsize=11, fontstyle='italic', color='#475569')
+    # -------------------------------------------------------------------------
+    # MAIN HEADER
+    # -------------------------------------------------------------------------
+    ax.text(8.0, 8.65, "DFlowNovo: Architectural Framework & Iterative Decoding Pipeline",
+            ha='center', va='center', fontsize=16, fontweight='bold', color='#0F172A',
+            fontfamily='DejaVu Sans')
+    ax.text(8.0, 8.35, "Discrete Flow Matching with Pre-LN Bidirectional Transformers & Exact GPU KnapsackDP Reachability",
+            ha='center', va='center', fontsize=9.5, fontstyle='italic', color='#475569',
+            fontfamily='DejaVu Sans')
+
+    # Helper function for rendering elevated cards with subtle shadow & header band
+    def draw_card(x, y, w, h, title, subtitle, theme_color, header_bg, shadow=True):
+        if shadow:
+            sh = FancyBboxPatch((x + 0.04, y - 0.04), w, h, boxstyle="round,pad=0.0,rounding_size=0.18",
+                                facecolor='#E2E8F0', edgecolor='none', zorder=1)
+            ax.add_patch(sh)
+        # Main card body
+        card = FancyBboxPatch((x, y), w, h, boxstyle="round,pad=0.0,rounding_size=0.18",
+                              facecolor='#FFFFFF', edgecolor=theme_color, linewidth=1.5, zorder=2)
+        ax.add_patch(card)
+        # Header banner
+        header_h = 0.54
+        header = FancyBboxPatch((x, y + h - header_h), w, header_h,
+                                boxstyle="round,pad=0.0,rounding_size=0.18",
+                                facecolor=header_bg, edgecolor=theme_color, linewidth=1.2, zorder=3)
+        ax.add_patch(header)
+        # Header text
+        ax.text(x + w / 2, y + h - 0.20, title,
+                ha='center', va='center', fontsize=9.5, fontweight='bold', color=theme_color,
+                fontfamily='DejaVu Sans', zorder=4)
+        if subtitle:
+            ax.text(x + w / 2, y + h - 0.39, subtitle,
+                    ha='center', va='center', fontsize=7.2, fontstyle='italic', color='#475569',
+                    fontfamily='DejaVu Sans', zorder=4)
+
+    # Helper for pill badges
+    def draw_badge(x, y, w, h, text, bg_col, text_col, fontsize=7.2, bold=True, zorder=5):
+        badge = FancyBboxPatch((x - w/2, y - h/2), w, h, boxstyle="round,pad=0.0,rounding_size=0.08",
+                               facecolor=bg_col, edgecolor=text_col, linewidth=0.8, zorder=zorder)
+        ax.add_patch(badge)
+        weight = 'bold' if bold else 'normal'
+        ax.text(x, y, text, ha='center', va='center', fontsize=fontsize, fontweight=weight,
+                color=text_col, fontfamily='DejaVu Sans', zorder=zorder+1)
 
     # =========================================================================
-    # PART A: NEURAL NETWORK MODEL ARCHITECTURE (TRAINING & FORWARD PASS)
+    # COLUMN 1: INPUTS (x: 0.50 to 2.65, width: 2.15)
+    # Baseline: y = 2.15, Topline: y = 7.85 (Height: 5.70)
     # =========================================================================
-    part_a_box = FancyBboxPatch((0.5, 6.0), 15.0, 5.0, boxstyle="round,pad=0.2,rounding_size=0.4",
-                                facecolor='#FFFFFF', edgecolor='#2563EB', linewidth=2.2, linestyle='-')
-    ax.add_patch(part_a_box)
+    spec_cx = 1.575
 
-    # Part A Badge
-    part_a_badge = FancyBboxPatch((0.8, 10.6), 6.6, 0.45, boxstyle="round,pad=0.1,rounding_size=0.2",
-                                  facecolor='#1E40AF', edgecolor='none')
-    ax.add_patch(part_a_badge)
-    ax.text(4.1, 10.82, "PART A: NEURAL NETWORK MODEL ARCHITECTURE (FORWARD PASS)", 
-            ha='center', va='center', fontsize=9.5, fontweight='bold', color='#FFFFFF')
+    # Card 1A: MS/MS Spectrum (y: 6.05 to 7.85, h: 1.80)
+    draw_card(0.50, 6.05, 2.15, 1.80, "MS/MS SPECTRUM", "Observed Fragment Peaks", '#0F766E', '#F0FDFA')
+    # Spectrum peak sticks
+    ax.plot([spec_cx - 0.75, spec_cx + 0.75], [6.85, 6.85], color='#94A3B8', linewidth=1.2, zorder=4)
+    peak_xs = [-0.6, -0.35, -0.1, 0.18, 0.42, 0.65]
+    peak_hs = [0.28, 0.42, 0.20, 0.48, 0.32, 0.18]
+    for px, ph in zip(peak_xs, peak_hs):
+        ax.plot([spec_cx + px, spec_cx + px], [6.85, 6.85 + ph], color='#0D9488', linewidth=1.8, zorder=4)
+        ax.scatter([spec_cx + px], [6.85 + ph], color='#0F766E', s=12, zorder=5)
+    ax.text(spec_cx, 6.55, r"Peaks $(m_i, I_i)_{i=1}^M$", ha='center', va='center', fontsize=8.2,
+            fontweight='bold', color='#0F172A', zorder=4)
+    ax.text(spec_cx, 6.28, r"• $M \leq 500$ peaks, $\sqrt{I_i}$ scaled", ha='center', va='center',
+            fontsize=7.4, color='#334155', zorder=4)
 
-    # Sub-block A1: Raw Spectrum Featurization
-    a1_box = FancyBboxPatch((0.8, 6.4), 3.2, 3.9, boxstyle="round,pad=0.15,rounding_size=0.25",
-                            facecolor='#EFF6FF', edgecolor='#93C5FD', linewidth=1.2)
-    ax.add_patch(a1_box)
-    ax.text(2.4, 9.95, "1. Spectrum Featurizer", ha='center', va='center', fontsize=11, fontweight='bold', color='#1E3A8A')
+    # Card 1B: Precursor Metadata (y: 4.10 to 5.85, h: 1.75)
+    draw_card(0.50, 4.10, 2.15, 1.75, "PRECURSOR DATA", "Physical Metadata", '#4338CA', '#EEF2FF')
+    ax.text(spec_cx, 5.15, r"Neutral Mass $M_{\mathrm{prec}}$", ha='center', va='center', fontsize=8.2,
+            fontweight='bold', color='#1E1B4B', zorder=4)
+    ax.text(spec_cx, 4.85, r"Charge State $z \in \{2, 3, 4, 5\}$", ha='center', va='center', fontsize=8.2,
+            fontweight='bold', color='#1E1B4B', zorder=4)
+    ax.text(spec_cx, 4.50, "Global conditioning context", ha='center', va='center', fontsize=7.4,
+            color='#475569', zorder=4)
+    ax.text(spec_cx, 4.28, r"for Length Head & AdaLN-Zero", ha='center', va='center', fontsize=7.2,
+            fontstyle='italic', color='#4338CA', zorder=4)
+
+    # Card 1C: Noise Prior State (y: 2.15 to 3.90, h: 1.75)
+    draw_card(0.50, 2.15, 2.15, 1.75, "PRIOR NOISE STATE", r"Initial Latent Sequence $x_0$", '#0369A1', '#F0F9FF')
+    ax.text(spec_cx, 3.20, r"$x_0 \sim \mathrm{Cat}(1/S)$", ha='center', va='center', fontsize=8.8,
+            fontweight='bold', color='#0C4A6E', zorder=4)
+    ax.text(spec_cx, 2.85, r"Fully Masked: $[M]^L$", ha='center', va='center', fontsize=8.2,
+            fontweight='bold', color='#0284C7', zorder=4)
+    ax.text(spec_cx, 2.50, r"Vocabulary $\mathcal{V}$ ($|\mathcal{V}|=22$)", ha='center', va='center', fontsize=7.4,
+            color='#334155', zorder=4)
+    ax.text(spec_cx, 2.28, r"Starting state at flow time $t = 0$", ha='center', va='center', fontsize=7.2,
+            fontstyle='italic', color='#0369A1', zorder=4)
+
+    # =========================================================================
+    # COLUMN 2: SPECTRUM ENCODER & LENGTH PREDICTOR (x: 3.25 to 6.35, w: 3.10)
+    # Baseline: y = 2.15, Topline: y = 7.85
+    # =========================================================================
+    enc_cx = 4.80
+
+    # Card 2A: Spectrum Encoder (y: 5.15 to 7.85, h: 2.70)
+    draw_card(3.25, 5.15, 3.10, 2.70, "SPECTRUM ENCODER", "Bidirectional Pre-LN Transformer", '#0F766E', '#F0FDFA')
+    # Section: Input
+    draw_badge(enc_cx, 7.05, 2.00, 0.24, "INPUT: Peaks + Mass Duality", '#CCFBF1', '#0F766E', fontsize=7.2)
+    ax.text(enc_cx, 6.78, r"$\Phi(m_i)$ and $\Phi(M_{\mathrm{prec}} - m_i + 2M_{\mathrm{H}})$", ha='center', va='center',
+            fontsize=7.8, color='#0F172A', zorder=4)
+    # Section: Core Architecture
+    draw_badge(enc_cx, 6.45, 2.30, 0.24, "CORE: 6-Layer Transformer", '#CCFBF1', '#0F766E', fontsize=7.2)
+    ax.text(enc_cx, 6.18, r"• $d = 512, h = 8$, Pre-LN + FlashAttention-2", ha='center', va='center',
+            fontsize=7.5, color='#334155', zorder=4)
+    ax.text(enc_cx, 5.92, r"• SwiGLU Feed-Forward Network ($d_{\mathrm{ffn}}=1376$)", ha='center', va='center',
+            fontsize=7.5, color='#334155', zorder=4)
+    # Section: Output
+    draw_badge(enc_cx, 5.58, 2.20, 0.24, r"OUTPUT: Spectral Embeddings", '#0F766E', '#FFFFFF', fontsize=7.2)
+    ax.text(enc_cx, 5.30, r"$H_{\mathrm{spec}} \in \mathbb{R}^{(M+1) \times d}$ and $[CLS]$ token",
+            ha='center', va='center', fontsize=8.0, fontweight='bold', color='#0F766E', zorder=4)
+
+    # Card 2B: Length Predictor (y: 2.15 to 4.85, h: 2.70)
+    draw_card(3.25, 2.15, 3.10, 2.70, "LENGTH PREDICTOR", "Auxiliary Peptide Length Head", '#059669', '#ECFDF5')
+    # Section: Input
+    draw_badge(enc_cx, 4.05, 2.20, 0.24, r"INPUT: Conditioning Summary", '#D1FAE5', '#065F46', fontsize=7.2)
+    ax.text(enc_cx, 3.78, r"Global $[CLS]$ token from $H_{\mathrm{spec}}$ + $[M_{\mathrm{prec}}, z]$",
+            ha='center', va='center', fontsize=7.6, color='#0F172A', zorder=4)
+    # Section: Core Architecture
+    draw_badge(enc_cx, 3.45, 2.10, 0.24, "CORE: 2-Layer MLP", '#D1FAE5', '#065F46', fontsize=7.2)
+    ax.text(enc_cx, 3.18, r"• Linear $(d \to 256)$ + GELU + Linear $(256 \to 28)$", ha='center', va='center',
+            fontsize=7.5, color='#334155', zorder=4)
+    ax.text(enc_cx, 2.92, r"• Cross-Entropy Length Prior Loss $\mathcal{L}_{\mathrm{len}}$", ha='center', va='center',
+            fontsize=7.5, color='#334155', zorder=4)
+    # Section: Output
+    draw_badge(enc_cx, 2.58, 2.30, 0.24, r"OUTPUT: Predicted Length $L$", '#059669', '#FFFFFF', fontsize=7.2)
+    ax.text(enc_cx, 2.30, r"Top Candidates $\mathcal{L}_{\mathrm{cand}} \sim \mathrm{TopK}(p_{\mathrm{len}}, B=3)$",
+            ha='center', va='center', fontsize=7.8, fontweight='bold', color='#065F46', zorder=4)
+
+    # =========================================================================
+    # COLUMN 3: DISCRETE FLOW DECODER (x: 6.95 to 10.15, w: 3.20)
+    # Baseline: y = 2.15, Topline: y = 7.85 (Height: 5.70)
+    # =========================================================================
+    draw_card(6.95, 2.15, 3.20, 5.70, "DISCRETE FLOW DECODER", "Bidirectional Discrete Flow Matching", '#1D4ED8', '#EFF6FF')
+    dec_cx = 8.55
+
+    # Section: Inputs & Conditioning
+    draw_badge(dec_cx, 7.00, 2.40, 0.26, "INPUTS & CONDITIONING", '#DBEAFE', '#1E40AF', fontsize=7.4)
+    ax.text(dec_cx, 6.68, r"• Intermediate Sequence State: $x_t \in \mathcal{V}^L$", ha='center', va='center',
+            fontsize=7.8, color='#0F172A', zorder=4)
+    ax.text(dec_cx, 6.38, r"• Continuous Flow Time: $t \in [0, 1]$", ha='center', va='center',
+            fontsize=7.8, color='#0F172A', zorder=4)
+    ax.text(dec_cx, 6.08, r"• Precursor Context: $(M_{\mathrm{prec}}, z)$ via AdaLN-Zero", ha='center', va='center',
+            fontsize=7.8, color='#0F172A', zorder=4)
+
+    # Section: Core Architecture
+    draw_badge(dec_cx, 5.60, 2.50, 0.26, "CORE: 6-Block Transformer", '#DBEAFE', '#1E40AF', fontsize=7.4)
+    ax.text(dec_cx, 5.26, "• Bidirectional Self-Attention over sequence tokens", ha='center', va='center',
+            fontsize=7.6, color='#334155', zorder=4)
+    ax.text(dec_cx, 4.96, r"• Full Cross-Attention into Spectral Context $H_{\mathrm{spec}}$", ha='center', va='center',
+            fontsize=7.8, fontweight='bold', color='#1D4ED8', zorder=4)
+    ax.text(dec_cx, 4.66, r"• AdaLN-Zero Modulation $(\gamma_l, \beta_l, \alpha_l)$ zero-initialized", ha='center', va='center',
+            fontsize=7.6, color='#334155', zorder=4)
+    ax.text(dec_cx, 4.36, r"• SwiGLU Feed-Forward ($d=512, d_{\mathrm{ffn}}=1376$)", ha='center', va='center',
+            fontsize=7.6, color='#334155', zorder=4)
+    ax.text(dec_cx, 4.02, r"• Continuous-Time Flow Objective (Campbell et al. 2024):", ha='center', va='center',
+            fontsize=7.4, fontstyle='italic', color='#475569', zorder=4)
+    ax.text(dec_cx, 3.72, r"$\mathcal{L}_{\mathrm{DFM}} = -\sum_{d: x_t^d=[M]} \log p_{1|t}^\theta(x_1^d \mid x_t, t, \mathcal{S})$",
+            ha='center', va='center', fontsize=7.8, color='#1E40AF', zorder=4)
+
+    # Section: Output
+    draw_badge(dec_cx, 3.20, 2.60, 0.28, r"OUTPUT: Transition Rates $R_t^\theta$", '#1D4ED8', '#FFFFFF', fontsize=7.4)
+    ax.text(dec_cx, 2.78, r"Categorical Rate Logits $\mathbf{Z} \in \mathbb{R}^{L \times 22}$",
+            ha='center', va='center', fontsize=8.2, fontweight='bold', color='#1E3A8A', zorder=4)
+    ax.text(dec_cx, 2.50, r"Governs probability velocity toward true sequence $x_1$",
+            ha='center', va='center', fontsize=7.4, fontstyle='italic', color='#334155', zorder=4)
+
+    # =========================================================================
+    # COLUMN 4: ITERATIVE GENERATION & KNAPSACK DP LOOP (x: 10.75 to 13.95, w: 3.20)
+    # Baseline: y = 2.15, Topline: y = 7.85 (Height: 5.70)
+    # =========================================================================
+    draw_card(10.75, 2.15, 3.20, 5.70, "ITERATIVE KNAPSACK-DP LOOP", "Euler Trajectory & Exact Mass Reachability", '#D97706', '#FFFBEB')
+    loop_cx = 12.35
+
+    # Section: 1. Reverse Euler Step
+    draw_badge(loop_cx, 7.00, 2.60, 0.26, "1. REVERSE EULER STEP", '#FEF3C7', '#B45309', fontsize=7.4)
+    ax.text(loop_cx, 6.68, r"• Discrete CTMC integration: $t_k \to t_{k+1}$ ($K=20$ steps)", ha='center', va='center',
+            fontsize=7.6, color='#0F172A', zorder=4)
+    ax.text(loop_cx, 6.38, r"• Velocity / dynamic unmasking rate: $\lambda(t) \cdot \Delta t$", ha='center', va='center',
+            fontsize=7.6, color='#0F172A', zorder=4)
+
+    # Section: 2. Exact GPU Knapsack DP Filter
+    draw_badge(loop_cx, 5.85, 2.70, 0.26, "2. GPU KNAPSACK DP FILTER", '#FEF3C7', '#B45309', fontsize=7.4)
+    ax.text(loop_cx, 5.52, r"• Precomputed reachability table $M_{\mathrm{valid}}$ ($\Delta m = 0.02\,\mathrm{Da}$)",
+            ha='center', va='center', fontsize=7.6, fontweight='bold', color='#92400E', zorder=4)
+    ax.text(loop_cx, 5.22, r"• Bounded prefix & suffix precursor mass budget", ha='center', va='center',
+            fontsize=7.5, color='#334155', zorder=4)
+    ax.text(loop_cx, 4.88, r"• Exact $\mathcal{O}(1)$ Dynamic Logit Pruning:", ha='center', va='center',
+            fontsize=7.6, fontweight='bold', color='#B45309', zorder=4)
+    ax.text(loop_cx, 4.58, r"$\tilde{Z}_{d, a} = Z_{d, a} + \log M_{\mathrm{valid}}(a)$", ha='center', va='center',
+            fontsize=8.2, fontweight='bold', color='#D97706', zorder=4)
+    ax.text(loop_cx, 4.26, "Prunes unreachable amino acids; guarantees 0.0 ppm mass fit", ha='center', va='center',
+            fontsize=7.2, fontstyle='italic', color='#78350F', zorder=4)
+
+    # Section: 3. State Update & Jump
+    draw_badge(loop_cx, 3.75, 2.60, 0.26, "3. STATE UPDATE & JUMP", '#FEF3C7', '#B45309', fontsize=7.4)
+    ax.text(loop_cx, 3.40, r"• Sample transition: $x_{t+\Delta t} \sim \mathrm{Cat}(\operatorname{softmax}(\tilde{Z}))^{\lambda_t}$",
+            ha='center', va='center', fontsize=7.6, color='#0F172A', zorder=4)
+    ax.text(loop_cx, 3.08, r"• Progressively resolves masked latents to peptide", ha='center', va='center',
+            fontsize=7.5, color='#334155', zorder=4)
+    ax.text(loop_cx, 2.75, r"• Loop iterates until continuous flow time $t = 1$", ha='center', va='center',
+            fontsize=7.6, fontweight='bold', color='#B45309', zorder=4)
+
+    # =========================================================================
+    # COLUMN 5: FINAL OUTPUT (x: 14.35 to 15.65, w: 1.30)
+    # Baseline: y = 2.15, Topline: y = 7.85 (Height: 5.70)
+    # =========================================================================
+    draw_card(14.35, 2.15, 1.30, 5.70, "FINAL OUTPUT", "Valid Peptide", '#059669', '#ECFDF5')
+    out_cx = 15.00
+
+    ax.text(out_cx, 7.02, "Peptide Sequence", ha='center', va='center', fontsize=7.8,
+            fontweight='bold', color='#065F46', zorder=4)
     
-    # Details in A1
-    ax.text(2.4, 9.5, "Input: Tandem Spectrum S", ha='center', va='center', fontsize=9, fontweight='bold', color='#1E293B')
-    ax.text(2.4, 9.15, r"• Observed Peaks: $(m_i, I_i)_{i=1}^M$ ($M \leq 500$)", ha='center', va='center', fontsize=8.5, color='#334155')
-    ax.text(2.4, 8.7, "• Complementary Mass Duality:", ha='center', va='center', fontsize=8.5, fontweight='bold', color='#1E293B')
-    ax.text(2.4, 8.35, r"$m_{\mathrm{comp}, i} = M_{\mathrm{prec}} - m_i + 2 M_{\mathrm{H}}$", ha='center', va='center', fontsize=8.5, color='#2563EB')
-    ax.text(2.4, 7.85, "• Sinusoidal Projections:", ha='center', va='center', fontsize=8.5, fontweight='bold', color='#1E293B')
-    ax.text(2.4, 7.5, r"$\Phi(m_i) \in \mathbb{R}^{d/2}$, $\Phi(m_{\mathrm{comp}, i}) \in \mathbb{R}^{d/2}$", ha='center', va='center', fontsize=8, color='#334155')
-    ax.text(2.4, 7.0, r"• Square-root Intensity: $\sqrt{I_i} / \sum \sqrt{I}$", ha='center', va='center', fontsize=8.5, color='#334155')
-    ax.text(2.4, 6.6, r"Output: Peak Tokens $E_{\mathrm{peak}} \in \mathbb{R}^{M \times d}$", ha='center', va='center', fontsize=8.5, fontweight='bold', color='#1E40AF')
+    # Stylized amino acid residue tokens
+    residues = ["P", "E", "P", "T", "I", "D", "E"]
+    aa_y_start = 6.62
+    for idx, aa in enumerate(residues):
+        y_pos = aa_y_start - idx * 0.38
+        draw_badge(out_cx, y_pos, 0.70, 0.28, aa, '#D1FAE5', '#047857', fontsize=8.5, bold=True)
 
-    # Arrow A1 -> A2
-    arr_a1_a2 = FancyArrowPatch((4.05, 8.35), (4.55, 8.35), arrowstyle='simple,head_width=6,head_length=8',
-                                facecolor='#3B82F6', edgecolor='#1D4ED8', linewidth=0.8)
-    ax.add_patch(arr_a1_a2)
-
-    # Sub-block A2: Bidirectional Spectrum Transformer Encoder
-    a2_box = FancyBboxPatch((4.6, 6.4), 3.2, 3.9, boxstyle="round,pad=0.15,rounding_size=0.25",
-                            facecolor='#F0FDF4', edgecolor='#86EFAC', linewidth=1.2)
-    ax.add_patch(a2_box)
-    ax.text(6.2, 9.95, "2. Spectrum Encoder", ha='center', va='center', fontsize=11, fontweight='bold', color='#14532D')
-    ax.text(6.2, 9.5, "Bidirectional Transformer", ha='center', va='center', fontsize=9, fontweight='bold', color='#1E293B')
-    ax.text(6.2, 9.15, r"• $N_{\mathrm{enc}} = 6$ Layers, $d = 512$", ha='center', va='center', fontsize=8.5, color='#334155')
-    ax.text(6.2, 8.75, "• Pre-LayerNorm & FlashAttention-2", ha='center', va='center', fontsize=8.5, color='#334155')
-    ax.text(6.2, 8.35, "• Multi-Head Self-Attention ($h=8$)", ha='center', va='center', fontsize=8.5, color='#334155')
-    ax.text(6.2, 7.95, r"• SwiGLU FFN ($d_{\mathrm{ffn}} = 1376$)", ha='center', va='center', fontsize=8.5, color='#334155')
-    ax.text(6.2, 7.45, "• Global [CLS] + Peak Tokens", ha='center', va='center', fontsize=8.5, color='#334155')
-    ax.text(6.2, 6.9, r"Output: $H_{\mathrm{spec}} \in \mathbb{R}^{(M+1) \times d}$", ha='center', va='center', fontsize=9, fontweight='bold', color='#15803D')
-
-    # Length Head Branch from A2
-    a2_len_box = FancyBboxPatch((4.8, 6.48), 2.8, 0.42, boxstyle="round,pad=0.06,rounding_size=0.12",
-                                facecolor='#DCFCE7', edgecolor='#4ADE80', linewidth=1.0)
-    ax.add_patch(a2_len_box)
-    ax.text(6.2, 6.69, r"Length Head MLP: $p_{\mathrm{len}} \in \Delta^{27}$", ha='center', va='center', fontsize=8.0, fontweight='bold', color='#166534')
-
-    # Arrow A2 -> A3 (H_spec to Decoder)
-    arr_a2_a3 = FancyArrowPatch((7.85, 8.35), (8.35, 8.35), arrowstyle='simple,head_width=6,head_length=8',
-                                facecolor='#10B981', edgecolor='#047857', linewidth=0.8)
-    ax.add_patch(arr_a2_a3)
-
-    # Sub-block A3: AdaLN-Zero Conditioning Generator
-    a3_box = FancyBboxPatch((8.4, 8.0), 2.7, 2.3, boxstyle="round,pad=0.15,rounding_size=0.25",
-                            facecolor='#FFFBEB', edgecolor='#FCD34D', linewidth=1.2)
-    ax.add_patch(a3_box)
-    ax.text(9.75, 9.95, "3. AdaLN-Zero Modulator", ha='center', va='center', fontsize=10.5, fontweight='bold', color='#78350F')
-    ax.text(9.75, 9.55, r"Inputs: $(t, M_{\mathrm{prec}}, z)$", ha='center', va='center', fontsize=9, fontweight='bold', color='#1E293B')
-    ax.text(9.75, 9.15, r"• Flow time $t \in [0, 1]$", ha='center', va='center', fontsize=8, color='#334155')
-    ax.text(9.75, 8.8, r"• Precursor Mass $M_{\mathrm{prec}}$", ha='center', va='center', fontsize=8, color='#334155')
-    ax.text(9.75, 8.45, r"• Precursor Charge $z \in \{2, 3, 4, 5\}$", ha='center', va='center', fontsize=8, color='#334155')
-    ax.text(9.75, 8.15, r"Yields $(\gamma_l, \beta_l, \alpha_l)$ zero-init", ha='center', va='center', fontsize=8, fontweight='bold', color='#B45309')
-
-    # Sub-block A4: Bidirectional Discrete Flow Decoder
-    a4_box = FancyBboxPatch((11.4, 6.4), 3.8, 3.9, boxstyle="round,pad=0.15,rounding_size=0.25",
-                            facecolor='#FAF5FF', edgecolor='#D8B4FE', linewidth=1.2)
-    ax.add_patch(a4_box)
-    ax.text(13.3, 9.95, "4. Bidirectional Flow Decoder", ha='center', va='center', fontsize=11, fontweight='bold', color='#581C87')
-    ax.text(13.3, 9.55, r"$N_{\mathrm{dec}} = 6$ Layers with AdaLN-Zero", ha='center', va='center', fontsize=9, fontweight='bold', color='#1E293B')
-    ax.text(13.3, 9.15, r"• Input: Corrupted Sequence $x_t \in \mathcal{V}^L$", ha='center', va='center', fontsize=8.5, color='#334155')
-    ax.text(13.3, 8.75, r"• Cross-Attention into $H_{\mathrm{spec}}$", ha='center', va='center', fontsize=8.5, color='#334155')
-    ax.text(13.3, 8.35, "• Adaptive Scaling & Gating:", ha='center', va='center', fontsize=8.5, fontweight='bold', color='#1E293B')
-    ax.text(13.3, 8.0, r"$h^{(l)} = h + \alpha \odot \mathrm{Block}(\mathrm{LN}(h)(1+\gamma) + \beta)$", ha='center', va='center', fontsize=7.8, color='#7E22CE')
-    ax.text(13.3, 7.5, r"• Output: Unmasked Logits $\mathbf{Z} \in \mathbb{R}^{L \times S}$", ha='center', va='center', fontsize=8.5, fontweight='bold', color='#6B21A8')
-    ax.text(13.3, 7.05, "Training Loss (Campbell et al. 2024):", ha='center', va='center', fontsize=8.5, fontweight='bold', color='#1E293B')
-    ax.text(13.3, 6.65, r"$\mathcal{L}_{\mathrm{DFM}} = - \sum_{d: x_t^d=[M]} \log p_{1|t}^\theta(x_1^d \mid x_t, t, \mathcal{S})$", ha='center', va='center', fontsize=8.0, color='#9333EA')
-
-    # Arrow A3 -> A4
-    arr_a3_a4 = FancyArrowPatch((11.15, 8.8), (11.35, 8.8), arrowstyle='simple,head_width=5,head_length=6',
-                                facecolor='#F59E0B', edgecolor='#D97706', linewidth=0.8)
-    ax.add_patch(arr_a3_a4)
+    ax.text(out_cx, 3.70, r"Final: $\hat{Y}^*$", ha='center', va='center', fontsize=9.2,
+            fontweight='bold', color='#065F46', zorder=4)
+    
+    # Validation indicators
+    draw_badge(out_cx, 3.20, 1.10, 0.26, "✓ Strict Mass", '#ECFDF5', '#059669', fontsize=7.0)
+    ax.text(out_cx, 2.92, r"$\Delta M \approx 0.0\,\mathrm{ppm}$", ha='center', va='center',
+            fontsize=7.2, color='#065F46', zorder=4)
+    draw_badge(out_cx, 2.55, 1.10, 0.26, "✓ Calibrated", '#ECFDF5', '#059669', fontsize=7.0)
 
     # =========================================================================
-    # PART B: MASS-GUIDED ITERATIVE DECODING & FILTERING PIPELINE (INFERENCE)
+    # ARROWS & CONNECTORS
     # =========================================================================
-    part_b_box = FancyBboxPatch((0.5, 0.6), 15.0, 4.9, boxstyle="round,pad=0.2,rounding_size=0.4",
-                                facecolor='#FFFFFF', edgecolor='#059669', linewidth=2.2, linestyle='-')
-    ax.add_patch(part_b_box)
+    # Arrow 1: Spectrum Peaks (1A) -> Spectrum Encoder (2A)
+    arr_1a_2a = FancyArrowPatch((2.65, 6.95), (3.25, 6.95), arrowstyle='simple,head_width=6,head_length=8',
+                                facecolor='#0D9488', edgecolor='#0F766E', linewidth=0.8, zorder=6)
+    ax.add_patch(arr_1a_2a)
+    ax.text(2.95, 7.15, "Peaks", ha='center', va='center', fontsize=7.4, fontweight='bold',
+            color='#0F766E', zorder=6)
 
-    # Part B Badge
-    part_b_badge = FancyBboxPatch((0.8, 5.05), 7.8, 0.45, boxstyle="round,pad=0.1,rounding_size=0.2",
-                                  facecolor='#065F46', edgecolor='none')
-    ax.add_patch(part_b_badge)
-    ax.text(4.7, 5.27, "PART B: MASS-GUIDED ITERATIVE DECODING & FILTERING PIPELINE (INFERENCE)", 
-            ha='center', va='center', fontsize=9.2, fontweight='bold', color='#FFFFFF')
+    # Arrow 2: Precursor Data (1B) -> Spectrum Encoder (2A) [Complementary mass]
+    arr_1b_2a = FancyArrowPatch((2.65, 5.25), (3.25, 5.55), connectionstyle="arc3,rad=-0.12",
+                                arrowstyle='simple,head_width=5,head_length=7',
+                                facecolor='#6366F1', edgecolor='#4338CA', linewidth=0.8, zorder=6)
+    ax.add_patch(arr_1b_2a)
 
-    # Sub-block B1: Length Beam & Prior Initialization
-    b1_box = FancyBboxPatch((0.8, 1.0), 3.2, 3.8, boxstyle="round,pad=0.15,rounding_size=0.25",
-                            facecolor='#ECFDF5', edgecolor='#A7F3D0', linewidth=1.2)
-    ax.add_patch(b1_box)
-    ax.text(2.4, 4.45, "1. Beam Prior Setup", ha='center', va='center', fontsize=11, fontweight='bold', color='#064E3B')
-    ax.text(2.4, 4.05, r"From Length Head $p_{\mathrm{len}}$:", ha='center', va='center', fontsize=9, fontweight='bold', color='#1E293B')
-    ax.text(2.4, 3.7, "• Extract Top-B Candidates", ha='center', va='center', fontsize=8.5, color='#334155')
-    ax.text(2.4, 3.35, r"$\mathcal{L}_{\mathrm{cand}} = \mathrm{TopK}(p_{\mathrm{len}}, B=3)$", ha='center', va='center', fontsize=8.5, fontweight='bold', color='#047857')
-    ax.text(2.4, 2.9, "• Initialize Fully Masked Latents:", ha='center', va='center', fontsize=8.5, fontweight='bold', color='#1E293B')
-    ax.text(2.4, 2.55, r"$x_0^{(b)} = [ [M], [M], \dots, [M] ] \in \mathcal{V}^{L_b}$", ha='center', va='center', fontsize=8.5, color='#065F46')
-    ax.text(2.4, 2.05, "• Uniform Categorical Prior:", ha='center', va='center', fontsize=8.5, color='#334155')
-    ax.text(2.4, 1.7, r"$p_0(x_0) = \mathrm{Cat}(1/S)$ on $\mathcal{V}^{L_b}$", ha='center', va='center', fontsize=8.5, color='#334155')
-    ax.text(2.4, 1.25, r"Parallel Batch: $B \times \mathrm{Beam}$", ha='center', va='center', fontsize=8.5, fontweight='bold', color='#059669')
+    # Arrow 3: Precursor Data (1B) -> Length Predictor (2B)
+    arr_1b_2b = FancyArrowPatch((2.65, 4.45), (3.25, 4.15), connectionstyle="arc3,rad=0.12",
+                                arrowstyle='simple,head_width=5,head_length=7',
+                                facecolor='#6366F1', edgecolor='#4338CA', linewidth=0.8, zorder=6)
+    ax.add_patch(arr_1b_2b)
+    ax.text(2.95, 4.45, r"$M_{\mathrm{prec}}, z$", ha='center', va='center', fontsize=7.2,
+            fontweight='bold', color='#4338CA', zorder=6)
 
-    # Inter-panel connector: Length Head (A2) -> Beam Prior Setup (B1)
-    arr_len_to_b1 = FancyArrowPatch((5.8, 6.48), (2.8, 4.8), connectionstyle="arc3,rad=-0.2",
-                                    arrowstyle='simple,head_width=5,head_length=7',
-                                    facecolor='#059669', edgecolor='#065F46', linewidth=0.8)
-    ax.add_patch(arr_len_to_b1)
+    # Arrow 4: Spectrum Encoder (2A) -> Length Predictor (2B) [CLS token]
+    arr_enc_len = FancyArrowPatch((4.80, 5.15), (4.80, 4.85),
+                                  arrowstyle='simple,head_width=5,head_length=7',
+                                  facecolor='#0F766E', edgecolor='#115E59', linewidth=0.8, zorder=6)
+    ax.add_patch(arr_enc_len)
+    ax.text(5.15, 5.00, r"$[CLS]$", ha='left', va='center', fontsize=7.5,
+            fontweight='bold', color='#0F766E', zorder=6)
 
-    # Sub-block B2: Precomputed GPU KnapsackDP
-    b2_box = FancyBboxPatch((4.3, 1.0), 3.3, 3.8, boxstyle="round,pad=0.15,rounding_size=0.25",
-                            facecolor='#FFF7ED', edgecolor='#FFEDD5', linewidth=1.2)
-    ax.add_patch(b2_box)
-    ax.text(5.95, 4.45, "2. GPU KnapsackDP Table", ha='center', va='center', fontsize=11, fontweight='bold', color='#7C2D12')
-    ax.text(5.95, 4.05, "Exact DP Reachability Table:", ha='center', va='center', fontsize=9, fontweight='bold', color='#1E293B')
-    ax.text(5.95, 3.7, r"$T[k, m] = \bigvee_{a} T[k-1, m - w_a]$", ha='center', va='center', fontsize=8.5, fontweight='bold', color='#C2410C')
-    ax.text(5.95, 3.25, r"• Discretization $\Delta m = 0.02\,\mathrm{Da}$", ha='center', va='center', fontsize=8.5, color='#334155')
-    ax.text(5.95, 2.85, r"• Bins $B_{\max} = 250,000$ ($M \leq 5000$ Da)", ha='center', va='center', fontsize=8.5, color='#334155')
-    ax.text(5.95, 2.45, "• GPU 1D Max-Pooling (W=101):", ha='center', va='center', fontsize=8.5, fontweight='bold', color='#1E293B')
-    ax.text(5.95, 2.1, r"$T_{\mathrm{pool}}[k, b] = \max_{|j-b| \leq 50} T[k, j]$", ha='center', va='center', fontsize=8.5, color='#EA580C')
-    ax.text(5.95, 1.6, "Guarantees Precursor Mass Fit", ha='center', va='center', fontsize=8.5, fontweight='bold', color='#9A3412')
-    ax.text(5.95, 1.25, r"Precomputed in $< 450\,\mathrm{ms}$ (1-time)", ha='center', va='center', fontsize=8, fontstyle='italic', color='#64748B')
+    # Arrow 5: Spectrum Encoder (2A) -> Discrete Flow Decoder (3) [H_spec Cross-Attention]
+    arr_enc_dec = FancyArrowPatch((6.35, 6.50), (6.95, 6.50),
+                                  arrowstyle='simple,head_width=7,head_length=9',
+                                  facecolor='#0D9488', edgecolor='#0F766E', linewidth=1.0, zorder=6)
+    ax.add_patch(arr_enc_dec)
+    ax.text(6.65, 6.75, r"$H_{\mathrm{spec}}$", ha='center', va='center', fontsize=8.5,
+            fontweight='bold', color='#0F766E', zorder=6)
 
-    # Sub-block B3: Reverse Euler Integration Loop with Dynamic Pruning
-    b3_box = FancyBboxPatch((8.0, 1.0), 3.9, 3.8, boxstyle="round,pad=0.15,rounding_size=0.25",
-                            facecolor='#FEF2F2', edgecolor='#FECACA', linewidth=1.2)
-    ax.add_patch(b3_box)
-    ax.text(9.95, 4.45, "3. Iterative Reverse Euler Loop", ha='center', va='center', fontsize=11, fontweight='bold', color='#991B1B')
-    ax.text(9.95, 4.05, "20-Step Cosine Flow Integration:", ha='center', va='center', fontsize=9, fontweight='bold', color='#1E293B')
-    ax.text(9.95, 3.7, r"For step $k = 0, \dots, K-1$ ($t_k \to t_{k+1}$):", ha='center', va='center', fontsize=8.5, color='#334155')
-    ax.text(9.95, 3.3, r"1. Call Decoder: $\mathbf{Z} = \mathrm{Dec}(x_t, t_k, H_{\mathrm{spec}})$", ha='center', va='center', fontsize=8.0, color='#991B1B')
-    ax.text(9.95, 2.85, r"2. $\mathcal{O}(1)$ KnapsackDP Pruning:", ha='center', va='center', fontsize=8.5, fontweight='bold', color='#1E293B')
-    ax.text(9.95, 2.5, r"$\tilde{Z}_{d, a} = Z_{d, a} \text{ if Valid}(a) \text{ else } -\infty$", ha='center', va='center', fontsize=8.0, fontweight='bold', color='#DC2626')
-    ax.text(9.95, 2.05, "3. Dynamic Euler Unmasking Jump:", ha='center', va='center', fontsize=8.5, fontweight='bold', color='#1E293B')
-    ax.text(9.95, 1.7, r"$x_{t+\Delta t}^d \sim \mathrm{Cat}(p_{1|t}^d)$ with prob $\lambda_t$", ha='center', va='center', fontsize=8.0, color='#7F1D1D')
-    ax.text(9.95, 1.25, "Enforces Strict 0.0 ppm Intact Mass", ha='center', va='center', fontsize=8.5, fontweight='bold', color='#B91C1C')
+    # Arrow 6: Length Predictor (2B) -> Decoder Sequence Length L
+    arr_len_dec = FancyArrowPatch((6.35, 3.50), (6.95, 3.50),
+                                  arrowstyle='simple,head_width=6,head_length=8',
+                                  facecolor='#059669', edgecolor='#047857', linewidth=0.8, zorder=6)
+    ax.add_patch(arr_len_dec)
+    ax.text(6.65, 3.72, r"Length $L$", ha='center', va='center', fontsize=7.4,
+            fontweight='bold', color='#047857', zorder=6)
 
-    # Connection: Knapsack Table (B2) -> Pruning in B3
-    arr_b2_b3 = FancyArrowPatch((7.65, 2.5), (7.95, 2.5), arrowstyle='simple,head_width=5,head_length=6',
-                                facecolor='#EA580C', edgecolor='#C2410C', linewidth=0.8)
-    ax.add_patch(arr_b2_b3)
+    # Arrow 7: Decoder (3) -> KnapsackDP & Euler Loop (4) [Velocity Logits R_t]
+    arr_dec_loop = FancyArrowPatch((10.15, 5.00), (10.75, 5.00),
+                                   arrowstyle='simple,head_width=7,head_length=9',
+                                   facecolor='#2563EB', edgecolor='#1D4ED8', linewidth=1.0, zorder=6)
+    ax.add_patch(arr_dec_loop)
+    ax.text(10.45, 5.25, r"$R_t^\theta$", ha='center', va='center', fontsize=9.0,
+            fontweight='bold', color='#1D4ED8', zorder=6)
 
-    # Inter-panel connector: Decoder (A4) -> Reverse Euler Loop (B3)
-    arr_a4_to_b3 = FancyArrowPatch((12.5, 6.35), (10.5, 4.85), connectionstyle="arc3,rad=-0.25",
+    # =========================================================================
+    # DEDICATED BOTTOM CORRIDOR (y: 0.60 to 2.15): INITIAL STATE & EULER LOOP
+    # =========================================================================
+    # Arrow 8: Prior Noise State (1C) -> Initial state input at t=0
+    # Runs out of 1C bottom, across open corridor at y=1.60, into Decoder at x=7.50, y=2.15
+    arr_p1 = (1.575, 2.15)
+    arr_p2 = (1.575, 1.60)
+    arr_p3 = (7.65, 1.60)
+    arr_p4 = (7.65, 2.15)
+
+    ax.plot([arr_p1[0], arr_p2[0]], [arr_p1[1], arr_p2[1]], color='#0284C7', linewidth=1.5, zorder=6)
+    ax.plot([arr_p2[0], arr_p3[0]], [arr_p2[1], arr_p3[1]], color='#0284C7', linewidth=1.5, zorder=6)
+    arr_init_up = FancyArrowPatch((arr_p3[0], arr_p3[1]), arr_p4,
+                                  arrowstyle='simple,head_width=5,head_length=7',
+                                  facecolor='#0284C7', edgecolor='#0369A1', linewidth=0.8, zorder=6)
+    ax.add_patch(arr_init_up)
+    draw_badge(4.40, 1.60, 2.80, 0.30,
+               r"Initial State $x_0 \sim \mathrm{Cat}(1/S)$  at  $t = 0$",
+               '#F0F9FF', '#0284C7', fontsize=7.4, bold=True, zorder=7)
+
+    # Arrow 9: CYCLIC FEEDBACK LOOP (Euler integration update x_{t+dt} -> Decoder x_t)
+    # Curves down out of Column 4, runs along open corridor at y=1.05, curves up into Column 3
+    loop_start_x = 12.00
+    loop_entry_x = 8.85
+    loop_y_corridor = 1.05
+
+    ax.plot([loop_start_x, loop_start_x], [2.15, loop_y_corridor], color='#D97706', linewidth=2.0, zorder=6)
+    ax.plot([loop_start_x, loop_entry_x], [loop_y_corridor, loop_y_corridor], color='#D97706', linewidth=2.0, zorder=6)
+    arr_loop_up = FancyArrowPatch((loop_entry_x, loop_y_corridor), (loop_entry_x, 2.15),
+                                  arrowstyle='simple,head_width=6,head_length=8',
+                                  facecolor='#D97706', edgecolor='#B45309', linewidth=1.0, zorder=6)
+    ax.add_patch(arr_loop_up)
+
+    # Feedback Loop Pill Badge
+    draw_badge(10.45, 1.05, 3.50, 0.36,
+               r"$\circlearrowleft$  Euler Trajectory Loop: $x_{t+\Delta t} \to x_t$  ($k = 1, \dots, K$ steps)",
+               '#FFFBEB', '#B45309', fontsize=7.8, bold=True, zorder=7)
+
+    # Arrow 10: Knapsack Loop (4) -> Output (5) [Exit at t=1]
+    arr_loop_out = FancyArrowPatch((13.95, 5.00), (14.35, 5.00),
                                    arrowstyle='simple,head_width=6,head_length=8',
-                                   facecolor='#7C3AED', edgecolor='#5B21B6', linewidth=0.8)
-    ax.add_patch(arr_a4_to_b3)
-    ax.text(12.2, 5.5, r"Forward Pass Logits $\mathbf{Z}$", ha='center', va='center', fontsize=8, fontweight='bold', color='#6D28D9',
-            bbox=dict(boxstyle="round,pad=0.2", facecolor='#F3E8FF', edgecolor='#C4B5FD', linewidth=0.8))
+                                   facecolor='#059669', edgecolor='#047857', linewidth=0.8, zorder=6)
+    ax.add_patch(arr_loop_out)
+    ax.text(14.15, 5.25, r"$t = 1$", ha='center', va='center', fontsize=7.8,
+            fontweight='bold', color='#059669', zorder=6)
 
-    # Sub-block B4: Bayesian Candidate Scoring & Re-ranking
-    b4_box = FancyBboxPatch((12.2, 1.0), 3.0, 3.8, boxstyle="round,pad=0.15,rounding_size=0.25",
-                            facecolor='#F8FAFC', edgecolor='#CBD5E1', linewidth=1.2)
-    ax.add_patch(b4_box)
-    ax.text(13.7, 4.45, "4. Bayesian Re-ranking", ha='center', va='center', fontsize=11, fontweight='bold', color='#0F172A')
-    ax.text(13.7, 4.05, "Joint Posterior Objective:", ha='center', va='center', fontsize=9, fontweight='bold', color='#1E293B')
-    ax.text(13.7, 3.65, r"$\mathrm{Score}(Y) = \log p(L \mid \mathcal{S})$", ha='center', va='center', fontsize=8.2, color='#1E293B')
-    ax.text(13.7, 3.3, r"$+ \frac{1}{L} \sum \log p(Y_i \mid \mathcal{S}, L)$", ha='center', va='center', fontsize=8.2, color='#1E293B')
-    ax.text(13.7, 2.9, r"$- \alpha \cdot |\Delta M_{\mathrm{prec}}| / M$", ha='center', va='center', fontsize=8.2, color='#DC2626')
-    ax.text(13.7, 2.5, r"$+ \beta \cdot \mathrm{FragMatch}(Y, \mathcal{S})$", ha='center', va='center', fontsize=8.2, color='#059669')
-    ax.text(13.7, 2.1, r"$+ \gamma \cdot \mathrm{TrypsinPrior}(y_1)$", ha='center', va='center', fontsize=8.2, color='#2563EB')
-    ax.text(13.7, 1.6, r"Optimal Output: $\hat{Y}^*$", ha='center', va='center', fontsize=9.5, fontweight='bold', color='#0F172A')
-    ax.text(13.7, 1.25, "Consensus Strict Match", ha='center', va='center', fontsize=8.5, color='#475569')
-
-    # Arrow B3 -> B4
-    arr_b3_b4 = FancyArrowPatch((11.95, 2.9), (12.15, 2.9), arrowstyle='simple,head_width=5,head_length=6',
-                                facecolor='#475569', edgecolor='#334155', linewidth=0.8)
-    ax.add_patch(arr_b3_b4)
-
-    # Save to disk
+    # -------------------------------------------------------------------------
+    # SAVE OUTPUTS
+    # -------------------------------------------------------------------------
     out_thesis = Path("thesis/images/dflow_architecture_pipeline.png")
     out_docs = Path("docs/figures/dflow_architecture_pipeline.png")
+    out_pres = Path("presentation/images/dflow_architecture_pipeline.png")
     out_artifact = Path("/home/joelgedeon_aims_ac_za/.gemini/antigravity-cli/brain/ee9cf031-b0c5-4740-b963-40c81c13ea78/dflow_architecture_pipeline.png")
+
+    out_thesis.parent.mkdir(parents=True, exist_ok=True)
+    out_docs.parent.mkdir(parents=True, exist_ok=True)
+    out_pres.parent.mkdir(parents=True, exist_ok=True)
+    out_artifact.parent.mkdir(parents=True, exist_ok=True)
 
     fig.savefig(out_thesis, dpi=300, bbox_inches='tight')
     fig.savefig(out_docs, dpi=300, bbox_inches='tight')
+    fig.savefig(out_pres, dpi=300, bbox_inches='tight')
     fig.savefig(out_artifact, dpi=300, bbox_inches='tight')
-    print(f"Successfully generated architecture diagram at {out_thesis}")
+
+    print(f"[✓] Successfully generated redesigned architecture diagram:")
+    print(f"    - {out_thesis}")
+    print(f"    - {out_docs}")
+    print(f"    - {out_pres}")
+    print(f"    - {out_artifact}")
     plt.close(fig)
 
 if __name__ == "__main__":

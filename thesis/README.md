@@ -7,7 +7,8 @@ This directory contains the complete LaTeX source code for the AIMS Structured M
 - **Title:** DFlowNovo: Continuous-Time Discrete Flow Matching and Dynamic Knapsack Guidance for High-Throughput De Novo Peptide Sequencing
 - **Author:** Joël Gédéon (`joel.gedeon@aims.ac.za`)
 - **Institution:** African Institute for Mathematical Sciences (AIMS South Africa)
-- **Supervisors:** Dr. Kevin Eloff and Prof. Ulrich Paquet (InstaDeep & AIMS South Africa)
+- **Degree:** Master of Science in Artificial Intelligence
+- **Supervisors:** *********
 - **Date:** September 2026
 
 ## Repository Structure

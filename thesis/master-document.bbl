@@ -1,9 +1,28 @@
-\begin{thebibliography}{34}
+\begin{thebibliography}{43}
 \providecommand{\natexlab}[1]{#1}
 \providecommand{\url}[1]{\texttt{#1}}
 \expandafter\ifx\csname urlstyle\endcsname\relax
   \providecommand{\doi}[1]{doi: #1}\else
   \providecommand{\doi}{doi: \begingroup \urlstyle{rm}\Url}\fi
+
+\bibitem[Aebersold and Mann(2016)]{Aebersold2016}
+Aebersold, R. and Mann, M.
+\newblock Mass-spectrometric exploration of proteome structure and function.
+\newblock \emph{Nature}, 537\penalty0 (7620):\penalty0 347--355, 2016.
+\newblock \doi{10.1038/nature19949}.
+
+\bibitem[Bassani-Sternberg et~al.(2016)Bassani-Sternberg, Br{\"a}unlein, Klar,
+  Engleitner, Sinitcyn, Audehm, Straub, Weber, Slotta-Huspenina, Specht,
+  Martignoni, Werner, Hein, Busch, Peschel, Rad, Cox, Mann, and
+  Krackhardt]{BassaniSternberg2016}
+Bassani-Sternberg, M., Br{\"a}unlein, E., Klar, R., Engleitner, T., Sinitcyn,
+  P., Audehm, S., Straub, M., Weber, J., Slotta-Huspenina, J., Specht, K.,
+  Martignoni, M.~E., Werner, A., Hein, R., Busch, D.~H., Peschel, C., Rad, R.,
+  Cox, J., Mann, M., and Krackhardt, A.~M.
+\newblock Direct identification of clinically relevant neoepitopes presented on
+  native human melanoma tissue by mass spectrometry.
+\newblock \emph{Nature Communications}, 7:\penalty0 13404, 2016.
+\newblock \doi{10.1038/ncomms13404}.
 
 \bibitem[Biemann(1988)]{Biemann1988}
 Biemann, K.
@@ -11,6 +30,13 @@ Biemann, K.
 \newblock \emph{Biomedical and Environmental Mass Spectrometry}, 16\penalty0
   (1-12):\penalty0 99--111, 1988.
 \newblock \doi{10.1002/bms.1200160119}.
+
+\bibitem[Bonissone and Pevzner(2016)]{Bonissone2016}
+Bonissone, S.~R. and Pevzner, P.~A.
+\newblock Immunoglobulin classification using the colored antibody graph.
+\newblock \emph{Journal of Computational Biology}, 23\penalty0 (6):\penalty0
+  483--494, 2016.
+\newblock \doi{10.1089/cmb.2016.0010}.
 
 \bibitem[Breci et~al.(2003)Breci, Tabb, Yates, and Wysocki]{Breci2003}
 Breci, L.~A., Tabb, D.~L., Yates, J.~R., and Wysocki, V.~H.
@@ -41,6 +67,24 @@ Chen, T., Kao, M.-Y., Tepel, M., Rush, J., and Church, G.~M.
 \newblock \emph{Journal of Computational Biology}, 8\penalty0 (3):\penalty0
   325--337, 2001.
 \newblock \doi{10.1089/10665270152530863}.
+
+\bibitem[Chick et~al.(2015)Chick, Kolippakkam, Nusinow, Zhai, Rad, Huttlin, and
+  Gygi]{Chick2015}
+Chick, J.~M., Kolippakkam, D., Nusinow, D.~P., Zhai, B., Rad, R., Huttlin,
+  E.~L., and Gygi, S.~P.
+\newblock A mass-tolerant database search identifies a large proportion of
+  unassigned spectra in shotgun proteomics as modified peptides.
+\newblock \emph{Nature Biotechnology}, 33\penalty0 (7):\penalty0 743--749,
+  2015.
+\newblock \doi{10.1038/nbt.3267}.
+
+\bibitem[Cox and Mann(2008)]{Cox2008}
+Cox, J. and Mann, M.
+\newblock {MaxQuant} enables high peptide identification rates, individualized
+  p.p.b.-range mass accuracies and proteome-wide protein quantification.
+\newblock \emph{Nature Biotechnology}, 26\penalty0 (12):\penalty0 1367--1372,
+  2008.
+\newblock \doi{10.1038/nbt.1511}.
 
 \bibitem[Dancik et~al.(1999)Dancik, Addona, Clauser, Vath, and
   Pevzner]{Dancik1999}
@@ -112,6 +156,15 @@ Johnson, R.~S., Martin, S.~A., and Biemann, K.
   1987.
 \newblock \doi{10.1021/ac00149a019}.
 
+\bibitem[Kong et~al.(2017)Kong, Leprevost, Avtonomov, Mellacheruvu, and
+  Nesvizhskii]{Kong2017}
+Kong, A.~T., Leprevost, F.~V., Avtonomov, D.~M., Mellacheruvu, D., and
+  Nesvizhskii, A.~I.
+\newblock {MSFragger}: Ultrafast and comprehensive peptide identification in
+  large-scale mass spectrometry data.
+\newblock \emph{Nature Methods}, 14\penalty0 (5):\penalty0 513--520, 2017.
+\newblock \doi{10.1038/nmeth.4256}.
+
 \bibitem[Lebedev et~al.(2014)Lebedev, Damoc, Makarov, and Samgina]{Lebedev2014}
 Lebedev, A.~T., Damoc, E., Makarov, A.~A., and Samgina, T.~Y.
 \newblock Discrimination of leucine and isoleucine in peptides sequencing with
@@ -170,6 +223,15 @@ Peebles, W. and Xie, S.
   (ICCV)}, pages 4195--4205, 2023.
 \newblock \doi{10.1109/ICCV51070.2023.00387}.
 
+\bibitem[Perkins et~al.(1999)Perkins, Pappin, Creasy, and
+  Cottrell]{Perkins1999}
+Perkins, D.~N., Pappin, D. J.~C., Creasy, D.~M., and Cottrell, J.~S.
+\newblock Probability-based protein identification by searching sequence
+  databases using mass spectrometry data.
+\newblock \emph{Electrophoresis}, 20\penalty0 (18):\penalty0 3551--3567, 1999.
+\newblock
+  \doi{10.1002/(SICI)1522-2683(19991201)20:18<3551::AID-ELPS3551>3.0.CO;2-2}.
+
 \bibitem[Petrovskiy et~al.(2026)Petrovskiy, Nikolsky, Rudnev, Kulikova,
   Butkova, Malsagova, Kopylov, and Kaysheva]{Petrovskiy2026}
 Petrovskiy, D.~V., Nikolsky, K.~S., Rudnev, V.~R., Kulikova, L.~I., Butkova,
@@ -179,6 +241,13 @@ Petrovskiy, D.~V., Nikolsky, K.~S., Rudnev, V.~R., Kulikova, L.~I., Butkova,
 \newblock \emph{PLOS Computational Biology}, 22\penalty0 (1):\penalty0
   e1013892, 2026.
 \newblock \doi{10.1371/journal.pcbi.1013892}.
+
+\bibitem[Purcell et~al.(2019)Purcell, Ramarathinam, and Ternette]{Purcell2019}
+Purcell, A.~W., Ramarathinam, S.~H., and Ternette, N.
+\newblock Mass spectrometry-based identification of {MHC}-bound peptides for
+  immunopeptidomics.
+\newblock \emph{Nature Protocols}, 14\penalty0 (6):\penalty0 1687--1707, 2019.
+\newblock \doi{10.1038/s41596-019-0133-y}.
 
 \bibitem[Qiao et~al.(2021)Qiao, Tran, Xin, Shan, and Li]{Qiao2021}
 Qiao, R., Tran, N.~H., Xin, L., Shan, B., and Li, M.
@@ -195,6 +264,12 @@ Roepstorff, P. and Fohlman, J.
 \newblock \emph{Biomedical Mass Spectrometry}, 11\penalty0 (11):\penalty0 601,
   1984.
 \newblock \doi{10.1002/bms.1200111109}.
+
+\bibitem[Schumacher and Schreiber(2015)]{Schumacher2015}
+Schumacher, T.~N. and Schreiber, R.~D.
+\newblock Neoantigens in cancer immunotherapy.
+\newblock \emph{Science}, 348\penalty0 (6230):\penalty0 69--74, 2015.
+\newblock \doi{10.1126/science.aaa4971}.
 
 \bibitem[Shazeer(2020)]{Shazeer2020}
 Shazeer, N.
