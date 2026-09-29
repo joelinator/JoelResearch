@@ -30,15 +30,17 @@ plt.rcParams.update({
 import os
 
 DOCS_DIR = Path("docs/figures")
-DOCS_DIR.mkdir(parents=True, exist_ok=True)
+CURRENT_OUTPUT_DIR = DOCS_DIR
 _artifact_env = os.environ.get("ANTIGRAVITY_ARTIFACT_DIR")
 ARTIFACT_DIR = Path(_artifact_env) if _artifact_env else None
 
-def save_fig(fig, filename):
-    out_p = DOCS_DIR / filename
+def save_fig(fig, filename, out_dir=None):
+    target = Path(out_dir) if out_dir is not None else CURRENT_OUTPUT_DIR
+    target.mkdir(parents=True, exist_ok=True)
+    out_p = target / filename
     fig.savefig(out_p, dpi=300, bbox_inches="tight")
     print(f"Saved: {out_p}")
-    if ARTIFACT_DIR and ARTIFACT_DIR.exists():
+    if ARTIFACT_DIR and ARTIFACT_DIR.exists() and ARTIFACT_DIR.resolve() != target.resolve():
         fig.savefig(ARTIFACT_DIR / filename, dpi=300, bbox_inches="tight")
 
 
@@ -435,18 +437,27 @@ def generate_fig6_case_studies():
 
 def parse_args():
     import argparse
-    parser = argparse.ArgumentParser(description="Generate all publication-quality figures.")
-    parser.add_argument("--output-dir", type=Path, default=DOCS_DIR, help="Directory to save generated figures.")
+    parser = argparse.ArgumentParser(
+        description="Generate all publication-quality figures (300 DPI) for DFlowNovo paper and thesis."
+    )
+    parser.add_argument(
+        "--output-dir",
+        type=Path,
+        default=DOCS_DIR,
+        help="Directory to save generated publication figures (default: docs/figures).",
+    )
     return parser.parse_args()
 
 
 if __name__ == "__main__":
     args = parse_args()
-    print("Regenerating all publication figures with 300 DPI and exact ground truth values...")
+    CURRENT_OUTPUT_DIR = Path(args.output_dir)
+    CURRENT_OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+    print(f"Generating all publication figures (300 DPI) to {CURRENT_OUTPUT_DIR}...")
     generate_fig1_multidomain()
     generate_fig2_knapsack()
     generate_fig3_instanovo_vs_dfm_ns()
     generate_fig4_instanovo_vs_dfm_hcpt()
     generate_fig5_full_splits_summary()
     generate_fig6_case_studies()
-    print("Done! All 6 publication figures successfully updated.")
+    print("Done! All 6 publication figures successfully generated.")

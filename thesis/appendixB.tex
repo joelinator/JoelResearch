@@ -1,0 +1,146 @@
+\chapter{Hyperparameter Configurations and Training Protocols}
+
+This appendix provides the complete specifications of the architectural hyperparameters, optimization schedules, hardware environments, and dynamic knapsack configurations used to train and evaluate DFlowNovo.
+
+\section{Model Architecture Specifications}
+
+Table~\ref{tab:model_hyperparameters} details the structural configuration of the DFlowNovo network components.
+
+\begin{table}[!ht]
+\centering
+\small
+\begin{tabular}{llr}
+\toprule
+\textbf{Component} & \textbf{Hyperparameter} & \textbf{Setting} \\
+\midrule
+\textbf{General} & Model Dimension ($d_{\text{model}}$) & 512 \\
+& Vocabulary Size ($S$) & 22 (20 canonical AAs + $[M]$ + $[PAD]$) \\
+& Maximum Peptide Length ($L_{\max}$) & 30 \\
+& Maximum Spectrum Peaks ($P_{\max}$) & 500 \\
+\midrule
+\textbf{SpectrumEncoder} & Transformer Encoder Layers & 6 \\
+& Multi-Head Attention Heads ($h$) & 8 \\
+& Head Dimension ($d_k$) & 64 \\
+& Feed-Forward Dimension ($d_{\text{ff}}$) & 1536 \\
+& Normalization Layer & Pre-LayerNorm \citep{Xiong2020} \\
+& Attention Implementation & FlashAttention-2 \citep{Dao2022} \\
+& Dropout Rate & 0.10 \\
+\midrule
+\textbf{PeptideLengthClassifier} & MLP Layers & 2 \\
+& Hidden Layer Dimension & 256 \\
+& Activation Function & GELU \\
+& Dropout Rate & 0.15 \\
+& Output Dimension & 27 (lengths 4 to 30) \\
+\midrule
+\textbf{DFMPeptideDecoder} & Bidirectional Transformer Blocks & 6 \\
+& Conditioning Mechanism & AdaLN-Zero \citep{Peebles2023} \\
+& Multi-Head Attention Heads ($h$) & 8 \\
+& Head Dimension ($d_k$) & 64 \\
+& Feed-Forward Architecture & SwiGLU \citep{Shazeer2020} \\
+& FFN Dimension ($d_{\text{ff}}$) & 1536 \\
+& Conditioning Vector Dimension ($d_c$) & 512 \\
+& Dropout Rate & 0.10 \\
+\midrule
+\textbf{Total Parameters} & \textbf{Complete Architecture} & \textbf{59,476,250} \\
+\bottomrule
+\end{tabular}
+\caption{Architectural hyperparameters of the DFlowNovo framework.}
+\label{tab:model_hyperparameters}
+\end{table}
+
+\section{Optimization and Training Dynamics}
+
+Table~\ref{tab:training_hyperparameters} summarizes the optimization parameters, loss weighting schedules, and hardware infrastructure utilized during model training.
+
+\begin{table}[!ht]
+\centering
+\small
+\begin{tabular}{ll}
+\toprule
+\textbf{Optimization Parameter} & \textbf{Value / Specification} \\
+\midrule
+Optimizer & AdamW ($\beta_1 = 0.9$, $\beta_2 = 0.98$, $\epsilon = 10^{-8}$) \\
+Weight Decay & 0.01 \\
+Gradient Norm Clipping & 1.0 \\
+Peak Learning Rate ($\eta_{\text{lr}}$) & $5.0 \times 10^{-4}$ \\
+Learning Rate Schedule & Linear warmup (10,000 steps) followed by Cosine decay to $1.0 \times 10^{-6}$ \\
+Minibatch Size & 128 spectra per GPU \\
+Gradient Accumulation Steps & 2 \\
+Effective Batch Size & 256 spectra \\
+Numerical Precision & Mixed Precision (FP16 / AMP) \\
+Training Epochs & 30 epochs \\
+Length Loss Weight ($\lambda_{\text{len}}$) & 0.20 \\
+Hardware & $4 \times$ NVIDIA H100 SXM5 (80GB HBM3) \\
+Software Framework & PyTorch 2.4.0, CUDA 12.4, FlashAttention 2.5.6 \\
+\bottomrule
+\end{tabular}
+\caption{Training hyperparameters and optimization settings.}
+\label{tab:training_hyperparameters}
+\end{table}
+
+\section{Inference and Dynamic Knapsack Guidance Settings}
+
+Table~\ref{tab:inference_hyperparameters} details the parameters governing generative reverse flow sampling, dynamic programming reachability, and Bayesian length beam re-ranking.
+
+\begin{table}[!ht]
+\centering
+\small
+\begin{tabular}{lp{9.2cm}}
+\toprule
+\textbf{Inference Parameter} & \textbf{Value / Specification} \\
+\midrule
+Integration Steps ($K$) & 20 uniform Euler steps \\
+Flow Schedule Function & Cosine Schedule: $\kappa(t) = 1 - \cos(\pi t / 2)$ \\
+CTMC Stochasticity ($\eta$) & 0.0 (Canonical minimum-jump process $R_t^*$) \\
+Length Beam Size ($B$) & 3 candidate lengths ($\operatorname{TopK}(p_{\text{len}}, 3)$) \\
+Knapsack Grid Discretization ($\Delta m$) & 0.02 Da \\
+Maximum Precursor Mass ($M_{\max}$) & 5000.0 Da \\
+Quantized Mass Bins ($B_{\max}$) & 250,000 bins \\
+Reachability Tolerance ($\tau$) & 1.0 Da \\
+GPU 1D Max-Pooling Kernel Size & $W = 2 \lfloor \tau / \Delta m \rfloor + 1 = 101$ bins \\
+Bayesian Mass Deviation Penalty ($\alpha$) & $1.0 \times 10^{-4}$ \\
+Bayesian Fragment Coverage Weight ($\beta$) & 2.5 \\
+C-Terminal Trypsin Bonus & 0.25 (if confirmed by experimental $y_1$ ion \citep{Olsen2004, Vandermarliere2013}) \\
+\bottomrule
+\end{tabular}
+\caption{Inference and guidance hyperparameters.}
+\label{tab:inference_hyperparameters}
+\end{table}
+
+\section{Empirical Training and Validation Trajectories}
+
+Figure~\ref{fig:training_validation_curves} illustrates the optimization and generative validation dynamics of DFlowNovo across the complete 30-epoch training schedule on the Nine-Species biological benchmark.
+
+\begin{figure}[!ht]
+\centering
+\includegraphics[width=\textwidth]{images/training_validation_curves.png}
+\caption{Empirical training and validation trajectories of DFlowNovo over 30 epochs. (a) Total loss convergence showing raw mini-batch training loss, smoothed training trend, and validation loss. (b) Decomposed training and validation trajectories for the discrete flow matching cross-entropy loss ($\mathcal{L}_{\text{seq}}$) and the auxiliary length classification loss ($\mathcal{L}_{\text{len}}$). (c) Validation generation metrics across epochs, showing strict exact sequence accuracy, isobaric Leucine/Isoleucine accuracy, and length prediction accuracy. (d) Residue-level amino acid F1 score progression alongside the AdamW cosine learning rate decay schedule.}
+\label{fig:training_validation_curves}
+\end{figure}
+
+The empirical trajectories highlight several distinct dynamical regimes:
+\begin{enumerate}[(i)]
+\item \textbf{Rapid Flow Initialization:} During the initial five epochs, both the training loss and validation loss decrease sharply from $1.11$ to below $0.46$. This initial descent corresponds to the network learning the dominant marginal distributions of tryptic peptide fragments and establishing reliable spectral-to-sequence cross-attention alignments.
+\item \textbf{Component Loss Decoupling:} As shown in Figure~\ref{fig:training_validation_curves}(b), the length classification loss ($\mathcal{L}_{\text{len}}$) drops swiftly within the first two epochs and stabilizes around $0.20$, achieving over $81.4\%$ exact sequence length prediction accuracy on held-out spectra. Meanwhile, the sequence flow matching loss ($\mathcal{L}_{\text{seq}}$) continues its steady descent, driving incremental refinements in residue boundary delineation.
+\item \textbf{Generative Validation Plateau:} Unlike autoregressive decoders that often suffer from exposure bias and early validation divergence, DFlowNovo's reverse flow sampling accuracy (evaluated every epoch) rises monotonically through epoch 10 and maintains a stable plateau from epoch 15 through 30. Peak validation exact match reaches $47.13\%$ (strict) and $57.12\%$ (isobaric I/L), with residue-level F1 stabilizing at $73.45\%$.
+\item \textbf{Absence of Degradation:} The smooth cosine decay of the learning rate (Figure~\ref{fig:training_validation_curves}(d)) from $5.0 \times 10^{-4}$ down to $1.0 \times 10^{-6}$ provides stable late-stage regularization, preventing gradient oscillations or loss degradation.
+\end{enumerate}
+
+\section{Empirical CTMC Flow Dynamics and Schedule Analysis}
+
+Figure~\ref{fig:ctmc_flow_dynamics_app} provides empirical validation of Continuous-Time Markov Chain (CTMC) flow dynamics evaluated across 10,000 biological spectra from the Nine-Species benchmark.
+
+\begin{figure}[!ht]
+\centering
+\includegraphics[width=0.88\textwidth]{images/ctmc_flow_dynamics.png}
+\caption{Empirical verification of Continuous-Time Markov Chain (CTMC) flow dynamics evaluated across 10,000 biological spectra. (a) Unmasking schedule profiles $\kappa(t)$ comparing linear, cosine, and Dirichlet dynamics over $t \in [0, 1]$. (b) Positional categorical Shannon entropy decay across reverse flow sampling steps, showing progressive uncertainty reduction. (c) Token commitment velocity $\frac{\mathrm{d}\kappa}{\mathrm{d}t}$ across integration time. (d) Mean precursor mass error standard deviation as a function of sampling budget $K \in \{5, 10, 20, 50\}$.}
+\label{fig:ctmc_flow_dynamics_app}
+\end{figure}
+
+The empirical trajectories demonstrate the core advantages of the cosine schedule in tandem mass spectrometry decoding:
+\begin{enumerate}[(i)]
+\item \textbf{Controlled Information Integration:} As evidenced in Figure~\ref{fig:ctmc_flow_dynamics_app}(a) and (c), the cosine schedule enforces $\kappa'(0) = 0$, ensuring zero initial unmasking velocity. During early sampling steps ($t \in [0, 0.2]$), the bidirectional decoder processes the complete set of spectral peaks and precursor conditioning tokens without making premature irreversible amino acid assignments.
+\item \textbf{Monotonic Entropy Reduction:} As illustrated in Figure~\ref{fig:ctmc_flow_dynamics_app}(b), positional categorical Shannon entropy decreases monotonically and smoothly across the 20 Euler integration steps. In contrast to linear unmasking which causes abrupt late-stage collapse, the cosine schedule distributes residue commitments over the middle integration interval ($t \in [0.3, 0.8]$).
+\item \textbf{Precursor Mass Error Convergence:} Figure~\ref{fig:ctmc_flow_dynamics_app}(d) demonstrates that integration budgets of $K \ge 20$ achieve asymptotic convergence in precursor mass accuracy, validating the choice of $K=20$ as the production operational budget.
+\end{enumerate}
+
