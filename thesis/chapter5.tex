@@ -30,7 +30,7 @@ To determine the exact contribution of isobaric ambiguity, we analyzed all 170,3
 \begin{figure}[!ht]
 \centering
 \includegraphics[width=0.85\textwidth]{images/proteomics_biological_fidelity.png}
-\caption{Proteomics biological fidelity and fragmentation error analysis. (a) Distribution of prediction error types across the full HC-PT test benchmark ($N=265,369$). Isobaric Leucine/Isoleucine substitutions constitute 30.88\% of all prediction discrepancies. (b) Cleavage suppression around Proline residues (the Proline effect). (c) Neutral loss frequencies ($\text{H}_2\text{O}$ and $\text{NH}_3$) as a function of peptide precursor charge state. (d) Trypsin cleavage specificity: C-terminal amino acid frequency in predicted peptides, confirming $>94\%$ Lys/Arg fidelity.}
+\caption{Proteomics biological fidelity and fragmentation error analysis. (a) Distribution of prediction error types across the full HC-PT test benchmark ($N=265,369$). Isobaric Leucine/Isoleucine substitutions constitute 30.88\% of all prediction discrepancies. (b) Cleavage suppression around Proline residues (the Proline effect). (c) Neutral loss frequencies ($\text{H}_2\text{O}$ and $\text{NH}_3$) as a function of peptide precursor charge state. (d) Trypsin cleavage specificity: C-terminal amino acid frequency in predicted peptides, confirming $>94\%$ Lys/Arg fidelity \citep{Olsen2004, Vandermarliere2013}.}
 \label{fig:biological_fidelity}
 \end{figure}
 
@@ -125,7 +125,7 @@ To synthesize the physical principles governing \emph{de novo} peptide sequencin
 \emph{(Spectrum \#38271, Score: 0.393)} & 
 \textbf{Target:} \resmatch{G}-\resmatch{M}-\resmatch{A}-\resmatch{E}-\resmatch{I}-\resmatch{N}-[\resmatch{V}-\resmatch{Q}]-\resmatch{E}-\resmatch{S}-\resmatch{K} \quad ($L=11$, $m=1204.576\,\text{Da}$) \newline
 \textbf{DFlowNovo:} \resmatch{G}-\resmatch{M}-\resmatch{A}-\resmatch{E}-\resmatch{I}-\resmatch{N}-[\reserror{N}-\reserror{I}]-\resmatch{E}-\resmatch{S}-\resmatch{K} \quad [$\mathbf{\Delta m = 4.8\,\text{mDa}}$] \vspace{2pt}\newline
-\emph{Analysis:} The residual mass of $VQ$ ($227.127\,\text{Da}$) differs from $NI$ ($227.122\,\text{Da}$) by only $4.8\,\text{mDa}$ ($4.0\,\text{ppm}$). When the internal peptide bond between $V$ and $Q$ fails to yield an observable fragment ion, collision-induced dissociation cannot physically resolve this mass gap under standard Orbitrap resolving power. \\
+\emph{Analysis:} The residual mass of $VQ$ ($227.127\,\text{Da}$) differs from $NI$ ($227.122\,\text{Da}$) by only $4.8\,\text{mDa}$ ($4.0\,\text{ppm}$). When the internal peptide bond between $V$ and $Q$ fails to yield an observable fragment ion, collision-induced dissociation cannot physically resolve this mass gap under standard Orbitrap resolving power \citep{Makarov2000, Zubarev2007}. \\
 \bottomrule
 \end{tabular}
 \caption{Four canonical qualitative prediction regimes in DFlowNovo. Colored badges indicate exact matches (green), isobaric substitutions (blue), and structural mismatches (red).}

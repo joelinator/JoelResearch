@@ -1,6 +1,6 @@
 \chapter{Mathematical Foundations of Continuous-Time Discrete Flow Matching}
 
-Generative modeling of discrete sequences has historically relied on autoregressive factorizations or discrete diffusion models based on discrete-time Markov chains. While continuous normalizing flows \citep{Lipman2023,Chen2018} define invertible vector fields and probability density paths on smooth Euclidean or Riemannian manifolds, extending them to discrete categorical domains requires artificial continuous relaxations that introduce boundary mismatch, geometric distortion, and quantization errors. 
+Generative modeling of discrete sequences has historically relied on autoregressive factorizations or discrete diffusion models based on discrete-time Markov chains. While continuous normalizing flows \citep{Chen2018, Lipman2023} define invertible vector fields and probability density paths on smooth Euclidean or Riemannian manifolds, extending them to discrete categorical domains via continuous relaxations \citep{Stark2024} can introduce boundary mismatch, geometric distortion, and quantization errors. 
 
 This chapter presents the mathematical framework of continuous-time Discrete Flow Models (DFMs) developed by \citet{Campbell2024} and \citet{Gat2024}. By formulating probability transport directly over the discrete probability simplex via time-inhomogeneous Continuous-Time Markov Chains (CTMCs), DFMs construct simulation-free generative models that operate natively on discrete configuration spaces.
 
@@ -200,7 +200,7 @@ with reverse re-masking rate $R_t^\eta(j, [M]) = \eta$. While $\eta > 0$ introdu
 
 \subsection{Probability Interpolant Trajectories on the Simplex}
 
-A discrete probability interpolant connects the base prior $p_0$ to the target data distribution $p_1$ through a one-parameter family of distributions $\{p_t\}_{t \in [0, 1]} \subset \Delta^{S^D - 1}$. Under coordinate factorization, the marginal distribution along coordinate $d$ for any category $j \in \mathcal{X}$ evolves as:
+A discrete probability interpolant connects the base prior $p_0$ to the target data distribution $p_1$ through a one-parameter family of distributions $\{p_t\}_{t \in [0, 1]} \subset \Delta^{S^D - 1}$ \citep{Campbell2024, Gat2024, Stark2024}. Under coordinate factorization, the marginal distribution along coordinate $d$ for any category $j \in \mathcal{X}$ evolves as:
 \begin{equation}
 p_t^d(j) = \kappa(t) \, p_1^d(j) + (1 - \kappa(t)) \, \delta_{j, [M]}
 \label{eq:prob_interpolant_traj}

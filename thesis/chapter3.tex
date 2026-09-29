@@ -32,7 +32,7 @@ This section details the primary neural network components composing DFlowNovo. 
 \subsection{Raw Spectrum Processing and Dual Sinusoidal Featurization}
 \label{subsec:spectrum_featurization}
 
-An experimental tandem mass spectrum consists of an unordered set of $P$ detected peaks $\mathcal{S} = \{ (m_i, I_i) \}_{i=1}^P$, where $m_i \in \mathbb{R}^+$ denotes the fragment mass-to-charge ratio ($m/z$) and $I_i \in \mathbb{R}^+$ denotes raw detector ion count. To compress the wide dynamic range inherent to quadrupole-orbitrap mass spectrometers, peak intensities are transformed via square-root normalization:
+An experimental tandem mass spectrum consists of an unordered set of $P$ detected peaks $\mathcal{S} = \{ (m_i, I_i) \}_{i=1}^P$, where $m_i \in \mathbb{R}^+$ denotes the fragment mass-to-charge ratio ($m/z$) and $I_i \in \mathbb{R}^+$ denotes raw detector ion count. To compress the wide dynamic range inherent to quadrupole-Orbitrap mass spectrometers \citep{Makarov2000, Zubarev2007}, peak intensities are transformed via square-root normalization:
 \begin{equation}
 \tilde{I}_i = \sqrt{\frac{I_i}{\max_{1 \le j \le P} I_j}}
 \label{eq:intensity_normalization}
@@ -60,7 +60,7 @@ where $W_{\text{proj}} \in \mathbb{R}^{d_{\text{model}} \times (2 d_{\text{enc}}
 \subsection{Bidirectional Spectrum Transformer Encoder}
 \label{subsec:spectrum_encoder}
 
-The peak representations $\{h_i^{(0)}\}_{i=0}^P$ are processed by a 6-layer bidirectional Transformer encoder \citep{Vaswani2017}. Each encoder layer features multi-head self-attention with 8 heads ($d_k = d_v = 64$) and a feed-forward network with inner dimension $d_{\text{ff}} = 1536$.
+The peak representations $\{h_i^{(0)}\}_{i=0}^P$ are processed by a six-layer bidirectional Transformer encoder \citep{Vaswani2017}. Each encoder layer features multi-head self-attention with 8 heads ($d_k = d_v = 64$) and a feed-forward network with inner dimension $d_{\text{ff}} = 1536$.
 
 To guarantee stable gradient backpropagation across deep attention stacks without requiring warmup heuristics, we adopt the Pre-LayerNorm (norm-first) residual structure \citep{Xiong2020}:
 \begin{align}
@@ -138,7 +138,7 @@ The vocabulary consists of 22 target tokens (20 standard amino acids plus oxidiz
 \subsection{Parameter Accounting}
 \label{subsec:parameter_budget}
 
-Table~\ref{tab:parameter_budget} details the parameter distribution across all modules of DFlowNovo. The entire model contains $59.48\,\text{M}$ parameters, meeting the design requirement of fitting within $50\text{--}60\,\text{M}$ parameters while maintaining strong modeling capacity.
+Table~\ref{tab:parameter_budget} details the parameter distribution across all modules of DFlowNovo. The entire model contains $59.48\,\text{M}$ parameters (exactly $59,476,250$ weights), meeting the design requirement of fitting within $50\text{--}60\,\text{M}$ parameters while maintaining strong modeling capacity.
 
 \begin{table}[!ht]
 \centering
@@ -147,15 +147,16 @@ Table~\ref{tab:parameter_budget} details the parameter distribution across all m
 \toprule
 \textbf{Component} & \textbf{Architectural Specifications} & \textbf{Parameters} \\
 \midrule
-\textbf{SpectrumEncoder} & 6 layers, $d=512$, 8 heads, $d_{\text{ff}}=1536$, Pre-LN & 16,289,280 \\
-\textbf{PeptideLengthClassifier} & 2-layer MLP on $[CLS]$, $d=256$, dropout=0.15 & 346,270 \\
-\textbf{DFMPeptideDecoder} & 6 blocks, $d=512$, AdaLN-Zero, SwiGLU FFN & 42,831,743 \\
-\textbf{ProjectionHead} & $\text{LayerNorm}(512) \to \text{Linear}(512, 22)$ & 11,286 \\
+\textbf{SpectrumEncoder} & 6 layers, $d=512$, 8 heads, $d_{\text{ff}}=1536$, Pre-LN & 16,294,144 \\
+\textbf{PeptideLengthClassifier} & 2-layer MLP on $[CLS]$, $d=256$, dropout=0.15 & 346,334 \\
+\textbf{DFMPeptideDecoder} & 6 blocks, $d=512$, AdaLN-Zero, SwiGLU FFN & 42,819,840 \\
+\textbf{ProjectionHead} & $\text{LayerNorm}(512) \to \text{Linear}(512, 30)$ & 15,390 \\
+\textbf{Guidance \& Buffers} & Canonical AA Masses \& Unconditional Vector & 542 \\
 \midrule
-\textbf{Total Parameter Budget} & \textbf{DFlowNovo Architecture (Part A)} & \textbf{59,478,579} \\
+\textbf{Total Parameter Budget} & \textbf{DFlowNovo Architecture (Frozen Checkpoint)} & \textbf{59,476,250} \\
 \bottomrule
 \end{tabular}
-\caption{Parameter accounting of DFlowNovo. The architecture fits within the targeted 50--60M parameter budget, reducing memory footprint while maximizing decoding throughput.}
+\caption{Parameter accounting of DFlowNovo. The complete frozen production architecture contains exactly 59,476,250 parameters, fitting cleanly within the targeted 50--60M parameter budget to maximize decoding throughput.}
 \label{tab:parameter_budget}
 \end{table}
 
@@ -196,7 +197,7 @@ R' = M_{\text{prec}} - M_{\text{H}_2\text{O}} - M_{\text{assigned}}
 \end{equation}
 If candidate amino acid $a \in \mathcal{V}_{\text{AA}}$ is considered for an unmasked position, the remaining $k-1$ masked positions must physically be able to sum to $R' - m(a)$ within tolerance $\tau$.
 
-Rather than relying on continuous interval relaxations, we establish an exact polynomial-time dynamic programming reachability table over a quantized mass grid \citep{Dancik1999}:
+Rather than relying on continuous interval relaxations, we establish an exact polynomial-time dynamic programming reachability table over a quantized mass grid \citep{Dancik1999, Chen2001}:
 
 \begin{defn}[Quantized Knapsack Reachability Table]
 Let $\Delta m = 0.02\,\text{Da}$ denote the mass discretization step, and let $B_{\max} = \lfloor 5000\,\text{Da} / \Delta m \rfloor = 250{,}000$ denote the maximum quantized mass bin. The boolean table $T[k, b] \in \{0, 1\}$ indicates whether exactly $k$ amino acids can sum to quantized mass $b \in \{0, \dots, B_{\max}\}$:
@@ -295,7 +296,7 @@ where:
     \item $\frac{1}{L} \sum_{i=1}^L \log p(y_i)$ represents length-normalized average token confidence emitted by the decoder;
     \item $\alpha \cdot (\Delta M_{\text{ppm}})^2$ penalizes deviation between candidate mass and precursor neutral mass ($\alpha = 0.05$);
     \item $\text{FragScore}(Y) = \frac{\sum_{j \in \text{matched}} I_j}{\sum_{j=1}^P I_j}$ computes the fraction of total experimental fragment intensity explained by theoretical $b$- and $y$-ions generated from candidate $Y$ ($\beta = 0.50$);
-    \item $\text{Bonus}_{\text{trypsin}} = +0.25$ awards confirmed tryptic C-terminal residues (Lysine or Arginine) supported by experimental $y_1$ peaks ($147.11\,\text{Da}$ or $175.12\,\text{Da}$).
+    \item $\text{Bonus}_{\text{trypsin}} = +0.25$ awards confirmed tryptic C-terminal residues (Lysine or Arginine) \citep{Olsen2004, Vandermarliere2013} supported by experimental $y_1$ peaks ($147.11\,\text{Da}$ or $175.12\,\text{Da}$).
 \end{itemize}
 
 The candidate achieving the maximum posterior score is returned as the final predicted peptide sequence:
