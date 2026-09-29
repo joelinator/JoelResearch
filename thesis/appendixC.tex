@@ -142,7 +142,7 @@ To empirically characterize how the Continuous-Time Markov Chain (CTMC) flow dyn
 
 \subsection{Mathematical Mechanics of Discrete Flow Matching and Entropy Collapse}
 
-In the continuous-time discrete flow matching framework \citep{Campbell2024}, the sequence generation process is governed by a time-dependent probability flow over the discrete product space $\mathcal{S}_D = (\mathcal{V}_{\text{AA}} \cup \{[M]\})^L$, where $L$ is the peptide length and $[M]$ denotes the absorbing mask token. The conditional probability path is defined factorially across residue positions $j \in \{1, \dots, L\}$:
+In the continuous-time discrete flow matching framework \citep{Campbell2024, Gat2024}, the sequence generation process is governed by a time-dependent probability flow over the discrete product space $\mathcal{S}_D = (\mathcal{V}_{\text{AA}} \cup \{[M]\})^L$, where $L$ is the peptide length and $[M]$ denotes the absorbing mask token. The conditional probability path is defined factorially across residue positions $j \in \{1, \dots, L\}$:
 \begin{equation}
 p_{t \mid 1}(x_t \mid x_1) = \prod_{j=1}^L p_{t \mid 1}(x_t^j \mid x_1^j)
 \label{eq:app_cond_prod_flow}

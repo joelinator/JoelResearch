@@ -101,7 +101,7 @@ In high-quality tandem mass spectra with complete fragmentation ladders, DFlowNo
 \emph{(Nine-Species \#81, Score: 0.468)} & 
 \textbf{Target:} \resmatch{T}-\resmatch{A}-\resmatch{E}-\resmatch{Q}-\resmatch{V}-\resmatch{A}-\resmatch{A}-\resmatch{E}-\resmatch{R} \quad ($L=9$, $m=973.483\,\text{Da}$) \newline
 \textbf{DFlowNovo:} \resmatch{T}-\resmatch{A}-\resmatch{E}-\resmatch{Q}-\resmatch{V}-\resmatch{A}-\resmatch{A}-\resmatch{E}-\resmatch{R} \quad [\textbf{100\% Strict Match}] \vspace{2pt}\newline
-\emph{Analysis:} Short tryptic peptides ($L \le 9$) exhibit dense, unbroken $y$- and $b$-ion series. Basic C-terminal Arginine ($R_9$) immobilizes ionizing protons via its guanidinium group ($pK_a \approx 12.5$), generating strong $y$-series ladders ($y_1$ to $y_8$) that enable discrete flow matching to commit all tokens in under 10 flow steps. \\
+\emph{Analysis:} Short tryptic peptides ($L \le 9$) exhibit dense, unbroken $y$- and $b$-ion series. Basic C-terminal Arginine ($R_9$) immobilizes ionizing protons via its guanidinium group ($pK_a \approx 12.5$), generating strong $y$-series ladders ($y_1$ to $y_8$) consistent with tryptic cleavage specificity \citep{Olsen2004, Vandermarliere2013} that enable discrete flow matching to commit all tokens in under 10 flow steps. \\
 \midrule
 \textbf{Case 2: Medium Modal (11-mer)} \newline
 \emph{(HC-PT \#55, Score: 0.482)} & 
@@ -179,7 +179,7 @@ Near-isobaric dipeptide pairs possess mass differences smaller than the resolvin
 \emph{(Nine-Species \#38271, Score: 0.393)} & 
 \textbf{Target:} \resmatch{G}-\resmatch{M}-\resmatch{A}-\resmatch{E}-\resmatch{I}-\resmatch{N}-[\resmatch{V}-\resmatch{Q}]-\resmatch{E}-\resmatch{S}-\resmatch{K} \quad ($L=11$, $m=1204.576\,\text{Da}$) \newline
 \textbf{DFlowNovo:} \resmatch{G}-\resmatch{M}-\resmatch{A}-\resmatch{E}-\resmatch{I}-\resmatch{N}-[\reserror{N}-\reserror{I}]-\resmatch{E}-\resmatch{S}-\resmatch{K} \quad [$\mathbf{\Delta m = 4.8\,\text{mDa}}$] \vspace{2pt}\newline
-\emph{Analysis:} Dipeptide $VQ$ ($227.127\,\text{Da}$) and $NI$ ($227.122\,\text{Da}$) differ by only $4.8\,\text{mDa}$ ($4.0\,\text{ppm}$). When internal fragmentation between $V$ and $Q$ is absent, standard Orbitrap resolving power cannot distinguish these elemental compositions. \\
+\emph{Analysis:} Dipeptide $VQ$ ($227.127\,\text{Da}$) and $NI$ ($227.122\,\text{Da}$) differ by only $4.8\,\text{mDa}$ ($4.0\,\text{ppm}$). When internal fragmentation between $V$ and $Q$ is absent, standard Orbitrap resolving power \citep{Makarov2000, Zubarev2007} cannot distinguish these elemental compositions. \\
 \midrule
 \textbf{Case 9: $GG \leftrightarrow N$ Single Token} \newline
 \emph{(Nine-Species \#44583, Score: 0.485)} & 
@@ -263,7 +263,7 @@ Mass spectrometers enforce low-mass transmission cutoffs ($m/z < 120\text{--}140
 \emph{(HC-PT \#1243, Score: 0.211)} & 
 \textbf{Target:} \resmatch{S}-\resmatch{P}-\resmatch{Y}-\resmatch{N}-\resmatch{L}-\resmatch{E}-[\resmatch{L}-\resmatch{K}] \quad ($L=8$, $m=962.507\,\text{Da}$) \newline
 \textbf{DFlowNovo:} \resmatch{S}-\resmatch{P}-\resmatch{Y}-\resmatch{N}-\resmatch{L}-\resmatch{E}-[\reserror{K}-\reserror{L}] \quad [\textbf{C-Term Inversion: $LK \to KL$}] \vspace{2pt}\newline
-\emph{Analysis:} Although tryptic cleavage typically preserves C-terminal basic residues ($K/R$), instrument low-mass cutoffs and neutral ammonia losses can suppress the single-residue $y_1(\text{K})$ peak ($m/z = 147.11$). The first observable C-terminal peak is $y_2 = 260.20\,\text{Da}$, causing a terminal inversion. \\
+\emph{Analysis:} Although tryptic cleavage typically preserves C-terminal basic residues ($K/R$) \citep{Olsen2004, Vandermarliere2013}, instrument low-mass cutoffs and neutral ammonia losses can suppress the single-residue $y_1(\text{K})$ peak ($m/z = 147.11$). The first observable C-terminal peak is $y_2 = 260.20\,\text{Da}$, causing a terminal inversion. \\
 \bottomrule
 \end{tabular}
 \caption{Regime 5: Terminal fragment ion suppression and instrument low-$m/z$ cutoffs.}

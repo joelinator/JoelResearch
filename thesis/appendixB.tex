@@ -41,7 +41,7 @@ Table~\ref{tab:model_hyperparameters} details the structural configuration of th
 & Conditioning Vector Dimension ($d_c$) & 512 \\
 & Dropout Rate & 0.10 \\
 \midrule
-\textbf{Total Parameters} & \textbf{Complete Architecture} & \textbf{59,478,579} \\
+\textbf{Total Parameters} & \textbf{Complete Architecture} & \textbf{59,476,250} \\
 \bottomrule
 \end{tabular}
 \caption{Architectural hyperparameters of the DFlowNovo framework.}
@@ -85,7 +85,7 @@ Table~\ref{tab:inference_hyperparameters} details the parameters governing gener
 \begin{table}[!ht]
 \centering
 \small
-\begin{tabular}{ll}
+\begin{tabular}{lp{9.2cm}}
 \toprule
 \textbf{Inference Parameter} & \textbf{Value / Specification} \\
 \midrule
@@ -100,7 +100,7 @@ Reachability Tolerance ($\tau$) & 1.0 Da \\
 GPU 1D Max-Pooling Kernel Size & $W = 2 \lfloor \tau / \Delta m \rfloor + 1 = 101$ bins \\
 Bayesian Mass Deviation Penalty ($\alpha$) & $1.0 \times 10^{-4}$ \\
 Bayesian Fragment Coverage Weight ($\beta$) & 2.5 \\
-C-Terminal Trypsin Bonus & 0.25 (if confirmed by experimental $y_1$ ion) \\
+C-Terminal Trypsin Bonus & 0.25 (if confirmed by experimental $y_1$ ion \citep{Olsen2004, Vandermarliere2013}) \\
 \bottomrule
 \end{tabular}
 \caption{Inference and guidance hyperparameters.}
