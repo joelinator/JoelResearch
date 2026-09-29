@@ -89,12 +89,12 @@ def save_fig(fig: plt.Figure, filename: str) -> None:
 # =========================================================================
 def generate_full_benchmark_comparison_30ep() -> None:
     print("Generating Figure 1: full_benchmark_comparison_30ep.png...")
-    fig, axes = plt.subplots(2, 3, figsize=(17, 11.5), dpi=300)
+    fig, axes = plt.subplots(2, 3, figsize=(17, 12), dpi=300)
 
     model_names = [
-        "DFlowNovo\n(30ep, Ours)",
-        "InstaNovo\nv1.2.0",
-        "InstaNovo\nv1.0.0",
+        "DFlowNovo",
+        "InstaNovo v1.2",
+        "InstaNovo v1.0",
         "Casanovo",
         "PointNovo",
         "DeepNovo",
@@ -122,11 +122,11 @@ def generate_full_benchmark_comparison_30ep() -> None:
     speed_colors = [COLOR_BLUE, COLOR_VERMILLION, COLOR_PURPLE, COLOR_ORANGE, COLOR_SKY_BLUE, COLOR_SLATE]
 
     panels = [
-        (axes[0, 0], "(a) Strict Exact Peptide Match (%)", ns_strict, hc_strict, 78, True),
-        (axes[0, 1], "(b) I/L Exact Peptide Match (%)", ns_il, hc_il, 82, False),
-        (axes[0, 2], "(c) Amino Acid Residue F1 Score (%)", ns_f1, hc_f1, 95, False),
-        (axes[1, 0], "(d) Peptide Length Accuracy (%)", ns_len, hc_len, 95, False),
-        (axes[1, 1], "(e) Identification Coverage @ 80% Precision (%)", ns_cov, hc_cov, 105, False),
+        (axes[0, 0], "(a) Strict Exact Peptide Match (%)", ns_strict, hc_strict, 88, True),
+        (axes[0, 1], "(b) I/L Exact Peptide Match (%)", ns_il, hc_il, 92, False),
+        (axes[0, 2], "(c) Amino Acid Residue F1 Score (%)", ns_f1, hc_f1, 108, False),
+        (axes[1, 0], "(d) Peptide Length Accuracy (%)", ns_len, hc_len, 108, False),
+        (axes[1, 1], "(e) Identification Coverage @ 80% Precision (%)", ns_cov, hc_cov, 118, False),
     ]
 
     for ax, title, ns_vals, hc_vals, ymax, show_legend in panels:
@@ -136,17 +136,21 @@ def generate_full_benchmark_comparison_30ep() -> None:
                     color=COLOR_VERMILLION, alpha=0.92, edgecolor="#1B2631", linewidth=0.8)
 
         ax.set_title(title, fontsize=12.5, fontweight="bold", pad=8)
-        ax.set_ylabel("Metric Score (%)", fontsize=11.5, fontweight="bold")
+        ax.set_ylabel("Metric Score (%)", fontsize=11.0, fontweight="bold")
         ax.set_xticks(x)
-        ax.set_xticklabels(model_names, fontsize=9.5, fontweight="semibold")
+        ax.set_xticklabels(model_names, rotation=30, ha="right", fontsize=9.5, fontweight="semibold")
         ax.set_ylim(0, ymax)
+
+        # Remove y-ticks as requested (values are explicitly annotated on bars)
+        ax.tick_params(axis="y", left=False, labelleft=False)
+        ax.yaxis.grid(True, linestyle="--", alpha=0.45)
 
         for b in list(b1) + list(b2):
             h = b.get_height()
             if h > 0:
                 ax.annotate(f"{h:.1f}%", xy=(b.get_x() + b.get_width() / 2, h),
-                            xytext=(0, 2.5), textcoords="offset points", ha="center", va="bottom",
-                            fontsize=7.8, fontweight="bold", color="#1C2833")
+                            xytext=(0, 3.0), textcoords="offset points", ha="center", va="bottom",
+                            fontsize=8.0, fontweight="bold", color="#1C2833", rotation=45)
 
         if show_legend:
             ax.legend(loc="upper right", frameon=True, framealpha=0.94, edgecolor="#CCCCCC", fontsize=9.5)
@@ -155,10 +159,12 @@ def generate_full_benchmark_comparison_30ep() -> None:
     ax6 = axes[1, 2]
     b_speed = ax6.bar(x, speeds, color=speed_colors, edgecolor="#1B2631", linewidth=0.8, width=0.55, alpha=0.92)
     ax6.set_title("(f) Inference Throughput on NVIDIA H100 (Spectra / Sec)", fontsize=12.5, fontweight="bold", pad=8)
-    ax6.set_ylabel("Throughput (Spectra / sec)", fontsize=11.5, fontweight="bold")
+    ax6.set_ylabel("Throughput (Spectra / sec)", fontsize=11.0, fontweight="bold")
     ax6.set_xticks(x)
-    ax6.set_xticklabels(model_names, fontsize=9.5, fontweight="semibold")
-    ax6.set_ylim(0, 215)
+    ax6.set_xticklabels(model_names, rotation=30, ha="right", fontsize=9.5, fontweight="semibold")
+    ax6.set_ylim(0, 235)
+    ax6.tick_params(axis="y", left=False, labelleft=False)
+    ax6.yaxis.grid(True, linestyle="--", alpha=0.45)
 
     for i, b in enumerate(b_speed):
         h = b.get_height()
@@ -169,8 +175,8 @@ def generate_full_benchmark_comparison_30ep() -> None:
             lbl = f"{h:.1f} sps"
             color = "#1C2833"
         ax6.annotate(lbl, xy=(b.get_x() + b.get_width() / 2, h),
-                     xytext=(0, 3), textcoords="offset points", ha="center", va="bottom",
-                     fontsize=8.5, fontweight="bold", color=color)
+                     xytext=(0, 3.0), textcoords="offset points", ha="center", va="bottom",
+                     fontsize=8.5, fontweight="bold", color=color, rotation=25)
 
     plt.suptitle("Comprehensive De Novo Peptide Sequencing Benchmark Across Full Test Splits (N = 369,532 Spectra)",
                  fontsize=15.5, fontweight="bold", y=0.985)
@@ -196,28 +202,29 @@ def generate_precision_coverage_benchmark() -> None:
     casanovo_aa_prec = 92.0 - 22.4 * (coverage ** 1.1)
 
     ax1.plot(coverage * 100, dfm_aa_prec, color=COLOR_BLUE, linewidth=3.0,
-             marker="o", markevery=5, markersize=6, label="DFlowNovo (Ours, pAUC = 0.884)")
+             marker="o", markevery=5, markersize=6, label="DFlowNovo (pAUC = 0.884)")
     ax1.plot(coverage * 100, instanovo_aa_prec, color=COLOR_VERMILLION, linewidth=2.4, linestyle="--",
-             marker="s", markevery=5, markersize=5.5, label="InstaNovo v1.2.0 (pAUC = 0.825)")
+             marker="s", markevery=5, markersize=5.5, label="InstaNovo v1.2 (pAUC = 0.825)")
     ax1.plot(coverage * 100, casanovo_aa_prec, color=COLOR_ORANGE, linewidth=2.2, linestyle="-.",
              marker="^", markevery=5, markersize=5.5, label="Casanovo (pAUC = 0.748)")
 
     # 80% Precision Threshold Reference
     ax1.axhline(80.0, color="#7F8C8D", linestyle=":", linewidth=1.3, label="80% Residue Precision Threshold")
 
-    # Annotation for 80% Precision Advantage
+    # Annotation for 80% Precision Advantage placed at lower-left, clear of top-right legend
     ax1.annotate("DFlowNovo: 81.2% Coverage at 80% Precision\n(84,597 Identified Spectra, +10,123 vs InstaNovo)",
-                 xy=(81.2, 80.0), xytext=(20, 71.5),
+                 xy=(81.2, 80.0), xytext=(12, 68.5),
                  arrowprops=dict(facecolor=COLOR_BLUE, edgecolor="none", shrink=0.08, width=1.5, headwidth=6),
-                 fontsize=9.5, fontweight="bold", color=COLOR_BLUE,
+                 fontsize=9.2, fontweight="bold", color=COLOR_BLUE,
                  bbox=dict(boxstyle="round,pad=0.45", facecolor="#F0F8FF", edgecolor=COLOR_BLUE, alpha=0.92))
 
     ax1.set_title("A. Residue-Level Precision vs Spectrum Coverage", fontweight="bold", fontsize=12.5, pad=10)
     ax1.set_xlabel("Identification Coverage (% of Spectra Assigned Sequences)", fontweight="bold", fontsize=11.5)
     ax1.set_ylabel("Residue Precision (%)", fontweight="bold", fontsize=11.5)
     ax1.set_xlim(0, 102)
-    ax1.set_ylim(65, 100)
-    ax1.legend(loc="lower left", frameon=True, framealpha=0.94, edgecolor="#CCCCCC", fontsize=10)
+    ax1.set_ylim(64, 104)
+    # Put legend at top right so it does not overlap with annotations
+    ax1.legend(loc="upper right", frameon=True, framealpha=0.94, edgecolor="#CCCCCC", fontsize=9.5)
 
     # -------------------------------------------------------------
     # Panel B: Peptide-Level Strict Exact Match vs Coverage
@@ -228,18 +235,19 @@ def generate_precision_coverage_benchmark() -> None:
     casanovo_pep_prec = 78.5 - 30.4 * (coverage ** 0.85)
 
     ax2.plot(coverage * 100, dfm_pep_prec, color=COLOR_BLUE, linewidth=3.0,
-             marker="o", markevery=5, markersize=6, label="DFlowNovo (Strict EM: 65.1% at 100% Cov)")
+             marker="o", markevery=5, markersize=6, label="DFlowNovo (Strict EM: 65.1%)")
     ax2.plot(coverage * 100, instanovo_pep_prec, color=COLOR_VERMILLION, linewidth=2.4, linestyle="--",
-             marker="s", markevery=5, markersize=5.5, label="InstaNovo v1.2.0 (I/L Collapsed EM: 71.1% / Strict: 15.5%)")
+             marker="s", markevery=5, markersize=5.5, label="InstaNovo v1.2 (Strict: 15.5%)")
     ax2.plot(coverage * 100, casanovo_pep_prec, color=COLOR_ORANGE, linewidth=2.2, linestyle="-.",
-             marker="^", markevery=5, markersize=5.5, label="Casanovo (Strict EM: 48.1%)")
+             marker="^", markevery=5, markersize=5.5, label="Casanovo (Strict: 48.1%)")
 
     ax2.set_title("B. Peptide-Level Exact Match Precision vs Spectrum Coverage", fontweight="bold", fontsize=12.5, pad=10)
     ax2.set_xlabel("Identification Coverage (% of Spectra Assigned Sequences)", fontweight="bold", fontsize=11.5)
     ax2.set_ylabel("Strict Sequence Exact Match (%)", fontweight="bold", fontsize=11.5)
     ax2.set_xlim(0, 102)
-    ax2.set_ylim(38, 100)
-    ax2.legend(loc="lower left", frameon=True, framealpha=0.94, edgecolor="#CCCCCC", fontsize=10)
+    ax2.set_ylim(35, 104)
+    # Put legend at top right so it does not overlap with annotations
+    ax2.legend(loc="upper right", frameon=True, framealpha=0.94, edgecolor="#CCCCCC", fontsize=9.5)
 
     plt.suptitle("Precision-Coverage Benchmark Across Held-Out Nine-Species Test Split (N = 104,163)",
                  fontsize=15, fontweight="bold", y=0.98)

@@ -15,13 +15,7 @@ La spectrom\'etrie de masse en tandem (MS/MS) permet l'identification des prot\'
 Ce travail pr\'esente \textbf{DFlowNovo}, un cadre g\'en\'eratif non-autor\'egressif formulant le s\'equen\c{c}age \emph{de novo} comme un appariement de flux discret (DFM) en temps continu sur le simplexe de probabilit\'e, guid\'e par une programmation dynamique exacte du sac \`a dos (\texttt{KnapsackDP}). DFlowNovo d\'ecode les s\'equences peptidiques enti\`eres en un nombre fixe de 20 pas d'int\'egration, atteignant une vitesse de 227 \`a 256 spectres par seconde (4,3 \`a 4,9 fois plus rapide que les mod\`eles autor\'egressifs). Sur le banc d'essai biologique des Neuf Esp\`eces (104\,163 spectres), DFlowNovo atteint 68,28\% d'exactitude stricte et 83,01\% de score F1, surpassant InstaNovo v1.2 tout en identifiant 86\,412 spectres \`a 80\% de pr\'ecision. Enfin, une analyse biophysique d\'emontre que les ambigu\"it\'es r\'esiduelles d\'ecoulent de l'isom\'erie fondamentale Leucine/Isoleucine, indissociable par fragmentation collisionnelle standard.
 
 \bigskip
-\noindent\textbf{Code, Model, and Benchmark Data Availability:} Open-source codebase, checkpoints, and demonstration apps are accessible at:
-\begin{itemize}\setlength{\itemsep}{1pt}
-\item Repository: \url{https://github.com/joelinator/JoelResearch}
-\item Model Checkpoint: \url{https://huggingface.co/joelinator/dflow-novo-model}
-\item Interactive Studio: \url{https://huggingface.co/spaces/joelinator/dflow-novo}
-\item Hugging Face Datasets: \url{https://huggingface.co/datasets/InstaDeepAI/ms_ninespecies_benchmark} and \url{https://huggingface.co/datasets/InstaDeepAI/ms_proteometools}
-\end{itemize}
+\noindent\textbf{Resource Availability:} The complete source code, trained model checkpoints, interactive demonstration suites, and benchmark data manifests are provided in Appendix~\ref{app:software}.
 
 \vfill
 \section*{Declaration}

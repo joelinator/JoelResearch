@@ -1,0 +1,96 @@
+\chapter{Software and Resource Availability}\label{app:software}
+
+To support open scientific reproducibility, transparent peer review, and community adoption across academic proteomics laboratories and biotechnology pipelines, all computational resources developed in this work---including the neural network source code, dynamic programming algorithms, pre-trained model weights, evaluation pipelines, and interactive deployment platforms---are publicly available under permissive open-source licenses.
+
+\section{Open-Source Codebase and Repository Architecture}
+
+The official implementation of \textbf{DFlowNovo} is hosted on GitHub under the permissive Apache~2.0 license:
+\begin{center}
+\url{https://github.com/joelinator/JoelResearch}
+\end{center}
+
+The repository is organized modularly to enable standalone usage of individual algorithmic components:
+\begin{itemize}
+    \item \texttt{src/models/}: PyTorch implementations of the bidirectional spectrum Transformer encoder, auxiliary peptide length predictor, and discrete flow matching decoder with AdaLN-Zero conditioning.
+    \item \texttt{src/algorithms/}: The exact dynamic programming knapsack reachability engine (\texttt{KnapsackDP}), precomputing discrete residue prefix and suffix validity tables and executing $\mathcal{O}(1)$ GPU bitmask lookups.
+    \item \texttt{src/data/}: Modular spectrum parsers and loaders supporting standard mass spectrometry formats, including Mascot Generic Format (\texttt{.mgf}) and compressed Apache Parquet tables.
+    \item \texttt{scripts/infer.py}: Command-line interface for batch peptide sequencing from unannotated experimental MS/MS spectra.
+    \item \texttt{scripts/eval.py}: Standardized evaluation suite computing strict exact match, isobaric Leucine/Isoleucine match, residue-level precision/recall/F1, and identification coverage curves.
+    \item \texttt{scripts/generate\_publication\_figures.py}: Automated plotting routines generating all high-resolution figures in this thesis.
+    \item \texttt{tests/}: Comprehensive unit test suite covering spectrum featurization, rate matrix dynamics, dynamic programming boundary conditions, and end-to-end model inference.
+\end{itemize}
+
+\subsection{Installation and Environment Reproduction}
+
+The environment requires Python 3.10 or higher and PyTorch 2.1+ with CUDA support:
+\begin{verbatim}
+git clone https://github.com/joelinator/JoelResearch.git
+cd JoelResearch
+python3 -m venv .venv
+source .venv/bin/activate
+pip install -r requirements.txt
+pytest tests/
+\end{verbatim}
+
+\section{Pre-Trained Model Weights and Checkpoints}
+
+The production model weights for DFlowNovo are hosted on the Hugging Face Model Hub:
+\begin{center}
+\url{https://huggingface.co/joelinator/dflow-novo-model}
+\end{center}
+
+\subsection{Checkpoint Specifications}
+\begin{itemize}
+    \item \textbf{File Name:} \texttt{frozen\_production\_model.ckpt}
+    \item \textbf{File Size:} 453.9\,MB (optimized for fast distribution and containerization)
+    \item \textbf{Total Parameters:} 59,476,250
+    \item \textbf{Numerical Precision:} Bfloat16 (BF16) weights with FP32 KnapsackDP integer masks
+    \item \textbf{SHA-256 Checksum:} \texttt{4fa8639ce8d56b0632b6db760ca4a9b69fc03f90bcfc70f5e55e8211db4850fa}
+\end{itemize}
+
+The checkpoint can be downloaded automatically via the Hugging Face Hub CLI:
+\begin{verbatim}
+huggingface-cli download joelinator/dflow-novo-model \
+    frozen_production_model.ckpt --local-dir models/
+\end{verbatim}
+
+\section{Interactive Cloud Demonstration Studio}
+
+An interactive, zero-installation web demonstration powered by Gradio is hosted on Hugging Face Spaces:
+\begin{center}
+\url{https://huggingface.co/spaces/joelinator/dflow-novo}
+\end{center}
+
+The web interface enables users to:
+\begin{enumerate}
+    \item Upload custom experimental tandem mass spectrometry files (\texttt{.mgf}).
+    \item Inspect experimental spectrum peaks, precursor neutral mass, and precursor charge state.
+    \item Execute real-time DFlowNovo discrete flow decoding with adjustable Euler integration step budgets ($K \in [5, 30]$).
+    \item Toggle dynamic programming KnapsackDP mass guidance to observe physical filtering effects.
+    \item Visualize theoretical fragment ion mirror plots ($b$- and $y$-ions) aligned against experimental peaks.
+\end{enumerate}
+
+\section{Standardized Benchmark Proteomics Datasets}
+
+All training, validation, and test splits used throughout this thesis were ingested from public datasets released by InstaDeep on the Hugging Face Hub:
+\begin{itemize}
+    \item \textbf{Nine-Species Biological Benchmark:}
+    \begin{center}
+    \url{https://huggingface.co/datasets/InstaDeepAI/ms_ninespecies_benchmark}
+    \end{center}
+    Originally described by \citet{Tran2017}, the raw experimental mass spectrometry files are preserved at the UCSD MassIVE repository (Accession: \texttt{MSV000081382}) and the ProteomeXchange Consortium (Accession: \texttt{PXD004948}).
+    \item \textbf{ProteomeTools HC-PT Synthetic Benchmark:}
+    \begin{center}
+    \url{https://huggingface.co/datasets/InstaDeepAI/ms_proteometools}
+    \end{center}
+    Originally generated by \citet{Zolg2017}, the raw acquisitions reside in the EMBL-EBI PRIDE database (Accession: \texttt{PXD004732}) and UCSD MassIVE (Accession: \texttt{MSV000080502}).
+\end{itemize}
+
+\section{Computational Infrastructure and Hardware Environment}
+
+Model training and evaluation benchmarks reported in Chapter~\ref{chap:benchmarks} were executed using the following hardware and software specifications:
+\begin{itemize}
+    \item \textbf{Accelerators:} $4\times$ NVIDIA H100 SXM5 GPUs (80\,GB HBM3 memory per GPU) for distributed multi-GPU training; single NVIDIA RTX 4090 / H100 for inference throughput benchmarks.
+    \item \textbf{Host Compute:} 64-core AMD EPYC 7763 CPU @ 2.45\,GHz, 512\,GB DDR4 RAM.
+    \item \textbf{Software Stack:} Ubuntu 22.04 LTS, CUDA 12.2, cuDNN 8.9, PyTorch 2.1.2, FlashAttention-2.
+\end{itemize}

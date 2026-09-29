@@ -96,7 +96,7 @@
   >
   > The evolution of this jump process is governed by a transition rate matrix $R_t(x, y)$. Each sequence position jumps independently from the masked state to the ground-truth amino acid according to a monotonic schedule $\kappa(t)$.
   >
-  > Crucially, because the state space remains strictly categorical at every intermediate time $t$, there is zero continuous rounding error. Furthermore, all $L$ sequence positions evolve concurrently, unlocking true non-autoregressive parallel generation."
+  > Because the state space remains strictly categorical at every intermediate time $t$, there is zero continuous rounding error. In addition, all $L$ sequence positions evolve concurrently, enabling true non-autoregressive parallel generation."
 * **Transition:** *"Let us examine the directional vector field and an important mathematical invariance that governs this flow."*
 
 ---
@@ -111,7 +111,7 @@
   >
   > Now consider the right column: we prove a Detailed Balance Invariance Theorem. If we add any rate matrix $R_t^{\text{DB}}$ that satisfies detailed balance with respect to $p_t$, the resulting flow generates the exact same marginal probability distribution.
   >
-  > This is a profound theoretical result: it guarantees that we can introduce stochastic exploration during sampling—controlled by parameter $\eta$—to escape shallow local modes without introducing any bias into the target peptide distribution."
+  > This invariance guarantees that we can introduce stochastic exploration during sampling—controlled by parameter $\eta$—to escape shallow local modes without introducing any bias into the target peptide distribution."
 * **Transition:** *"However, non-autoregressive independence introduces a critical physical dilemma."*
 
 ---
@@ -196,8 +196,8 @@
   > Second, we completely resolve the cross-species collapse observed in InstaNovo v1.2, whose strict match fell to 15.45% on non-human species due to sub-optimal tokenization shifts.
   > Third, continuous flow matching via PowerNovo2 completely fails, managing only 3.16% strict match.
   >
-  > To verify statistical significance, we performed McNemar's paired test across all 104,163 test spectra. The test yielded a chi-squared value of 7,542.8, corresponding to a p-value below $10^{-15}$, conclusively confirming that DFlowNovo's performance advantage is statistically undeniable."
-* **Transition:** *"Now let us investigate an apparent performance gap on human synthetic peptides, which reveals a profound biophysical insight."*
+  > To verify statistical significance, we performed McNemar's paired test across all 104,163 test spectra. The test yielded a chi-squared value of 7,542.8 ($p < 10^{-15}$), confirming that DFlowNovo's performance advantage is statistically significant."
+* **Transition:** *"Now let us investigate an apparent performance gap on human synthetic peptides, which reveals a clear biophysical insight."*
 
 ---
 
@@ -223,7 +223,7 @@
 * **Target Time:** `14:15 – 15:15` (Duration: 60s)
 * **Visual Direction:** Point to the flat green line in plot B on the left, contrasting with the steeply rising dashed red line of autoregressive models.
 * **Spoken Script:**
-  > "In high-throughput proteomics, instruments acquire hundreds of spectra per second. Inference latency is therefore paramount.
+  > "In high-throughput proteomics, instruments acquire hundreds of spectra per second, making inference latency a primary operational consideration.
   >
   > In plot B on the left, we contrast the inference latency scaling against peptide length. Autoregressive models scale linearly $\mathcal{O}(L)$, taking up to 42.5 milliseconds per spectrum for longer peptides.
   >
@@ -247,7 +247,7 @@
   > Compared to InstaNovo v1.0, which yielded 55,000 accepted PSMs, DFlowNovo provides **31,412 additional verified peptides—a 57.1% increase in biological discovery yield**.
   >
   > Furthermore, our Bayesian scoring function achieves an Average Precision of 88.4%, demonstrating exceptional probability calibration for downstream biomarker and neoantigen screening."
-* **Transition:** *"To validate each component of our methodology, we conducted exhaustive ablation studies."*
+* **Transition:** *"To validate each component of our methodology, we conducted detailed ablation studies."*
 
 ---
 

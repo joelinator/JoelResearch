@@ -53,7 +53,7 @@ where $M_{\text{prec}} = \sum_{i=1}^L m(y_i) + m(\text{H}_2\text{O}) + m(\text{H
 m(b_{k}) - m(b_{k-1}) = m(y_{L-k+1}) - m(y_{L-k}) = m(y_k)
 \label{eq:mass_ladder}
 \end{equation}
-In an idealized, noise-free mass spectrum, a complete ladder of $b$-ions or $y$-ions would permit trivial sequence extraction by reading off adjacent mass intervals. However, real experimental spectra deviate profoundly from this idealization due to missing fragmentation peaks, internal fragments, neutral losses ($\text{H}_2\text{O}$, $\text{NH}_3$), multiply charged ions, chemical noise, and instrument measurement jitter \citep{Paizs2005}.
+In an idealized, noise-free mass spectrum, a complete ladder of $b$-ions or $y$-ions would permit trivial sequence extraction by reading off adjacent mass intervals. However, real experimental spectra deviate substantially from this idealization due to missing fragmentation peaks, internal fragments, neutral losses ($\text{H}_2\text{O}$, $\text{NH}_3$), multiply charged ions, chemical noise, and instrument measurement jitter \citep{Paizs2005}.
 
 \section{Computational Complexity and Predecessor Algorithms}
 
@@ -61,7 +61,7 @@ The primary amino acid alphabet consists of 20 canonical residues with monoisoto
 
 Early computational approaches framed \emph{de novo} sequencing as finding the highest-scoring path through a directed acyclic spectrum graph \citep{Dancik1999, Chen2001, Frank2005}. Nodes represented observed experimental peaks, and directed edges corresponded to valid amino acid residue masses. While dynamic programming could compute optimal paths in polynomial time, these heuristic graph methods struggled with missing peaks, false ladder connections, and non-linear peak intensity variations.
 
-The advent of deep learning revolutionized the field. DeepNovo \citep{Tran2017} combined convolutional neural networks (CNNs) for peak feature extraction with long short-term memory (LSTM) networks and beam search decoding. PointNovo \citep{Qiao2021} introduced continuous order-invariant spectrum encodings. Casanovo \citep{Yilmaz2022} adapted the Transformer architecture, framing sequencing as an autoregressive machine translation problem from peak coordinates to amino acid tokens. More recently, InstaNovo \citep{Eloff2025} incorporated mass-guided beam search with deep autoregressive Transformers, setting a new benchmark for sequencing accuracy across large-scale human proteomes.
+Recent advances in deep learning have significantly improved \emph{de novo} sequencing performance. DeepNovo \citep{Tran2017} combined convolutional neural networks (CNNs) for peak feature extraction with long short-term memory (LSTM) networks and beam search decoding. PointNovo \citep{Qiao2021} introduced continuous order-invariant spectrum encodings. Casanovo \citep{Yilmaz2022} adapted the Transformer architecture, framing sequencing as an autoregressive machine translation problem from peak coordinates to amino acid tokens. More recently, InstaNovo \citep{Eloff2025} incorporated mass-guided beam search with deep autoregressive Transformers, setting a new benchmark for sequencing accuracy across large-scale human proteomes.
 
 Despite their success, existing autoregressive models suffer from fundamental algorithmic limitations:
 \begin{enumerate}[(i)]
