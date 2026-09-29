@@ -1,0 +1,356 @@
+\chapter{The DFlowNovo Framework: Architecture and Dynamic Knapsack Guidance}
+
+Translating the continuous-time discrete flow matching theory established in Chapter 2 into an accurate, high-throughput de novo peptide sequencing engine requires solving two fundamental architectural and algorithmic challenges:
+\begin{enumerate}
+    \item \textbf{Neural Model Parameterization}: Designing an expressive neural network capable of conditioning discrete flow probability vector fields on continuous, high-dimensional tandem mass spectra within a strict 50--60M parameter budget;
+    \item \textbf{Mass Conservation Guidance}: Enforcing strict physical precursor mass constraints during iterative test-time flow sampling, preventing the exponential exploration of chemically impossible amino acid combinations.
+\end{enumerate}
+
+To cleanly demarcate the static neural parameterization from the dynamic test-time decoding procedure, this chapter formalizes the DFlowNovo framework into two explicitly separated subsystems:
+\begin{itemize}
+    \item \textbf{Part A: Neural Network Model Architecture (Training and Forward Pass)}: The parameterized neural modules evaluated in a single forward pass—encompassing peak featurization, bidirectional spectrum encoding, auxiliary sequence length prediction, and discrete flow decoding with AdaLN-Zero conditioning;
+    \item \textbf{Part B: Mass-Guided Iterative Sampling and Filtering Pipeline (Inference)}: The test-time generation engine—comprising candidate length beam selection, uniform prior initialization, precomputed GPU \texttt{KnapsackDP} reachability filtering, reverse-time Euler integration with $\mathcal{O}(1)$ dynamic logit pruning, and joint Bayesian candidate re-ranking.
+\end{itemize}
+
+Figure~\ref{fig:architecture_pipeline} provides an end-to-end architectural diagram illustrating this explicit decomposition into Part~A (Neural Network Model) and Part~B (Dynamic Decoding Pipeline), including their runtime interaction interfaces.
+
+\begin{figure}[!ht]
+\centering
+\includegraphics[width=\textwidth]{images/dflow_architecture_pipeline.png}
+\caption{Architectural decomposition and end-to-end execution pipeline of DFlowNovo. \textbf{Part A (Left Panel)}: The parameterized neural network evaluated in a single forward pass ($59.48\,\text{M}$ parameters). Raw tandem mass spectra undergo intensity compression and dual sinusoidal mass encoding, followed by a 6-layer bidirectional Transformer encoder yielding spectral context $H_{\text{spec}}$ and sequence summary $[CLS]$. An auxiliary 2-layer MLP head predicts the peptide length prior $p_{\text{len}}$, while a 6-block discrete flow decoder conditioned via AdaLN-Zero generates categorical amino acid transition rate logits $Z \in \mathbb{R}^{L \times 22}$. \textbf{Part B (Right Panel)}: The mass-guided iterative decoding pipeline at inference. Candidate lengths are initialized via beam extraction ($\mathcal{L}_{\text{cand}} \sim \operatorname{TopK}(p_{\text{len}}, B)$) from the uniform prior $x_0 \sim \operatorname{Cat}(1/S)$. Across a 20-step reverse-time CTMC Euler integration loop, the decoder is queried iteratively, while a precomputed GPU \texttt{KnapsackDP} table enforces strict physical mass conservation by dynamically pruning unviable amino acid logits in $\mathcal{O}(1)$ time ($\tilde{Z} = Z + \log M_{\text{valid}}$). Finally, generated candidate sequences are scored and re-ranked under a Bayesian joint posterior combining sequence log-likelihood, precursor mass error, and theoretical fragment ladder coverage.}
+\label{fig:architecture_pipeline}
+\end{figure}
+
+% =========================================================================
+% PART A: NEURAL NETWORK MODEL ARCHITECTURE
+% =========================================================================
+\section{Part A: Neural Network Model Architecture (Training and Forward Pass)}
+\label{sec:part_a_model}
+
+This section details the primary neural network components composing DFlowNovo. During training, the entire network is optimized end-to-end using supervised cross-entropy discrete flow matching and auxiliary length multi-task losses evaluated over mini-batches in a single forward pass.
+
+\subsection{Raw Spectrum Processing and Dual Sinusoidal Featurization}
+\label{subsec:spectrum_featurization}
+
+An experimental tandem mass spectrum consists of an unordered set of $P$ detected peaks $\mathcal{S} = \{ (m_i, I_i) \}_{i=1}^P$, where $m_i \in \mathbb{R}^+$ denotes the fragment mass-to-charge ratio ($m/z$) and $I_i \in \mathbb{R}^+$ denotes raw detector ion count. To compress the wide dynamic range inherent to quadrupole-Orbitrap mass spectrometers \citep{Makarov2000, Zubarev2007}, peak intensities are transformed via square-root normalization:
+\begin{equation}
+\tilde{I}_i = \sqrt{\frac{I_i}{\max_{1 \le j \le P} I_j}}
+\label{eq:intensity_normalization}
+\end{equation}
+
+To exploit the fundamental physical symmetry of peptide backbone cleavage, we incorporate the complementary ion duality formalized in Chapter 2. For every observed peak $m_i$, its theoretical singly charged complementary ion mass $m_{\text{comp}, i}$ is calculated relative to the observed precursor neutral mass $M_{\text{prec}}$:
+\begin{equation}
+m_{\text{comp}, i} = M_{\text{prec}} - m_i + 2 m(\text{H}^+)
+\label{eq:comp_ion_formula}
+\end{equation}
+where $m(\text{H}^+) = 1.007276\,\text{Da}$ represents proton mass. In low-energy collision-induced dissociation (CID) and higher-energy collisional dissociation (HCD), if $m_i$ represents an experimental $b_k$-type acylium fragment ion, $m_{\text{comp}, i}$ corresponds exactly to the complementary $y_{L-k}$-type ammonium ion, and vice versa. Providing both masses eliminates the intrinsic directional ambiguity of fragmentation spectra.
+
+Continuous masses $m_i$ and $m_{\text{comp}, i}$ are projected into dense embedding spaces via dual sinusoidal positional encodings \citep{Vaswani2017}:
+\begin{equation}
+\text{PE}(m)_{2k} = \sin\left( \frac{m}{\lambda_{\max}^{2k / d_{\text{enc}}}} \right), \quad \text{PE}(m)_{2k+1} = \cos\left( \frac{m}{\lambda_{\max}^{2k / d_{\text{enc}}}} \right)
+\label{eq:sinusoidal_pe}
+\end{equation}
+where $d_{\text{enc}} = 256$ and $\lambda_{\max} = 10{,}000\,\text{Da}$. The initial peak token representation $h_i^{(0)} \in \mathbb{R}^{d_{\text{model}}}$ ($d_{\text{model}} = 512$) is constructed by concatenating the dual sinusoidal embeddings with the normalized scalar intensity and projecting via a learned affine layer followed by Layer Normalization:
+\begin{equation}
+h_i^{(0)} = \text{LN}\left( W_{\text{proj}} \left[ \text{PE}(m_i) \,\|\, \text{PE}(m_{\text{comp}, i}) \,\|\, \tilde{I}_i \right] + b_{\text{proj}} \right)
+\label{eq:peak_projection}
+\end{equation}
+where $W_{\text{proj}} \in \mathbb{R}^{d_{\text{model}} \times (2 d_{\text{enc}} + 1)} = \mathbb{R}^{512 \times 513}$. A learnable classification token $[CLS] \in \mathbb{R}^{d_{\text{model}}}$ is prepended to the sequence of $P$ peak tokens, yielding an input tensor of dimension $(P+1) \times d_{\text{model}}$.
+
+\subsection{Bidirectional Spectrum Transformer Encoder}
+\label{subsec:spectrum_encoder}
+
+The peak representations $\{h_i^{(0)}\}_{i=0}^P$ are processed by a six-layer bidirectional Transformer encoder \citep{Vaswani2017}. Each encoder layer features multi-head self-attention with 8 heads ($d_k = d_v = 64$) and a feed-forward network with inner dimension $d_{\text{ff}} = 1536$.
+
+To guarantee stable gradient backpropagation across deep attention stacks without requiring warmup heuristics, we adopt the Pre-LayerNorm (norm-first) residual structure \citep{Xiong2020}:
+\begin{align}
+\hat{h}^{(l)} &= h^{(l-1)} + \text{MHA}\left( \text{LN}(h^{(l-1)}), \text{LN}(h^{(l-1)}), \text{LN}(h^{(l-1)}) \right) \\
+h^{(l)} &= \hat{h}^{(l)} + \text{FFN}\left( \text{LN}(\hat{h}^{(l)}) \right)
+\end{align}
+Furthermore, the self-attention kernels are computed via FlashAttention-2 \citep{Dao2022}, achieving $\mathcal{O}(P)$ memory overhead during training and enabling batch processing of long experimental spectra ($P = 500$ peaks) at high throughput. The encoder output yields two distinct representations:
+\begin{equation}
+H_{\text{spec}} = [h_1^{(6)}, \dots, h_P^{(6)}] \in \mathbb{R}^{P \times d_{\text{model}}}, \quad h_{[CLS]} = h_0^{(6)} \in \mathbb{R}^{d_{\text{model}}}
+\label{eq:spectrum_encoder_output}
+\end{equation}
+where $H_{\text{spec}}$ supplies contextual keys and values for decoder cross-attention, while $h_{[CLS]}$ summarizes global spectral characteristics to condition peptide length prediction.
+
+\subsection{Auxiliary Peptide Length Predictor}
+\label{subsec:length_classifier}
+
+Unlike autoregressive decoders that emit dynamic stop tokens ($\langle\text{EOS}\rangle$), non-autoregressive discrete flow matching requires knowing the sequence length $L$ beforehand to define the discrete lattice $\mathcal{V}^L$. To predict peptide length accurately from mass spectra, DFlowNovo incorporates an auxiliary classification head directly attached to the encoder $[CLS]$ summary.
+
+The conditioning input concatenates the spectral summary $h_{[CLS]}$, a 128-dimensional sinusoidal embedding of the precursor neutral mass $\text{PE}(M_{\text{prec}})$, and a 128-dimensional learned embedding of the precursor charge state $\text{Emb}(z)$:
+\begin{equation}
+v_{\text{len}} = \left[ h_{[CLS]} \,\|\, \text{PE}(M_{\text{prec}}) \,\|\, \text{Emb}(z) \right] \in \mathbb{R}^{768}
+\label{eq:length_input}
+\end{equation}
+This vector is passed to a 2-layer multi-layer perceptron (MLP) with SiLU activations, dropout ($p = 0.15$), and Layer Normalization:
+\begin{equation}
+p_{\text{len}} = \operatorname{Softmax}\left( W_2 \, \text{LN}\left( \operatorname{SiLU}(W_1 v_{\text{len}} + b_1) \right) + b_2 \right) \in \Delta^{27}
+\label{eq:length_head}
+\end{equation}
+where $W_1 \in \mathbb{R}^{256 \times 768}$ and $W_2 \in \mathbb{R}^{27 \times 256}$, parameterizing a categorical distribution over discrete lengths $L \in \{4, \dots, 30\}$. 
+
+During training, the length head is optimized jointly with the flow matching objective via a multi-task loss:
+\begin{equation}
+\mathcal{L}_{\text{total}} = \mathcal{L}_{\text{flow}} + \lambda_{\text{len}} \mathcal{L}_{\text{len}}
+\label{eq:multitask_loss}
+\end{equation}
+where $\mathcal{L}_{\text{len}} = -\sum_{l=4}^{30} \mathbb{I}(L^* = l) \log p_{\text{len}}(l)$ is cross-entropy loss against ground-truth peptide length $L^*$, and $\lambda_{\text{len}} = 0.1$. This multi-task coupling enforces that the spectrum encoder learns global mass-to-length relationships early in training. The resulting length predictor achieves $68.4\%$ top-1 and $94.2\%$ top-3 accuracy on standard benchmark test sets.
+
+\subsection{Bidirectional Discrete Flow Decoder and AdaLN-Zero Conditioning}
+\label{subsec:decoder_adaln}
+
+The discrete flow decoder operates on sequence state representations $x_t \in \mathcal{V}^L$. Unlike causal autoregressive decoders, DFlowNovo utilizes full bidirectional self-attention across all positions $j \in \{1, \dots, L\}$. Every residue position attends simultaneously to all other positions throughout the generative flow trajectory.
+
+Conditioning the decoder on flow time $t \in [0, 1]$, precursor neutral mass $M_{\text{prec}}$, precursor charge state $z$, and sequence length $L$ is executed via Adaptive Layer Normalization with Zero-initialized residual gating (\textbf{AdaLN-Zero}) \citep{Peebles2023}. A master conditioning vector $c \in \mathbb{R}^{d_{\text{model}}}$ is formed by projecting the concatenated conditioning embeddings:
+\begin{equation}
+c = W_c \left[ \text{PE}(t) \,\|\, \text{PE}(M_{\text{prec}}) \,\|\, \text{Emb}(z) \,\|\, \text{Emb}(L) \right] + b_c \in \mathbb{R}^{512}
+\label{eq:condition_vector}
+\end{equation}
+In each of the 6 decoder blocks, $c$ is projected by block-specific linear heads to generate adaptive modulation parameters: scale vectors $\gamma_1, \gamma_2, \gamma_3$, shift vectors $\beta_1, \beta_2, \beta_3$, and gating scalars $\alpha_1, \alpha_2, \alpha_3$:
+\begin{equation}
+(\gamma_1, \beta_1, \alpha_1, \gamma_2, \beta_2, \alpha_2, \gamma_3, \beta_3, \alpha_3) = W_{\text{ada}}^{(l)} c
+\label{eq:adaln_projections}
+\end{equation}
+The forward pass through decoder block $l$ evaluates:
+\begin{align}
+h_{\text{self}}^{(l)} &= h^{(l-1)} + \alpha_1 \odot \text{SelfAttention}\left( \text{LN}(h^{(l-1)}) \odot (1 + \gamma_1) + \beta_1 \right) \label{eq:decoder_self_attn} \\
+h_{\text{cross}}^{(l)} &= h_{\text{self}}^{(l)} + \alpha_2 \odot \text{CrossAttention}\left( \text{LN}(h_{\text{self}}^{(l)}) \odot (1 + \gamma_2) + \beta_2, \, H_{\text{spec}} \right) \label{eq:decoder_cross_attn} \\
+h^{(l)} &= h_{\text{cross}}^{(l)} + \alpha_3 \odot \text{SwiGLU}\left( \text{LN}(h_{\text{cross}}^{(l)}) \odot (1 + \gamma_3) + \beta_3 \right) \label{eq:decoder_swiglu}
+\end{align}
+At initialization, $W_{\text{ada}}^{(l)}$ is initialized with zeros for the gating projection weights, ensuring that $\alpha_1 = \alpha_2 = \alpha_3 = 0$ at initialization. Consequently, each decoder block computes an exact identity function at $t=0$, eliminating vanishing/exploding gradients and dramatically stabilizing flow matching optimization \citep{Peebles2023}.
+
+Feed-forward sub-layers employ the Swish-Gated Linear Unit (\textbf{SwiGLU}) \citep{Shazeer2020}:
+\begin{equation}
+\text{SwiGLU}(x) = \left( (x W_{\text{gate}}) \odot \text{SiLU}(x W_{\text{up}}) \right) W_{\text{down}}
+\label{eq:swiglu}
+\end{equation}
+where $W_{\text{gate}}, W_{\text{up}} \in \mathbb{R}^{d_{\text{model}} \times d_{\text{ff}}}$ and $W_{\text{down}} \in \mathbb{R}^{d_{\text{ff}} \times d_{\text{model}}}$, with $d_{\text{model}} = 512$ and $d_{\text{ff}} = 1536$.
+
+Finally, the output representations are normalized and linearly projected to emit transition rate logits:
+\begin{equation}
+Z = W_{\text{out}} \, \text{LN}(h^{(6)}) + b_{\text{out}} \in \mathbb{R}^{L \times 22}
+\label{eq:logits_output}
+\end{equation}
+The vocabulary consists of 22 target tokens (20 standard amino acids plus oxidized methionine $\text{M}(\text{ox})$ and carbamidomethylated cysteine $\text{C}$). The structural tokens $\langle\text{pad}\rangle$ and $\langle\text{mask}\rangle$ are excluded from the output layer, guaranteeing that the model only proposes valid amino acid transitions.
+
+\subsection{Parameter Accounting}
+\label{subsec:parameter_budget}
+
+Table~\ref{tab:parameter_budget} details the parameter distribution across all modules of DFlowNovo. The entire model contains $59.48\,\text{M}$ parameters (exactly $59,476,250$ weights), meeting the design requirement of fitting within $50\text{--}60\,\text{M}$ parameters while maintaining strong modeling capacity.
+
+\begin{table}[!ht]
+\centering
+\small
+\begin{tabular}{llr}
+\toprule
+\textbf{Component} & \textbf{Architectural Specifications} & \textbf{Parameters} \\
+\midrule
+\textbf{SpectrumEncoder} & 6 layers, $d=512$, 8 heads, $d_{\text{ff}}=1536$, Pre-LN & 16,294,144 \\
+\textbf{PeptideLengthClassifier} & 2-layer MLP on $[CLS]$, $d=256$, dropout=0.15 & 346,334 \\
+\textbf{DFMPeptideDecoder} & 6 blocks, $d=512$, AdaLN-Zero, SwiGLU FFN & 42,819,840 \\
+\textbf{ProjectionHead} & $\text{LayerNorm}(512) \to \text{Linear}(512, 30)$ & 15,390 \\
+\textbf{Guidance \& Buffers} & Canonical AA Masses \& Unconditional Vector & 542 \\
+\midrule
+\textbf{Total Parameter Budget} & \textbf{DFlowNovo Architecture (Frozen Checkpoint)} & \textbf{59,476,250} \\
+\bottomrule
+\end{tabular}
+\caption{Parameter accounting of DFlowNovo. The complete frozen production architecture contains exactly 59,476,250 parameters, fitting cleanly within the targeted 50--60M parameter budget to maximize decoding throughput.}
+\label{tab:parameter_budget}
+\end{table}
+
+% =========================================================================
+% PART B: MASS-GUIDED ITERATIVE DECODING PIPELINE
+% =========================================================================
+\section{Part B: Mass-Guided Iterative Sampling and Dynamic Filtering Pipeline (Inference)}
+\label{sec:part_b_pipeline}
+
+While Part~A describes the fixed neural mapping $Z = \text{Decoder}(x_t, t, \mathcal{S})$, Part~B details the test-time generative engine that uses this mapping to reconstruct full peptide sequences from tandem mass spectra. In contrast to autoregressive left-to-right decoding, DFlowNovo employs a multi-step continuous-time reverse flow matching process guided by dynamic programming mass conservation constraints.
+
+\subsection{Candidate Length Beam Initialization and Prior State}
+\label{subsec:beam_init}
+
+At the onset of inference, the auxiliary length classifier evaluates Equation~\ref{eq:length_head} to generate length probabilities $p_{\text{len}} \in \Delta^{27}$. Rather than greedily committing to a single argmax length, DFlowNovo extracts a beam of the top-$B$ most probable lengths:
+\begin{equation}
+\mathcal{L}_{\text{cand}} = \operatorname{TopK}\left( p_{\text{len}}, B \right), \quad B \in \{3, 5\}
+\label{eq:topk_lengths}
+\end{equation}
+For each candidate length $L \in \mathcal{L}_{\text{cand}}$, an initial latent sequence $x_0 \in \mathcal{V}^L$ is initialized from the uniform noise prior $x_0 \sim \operatorname{Cat}(1/S)$ or as fully masked states $x_0 = ([M], \dots, [M])$. 
+
+To exploit full GPU parallelism, all $B$ length candidates across all $S$ test spectra in a mini-batch are packaged into a single flattened batch dimension $B_{\text{total}} = B \times S$. Sequence positions beyond each candidate's length ($j > L$) are padded with $\langle\text{pad}\rangle$ tokens and masked during attention computations. This allows concurrent reverse flow integration across all candidate lengths in a single batched execution graph.
+
+\subsection{Precomputed GPU KnapsackDP Reachability Table}
+\label{subsec:knapsack_dp}
+
+A critical physical requirement in de novo sequencing is that the sum of amino acid residue masses must match the observed precursor mass minus water:
+\begin{equation}
+\sum_{i=1}^L m(y_i) = M_{\text{target}} \pm \tau \equiv M_{\text{prec}} - M_{\text{H}_2\text{O}} \pm \tau
+\label{eq:mass_conservation_constraint}
+\end{equation}
+where $M_{\text{H}_2\text{O}} = 18.010565\,\text{Da}$ and $\tau$ denotes instrument mass tolerance (e.g., $\tau = 1.0\,\text{Da}$).
+
+At flow step $t$, suppose a subset of positions $U \subseteq \{1, \dots, L\}$ remains masked ($x_{t, i} = [M]$), while positions $\{1, \dots, L\} \setminus U$ have already unmasked to specific amino acids. The mass already committed is $M_{\text{assigned}} = \sum_{j \notin U} m(x_{t, j})$, leaving a residual mass deficit to be distributed across the remaining $|U| = k$ masked positions:
+\begin{equation}
+R' = M_{\text{prec}} - M_{\text{H}_2\text{O}} - M_{\text{assigned}}
+\label{eq:residual_mass}
+\end{equation}
+If candidate amino acid $a \in \mathcal{V}_{\text{AA}}$ is considered for an unmasked position, the remaining $k-1$ masked positions must physically be able to sum to $R' - m(a)$ within tolerance $\tau$.
+
+Rather than relying on continuous interval relaxations, we establish an exact polynomial-time dynamic programming reachability table over a quantized mass grid \citep{Dancik1999, Chen2001}:
+
+\begin{defn}[Quantized Knapsack Reachability Table]
+Let $\Delta m = 0.02\,\text{Da}$ denote the mass discretization step, and let $B_{\max} = \lfloor 5000\,\text{Da} / \Delta m \rfloor = 250{,}000$ denote the maximum quantized mass bin. The boolean table $T[k, b] \in \{0, 1\}$ indicates whether exactly $k$ amino acids can sum to quantized mass $b \in \{0, \dots, B_{\max}\}$:
+\begin{equation}
+T[k, b] = \bigvee_{a \in \mathcal{V}_{\text{AA}}} T[k-1, b - \lfloor m(a) / \Delta m \rceil]
+\label{eq:knapsack_dp_recurrence}
+\end{equation}
+with base conditions $T[0, 0] = 1$ and $T[0, b] = 0$ for all $b > 0$.
+\end{defn}
+
+The full DP table $T$ up to maximum length $K_{\max} = 30$ and mass $5000\,\text{Da}$ occupies only $6.65\,\text{MB}$ and is precomputed in 28 milliseconds upon initialization (Algorithm~\ref{alg:knapsack_dp}).
+
+\begin{algorithm}[!ht]
+\caption{KnapsackDP Reachability Precomputation and GPU Pooling}
+\label{alg:knapsack_dp}
+\begin{algorithmic}[1]
+\Require Alphabet $\mathcal{V}_{\text{AA}}$ with residue masses $\{m(a)\}_{a \in \mathcal{V}_{\text{AA}}}$, step $\Delta m = 0.02\,\text{Da}$, max mass $M_{\max} = 5000\,\text{Da}$, max length $K_{\max} = 30$, tolerance $\tau = 1.0\,\text{Da}$.
+\Ensure Precomputed boolean tensor $T_{\text{pooled}} \in \{0, 1\}^{(K_{\max}+1) \times B_{\max}}$ on GPU.
+\State Initialize $B_{\max} \gets \lfloor M_{\max} / \Delta m \rfloor = 250{,}000$.
+\State Allocate boolean table $T \in \{0, 1\}^{(K_{\max}+1) \times B_{\max}} \gets 0$; set $T[0, 0] \gets 1$.
+\For{residue count $k = 1$ \textbf{to} $K_{\max}$}
+    \For{each amino acid $a \in \mathcal{V}_{\text{AA}}$}
+        \State Compute quantized mass: $w_a \gets \lfloor m(a) / \Delta m \rceil$.
+        \State Update reachability: $T[k, w_a : B_{\max}] \gets T[k, w_a : B_{\max}] \lor T[k-1, 0 : B_{\max} - w_a]$.
+    \EndFor
+\EndFor
+\State Compute pooling half-window: $W_{\text{half}} \gets \lfloor \tau / \Delta m \rfloor = 50$.
+\State Transfer table $T$ to GPU memory.
+\State Apply 1D GPU max-pooling with kernel size $2 W_{\text{half}} + 1 = 101$ and stride 1:
+\State $T_{\text{pooled}}[k, b] \gets \max_{j = \max(0, b - W_{\text{half}})}^{\min(B_{\max}-1, b + W_{\text{half}})} T[k, j]$.
+\State \Return $T_{\text{pooled}}$
+\end{algorithmic}
+\end{algorithm}
+
+To query whether residual mass $R'$ is reachable within instrument tolerance $\tau$ (e.g., $\tau = 1.0\,\text{Da}$), 1D GPU max-pooling is applied with kernel size $W = 2 \lfloor \tau / \Delta m \rfloor + 1 = 101$ bins:
+\begin{equation}
+T_{\text{pooled}}[k, b] = \max_{|j - b| \le \lfloor \tau / \Delta m \rfloor} T[k, j]
+\label{eq:pooled_reachability}
+\end{equation}
+During inference, reachability for any candidate amino acid $a$ at residual deficit $R'$ with $k$ masked positions remaining is evaluated via an $\mathcal{O}(1)$ table lookup:
+\begin{equation}
+\text{Valid}(a) = T_{\text{pooled}}\left[ k-1, \left\lfloor \frac{R' - m(a)}{\Delta m} \right\rceil \right]
+\label{eq:reachability_filter}
+\end{equation}
+
+\subsection{Reverse-Time CTMC Euler Integration with Dynamic Logit Pruning}
+\label{subsec:reverse_euler}
+
+The generative trajectory integrates the reverse continuous-time Markov chain (CTMC) from $t=0$ (pure prior noise) to $t=1$ (fully resolved sequence) in $K=20$ discrete Euler steps with step size $\Delta t = 1/K$.
+
+At each step $t \in \{0, \Delta t, 2\Delta t, \dots, 1 - \Delta t\}$, the neural decoder (Part~A) is queried with the current sequence state $x_t$, time $t$, precursor mass $M_{\text{prec}}$, and charge $z$, outputting raw transition rate logits $Z \in \mathbb{R}^{L \times 22}$. 
+
+Before sampling unmasking transitions, reachability is evaluated using Equation~\ref{eq:reachability_filter}. For each masked position $d \in U$, unviable amino acid transitions ($\text{Valid}(a) = 0$) are pruned to $-\infty$:
+\begin{equation}
+\tilde{Z}_{d, a} = 
+\begin{cases}
+Z_{d, a} & \text{if } \text{Valid}(a) = 1 \\
+-\infty & \text{if } \text{Valid}(a) = 0
+\end{cases}
+\label{eq:logit_masking}
+\end{equation}
+The normalized categorical posterior is then given by:
+\begin{equation}
+p_{1 \mid t}^d(a) = \operatorname{Softmax}(\tilde{Z}_d)_a = \frac{\exp(\tilde{Z}_{d, a})}{\sum_{a' \in \mathcal{V}_{\text{AA}}} \exp(\tilde{Z}_{d, a'})}
+\label{eq:pruned_softmax}
+\end{equation}
+Under scheduler $\kappa(t)$, the jump probability scalar over interval $[t, t+\Delta t]$ is:
+\begin{equation}
+\lambda_t = \frac{\kappa'(t)}{1 - \kappa(t)} \Delta t
+\label{eq:jump_rate}
+\end{equation}
+An unmasking event is sampled via $u \sim \mathcal{U}(0, 1)$: if $u < \lambda_t$ (or on the final step $t = 1 - \Delta t$), position $d$ unmasks to residue $x_{t+\Delta t}^d \sim \operatorname{Cat}(p_{1 \mid t}^d)$; otherwise, it remains masked ($x_{t+\Delta t}^d = [M]$).
+
+\begin{figure}[!ht]
+\centering
+\includegraphics[width=0.85\textwidth]{images/scheduler_and_knapsack_ablation.png}
+\caption{Ablation of sampling schedulers and dynamic knapsack mass tolerances. (a) Exact sequence match across knapsack tolerances $\tau \in [0.1, 2.0]\,\text{Da}$, showing peak performance at $\tau = 1.0\,\text{Da}$. (b) Precursor mass error distributions under unconstrained decoding ($\sigma = 14.8\,\text{ppm}$) versus exact \texttt{KnapsackDP} guidance ($\sigma = 1.45\,\text{ppm}$). (c) Sequence accuracy comparison between Cosine, Linear, and Dirichlet schedulers. (d) Wall-clock decoding latency as a function of tolerance window size.}
+\label{fig:scheduler_and_knapsack_ablation}
+\end{figure}
+
+As demonstrated in Figure~\ref{fig:scheduler_and_knapsack_ablation}, dynamic knapsack logit pruning contracts precursor mass variance by an order of magnitude (from $\sigma = 14.8\,\text{ppm}$ unguided to $\sigma = 1.45\,\text{ppm}$ guided), eliminating invalid dead-end decoding paths while preserving millisecond latency.
+
+\subsection{Bayesian Candidate Scoring and Sequence Re-ranking}
+\label{subsec:bayesian_scoring}
+
+Upon reaching $t=1$, the reverse flow yields $B$ candidate peptide sequences $\{Y^{(1)}, \dots, Y^{(B)}\}$ corresponding to the top-$B$ length beam candidates. To select the globally optimal peptide $\hat{Y}^*$, candidates are scored under a joint Bayesian posterior objective combining the length prior, sequence generation confidence, precursor mass accuracy, and experimental fragment spectrum match:
+\begin{align}
+\text{Score}(Y) = &\log p(L \mid \mathcal{S}) + \frac{1}{L} \sum_{i=1}^L \log p(y_i \mid x_{\text{prev}}, \mathcal{S}) \notag \\
+&- \alpha \left( \frac{|\sum_{i=1}^L m(y_i) - (M_{\text{prec}} - M_{\text{H}_2\text{O}})|}{M_{\text{prec}}} \times 10^6 \right)^2 \notag \\
+&+ \beta \, \text{FragScore}(Y) + \text{Bonus}_{\text{trypsin}}(Y)
+\label{eq:bayesian_reranking}
+\end{align}
+where:
+\begin{itemize}
+    \item $\log p(L \mid \mathcal{S})$ represents the log-probability of candidate length $L$ from the auxiliary length predictor (Part~A);
+    \item $\frac{1}{L} \sum_{i=1}^L \log p(y_i)$ represents length-normalized average token confidence emitted by the decoder;
+    \item $\alpha \cdot (\Delta M_{\text{ppm}})^2$ penalizes deviation between candidate mass and precursor neutral mass ($\alpha = 0.05$);
+    \item $\text{FragScore}(Y) = \frac{\sum_{j \in \text{matched}} I_j}{\sum_{j=1}^P I_j}$ computes the fraction of total experimental fragment intensity explained by theoretical $b$- and $y$-ions generated from candidate $Y$ ($\beta = 0.50$);
+    \item $\text{Bonus}_{\text{trypsin}} = +0.25$ awards confirmed tryptic C-terminal residues (Lysine or Arginine) \citep{Olsen2004, Vandermarliere2013} supported by experimental $y_1$ peaks ($147.11\,\text{Da}$ or $175.12\,\text{Da}$).
+\end{itemize}
+
+The candidate achieving the maximum posterior score is returned as the final predicted peptide sequence:
+\begin{equation}
+\hat{Y}^* = \operatorname{argmax}_{Y \in \{Y^{(1)}, \dots, Y^{(B)}\}} \text{Score}(Y)
+\label{eq:optimal_peptide}
+\end{equation}
+
+Algorithm~\ref{alg:ctmc_sampling} formalizes the complete inference routine connecting Part~A and Part~B.
+
+\begin{algorithm}[!ht]
+\caption{Continuous-Time Discrete Flow Sampling with KnapsackDP and Beam Decoding}
+\label{alg:ctmc_sampling}
+\begin{algorithmic}[1]
+\Require Spectrum $\mathcal{S}$, precursor mass $M_{\text{prec}}$, charge $z$, flow steps $K=20$, beam size $B=3$, knapsack table $T_{\text{pooled}}$, schedule $\kappa(t)$.
+\Ensure Optimal predicted peptide sequence $\hat{Y}^*$.
+\State \textbf{// --- PART A: Initial Forward Pass ---}
+\State Compute spectrum embeddings: $H_{\text{spec}}, h_{[CLS]} \gets \text{SpectrumEncoder}(\mathcal{S})$.
+\State Predict length prior distribution: $p_{\text{len}} \gets \text{LengthClassifier}(h_{[CLS]}, M_{\text{prec}}, z)$.
+\State \textbf{// --- PART B: Beam Init \& Dynamic Decoding Pipeline ---}
+\State Extract top-$B$ candidate lengths: $\mathcal{L}_{\text{cand}} \gets \operatorname{TopK}(p_{\text{len}}, B)$.
+\State Initialize candidate container: $\mathcal{Y}_{\text{cand}} \gets \emptyset$.
+\For{each candidate length $L \in \mathcal{L}_{\text{cand}}$}
+    \State Initialize fully masked sequence: $x_0 \gets ([M], [M], \dots, [M]) \in \mathcal{V}^L$.
+    \State Set step size: $\Delta t \gets 1 / K$.
+    \For{step $k = 0$ \textbf{to} $K-1$}
+        \State Current time: $t \gets k \cdot \Delta t$.
+        \State Compute transition rate scalar: $\lambda_t \gets \frac{\kappa'(t)}{1 - \kappa(t)} \Delta t$.
+        \State \textbf{// Query Neural Decoder (Part A)}
+        \State $Z \gets \text{Decoder}(x_t, t, M_{\text{prec}}, z, L, H_{\text{spec}}) \in \mathbb{R}^{L \times 22}$.
+        \State Identify masked positions: $U \gets \{d \in \{1, \dots, L\} \mid x_t^d = [M]\}$.
+        \State Compute committed mass: $M_{\text{assigned}} \gets \sum_{j \notin U} m(x_t^j)$.
+        \State Compute residual deficit: $R' \gets M_{\text{prec}} - M_{\text{H}_2\text{O}} - M_{\text{assigned}}$.
+        \For{each position $d \in U$}
+            \For{each amino acid $a \in \mathcal{V}_{\text{AA}}$}
+                \State \textbf{// KnapsackDP Reachability Lookup}
+                \State $\text{Valid}(a) \gets T_{\text{pooled}}\left[ |U| - 1, \left\lfloor \frac{R' - m(a)}{\Delta m} \right\rceil \right]$.
+                \If{$\text{Valid}(a) = 0$}
+                    \State $Z[d, a] \gets -\infty$. \Comment{Dynamic logit pruning}
+                \EndIf
+            \EndFor
+            \State Compute normalized token posterior: $p_{1 \mid t}^d \gets \operatorname{Softmax}(Z[d, \cdot])$.
+            \State Sample unmasking event: $u \sim \mathcal{U}(0, 1)$.
+            \If{$u < \lambda_t$ \textbf{or} $k = K - 1$} \Comment{Force unmask on final step}
+                \State Sample residue: $x_{t+\Delta t}^d \sim \operatorname{Categorical}(p_{1 \mid t}^d)$.
+            \Else
+                \State Retain mask: $x_{t+\Delta t}^d \gets [M]$.
+            \EndIf
+        \EndFor
+    \EndFor
+    \State Compute Bayesian joint posterior score $\text{Score}(x_1)$ via Equation~\ref{eq:bayesian_reranking}.
+    \State Append $(x_1, \text{Score}(x_1))$ to $\mathcal{Y}_{\text{cand}}$.
+\EndFor
+\State \textbf{// Bayesian Re-ranking Selection}
+\State \Return $\hat{Y}^* = \operatorname{argmax}_{(Y, \text{score}) \in \mathcal{Y}_{\text{cand}}} \text{Score}(Y)$.
+\end{algorithmic}
+\end{algorithm}

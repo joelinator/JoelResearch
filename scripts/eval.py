@@ -30,12 +30,21 @@ from train.io import infer_model_config_from_checkpoint, load_checkpoint, load_m
 from train.factory import build_models
 
 
+DEFAULT_MODEL_PATH = str(Path(__file__).resolve().parent.parent / "models" / "frozen_production_model.ckpt")
+
+
 def parse_args():
     data_cfg = DEFAULTS.data
     eval_cfg = DEFAULTS.eval
 
     parser = argparse.ArgumentParser(description="Evaluate DFM de novo peptide sequencing.")
-    parser.add_argument("--checkpoint", default=os.environ.get("CHECKPOINT"))
+    parser.add_argument(
+        "--model-path",
+        "--checkpoint",
+        dest="checkpoint",
+        default=os.environ.get("MODEL_PATH", os.environ.get("CHECKPOINT", DEFAULT_MODEL_PATH)),
+        help="Path to model checkpoint (.ckpt or .pt, default: models/frozen_production_model.ckpt).",
+    )
     parser.add_argument(
         "--dataset-name",
         "--dataset",
@@ -43,27 +52,56 @@ def parse_args():
         default=os.environ.get("DATASET_NAME", data_cfg.dataset_repo),
         help="Hugging Face dataset repository (e.g. InstaDeepAI/ms_ninespecies_benchmark or InstaDeepAI/ms_proteometools).",
     )
-    parser.add_argument("--split", default=os.environ.get("EVAL_SPLIT", data_cfg.test_split))
+    parser.add_argument(
+        "--split",
+        default=os.environ.get("EVAL_SPLIT", data_cfg.test_split),
+        help="Dataset split to evaluate (default: test).",
+    )
     parser.add_argument(
         "--scheduler",
         default=os.environ.get("SCHEDULER", "linear"),
         choices=["linear", "cosine", "power1_5", "power2", "sigmoid"],
         help="Noise scheduler for flow matching (default: linear).",
     )
-    parser.add_argument("--batch-size", type=int, default=int(os.environ.get("BATCH_SIZE", eval_cfg.batch_size)))
-    parser.add_argument("--num-workers", type=int, default=int(os.environ.get("NUM_WORKERS", eval_cfg.num_workers)))
-    parser.add_argument("--cache-dir", default=os.environ.get("HF_DATASETS_CACHE", "data/cache"))
-    parser.add_argument("--device", default=os.environ.get("DEVICE", "cuda" if torch.cuda.is_available() else "cpu"))
-    parser.add_argument("--num-steps", type=int, default=int(os.environ.get("INFERENCE_STEPS", 25)))
+    parser.add_argument(
+        "--batch-size",
+        type=int,
+        default=int(os.environ.get("BATCH_SIZE", eval_cfg.batch_size)),
+        help=f"Evaluation batch size (default: {eval_cfg.batch_size}).",
+    )
+    parser.add_argument(
+        "--num-workers",
+        type=int,
+        default=int(os.environ.get("NUM_WORKERS", eval_cfg.num_workers)),
+        help=f"Number of DataLoader worker processes (default: {eval_cfg.num_workers}).",
+    )
+    parser.add_argument(
+        "--cache-dir",
+        default=os.environ.get("HF_DATASETS_CACHE", "data/cache"),
+        help="Local directory for caching Hugging Face datasets (default: data/cache).",
+    )
+    parser.add_argument(
+        "--device",
+        default=os.environ.get("DEVICE", "cuda" if torch.cuda.is_available() else "cpu"),
+        help="Computation device ('cuda', 'cpu', or 'cuda:N', default: auto-detected).",
+    )
+    parser.add_argument(
+        "--num-steps",
+        type=int,
+        default=int(os.environ.get("INFERENCE_STEPS", 25)),
+        help="Number of discrete flow matching integration steps (default: 25).",
+    )
     parser.add_argument(
         "--noising-scheme",
         choices=["uniform", "mask"],
         default=os.environ.get("NOISING_SCHEME", eval_cfg.noising_scheme),
+        help=f"Noising scheme ('uniform' or 'mask', default: {eval_cfg.noising_scheme}).",
     )
     parser.add_argument(
         "--guidance-scale",
         type=float,
         default=float(os.environ.get("GUIDANCE_SCALE", 1.8)),
+        help="Classifier-free guidance scale factor (default: 1.8).",
     )
     parser.add_argument(
         "--top-k-lengths",
@@ -157,6 +195,7 @@ def parse_args():
         "--max-batches",
         type=int,
         default=int(os.environ["MAX_BATCHES"]) if os.environ.get("MAX_BATCHES") else eval_cfg.max_batches,
+        help="Maximum number of batches to evaluate (default: None for full split).",
     )
     parser.add_argument(
         "--max-samples",
@@ -168,23 +207,35 @@ def parse_args():
         "--calibrate-subset-batches",
         type=int,
         default=int(os.environ["CALIBRATE_SUBSET_BATCHES"]) if os.environ.get("CALIBRATE_SUBSET_BATCHES") else None,
-        help="Calibrate score threshold on the first N batches of validation split before evaluating full set",
+        help="Calibrate score threshold on the first N batches of validation split before evaluating full set.",
     )
     parser.add_argument(
         "--target-precision",
         type=float,
         default=float(os.environ.get("TARGET_PRECISION", 0.80)),
-        help="Target precision level for confidence threshold calibration (default: 0.80)",
+        help="Target precision level for confidence threshold calibration (default: 0.80).",
     )
     parser.add_argument(
         "--score-threshold",
         type=float,
         default=float(os.environ["SCORE_THRESHOLD"]) if os.environ.get("SCORE_THRESHOLD") else None,
-        help="Explicit score threshold cutoff",
+        help="Explicit score threshold cutoff for reporting high-confidence PSMs.",
     )
-    parser.add_argument("--output-json", default=os.environ.get("EVAL_OUTPUT_JSON"))
-    parser.add_argument("--save-predictions", default=os.environ.get("SAVE_PREDICTIONS"), help="Path to save predictions CSV")
-    parser.add_argument("--save-plot", default=os.environ.get("SAVE_PLOT"))
+    parser.add_argument(
+        "--output-json",
+        default=os.environ.get("EVAL_OUTPUT_JSON"),
+        help="Path to save evaluation summary metrics as JSON.",
+    )
+    parser.add_argument(
+        "--save-predictions",
+        default=os.environ.get("SAVE_PREDICTIONS"),
+        help="Path to save predicted sequences CSV.",
+    )
+    parser.add_argument(
+        "--save-plot",
+        default=os.environ.get("SAVE_PLOT"),
+        help="Path to save precision-coverage pAUC curve plot.",
+    )
     parser.add_argument(
         "--use-exact-dp-knapsack",
         dest="use_exact_dp_knapsack",
@@ -216,20 +267,38 @@ def parse_args():
         action="store_false",
         help="Use simple explained intensity fragment scoring.",
     )
-    parser.add_argument("--no-amp", dest="amp", action="store_false", default=True, help="Disable automatic mixed precision (FP16/BF16)")
+    parser.add_argument(
+        "--no-amp",
+        dest="amp",
+        action="store_false",
+        default=True,
+        help="Disable automatic mixed precision (FP16/BF16).",
+    )
     return parser.parse_args()
 
 
 def main():
     args = parse_args()
     if not args.checkpoint:
-        raise SystemExit("Provide --checkpoint or set CHECKPOINT environment variable.")
+        print("Error: No model checkpoint specified. Provide --model-path or --checkpoint.", file=sys.stderr)
+        sys.exit(1)
+
+    ckpt_path = Path(args.checkpoint)
+    if not ckpt_path.is_file():
+        print(f"Error: Model checkpoint file not found at '{args.checkpoint}'.", file=sys.stderr)
+        print("Please verify the path or download the production checkpoint (see models/README.md).", file=sys.stderr)
+        sys.exit(1)
+
     device = torch.device(args.device)
 
     if device.type == "cuda":
         torch.set_float32_matmul_precision("high")
 
-    checkpoint = load_checkpoint(args.checkpoint, map_location=device)
+    try:
+        checkpoint = load_checkpoint(str(ckpt_path), map_location=device)
+    except Exception as exc:
+        print(f"Error loading checkpoint '{ckpt_path}': {exc}", file=sys.stderr)
+        sys.exit(1)
     
     # Resolve vocabulary: from checkpoint, adjacent vocabulary.json, or dataset
     vocabulary = checkpoint.get("vocabulary")

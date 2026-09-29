@@ -232,3 +232,8 @@ models/*.ckpt
 *.ckpt
 .gradio/
 val_metrics/
+*.aux
+*.nav
+*.out
+*.snm
+*.toc

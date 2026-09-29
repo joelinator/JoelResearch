@@ -34,7 +34,13 @@ def append_jsonl(path: Path, payload: dict) -> None:
 
 def load_checkpoint(path: str | Path, map_location: str | torch.device = "cpu") -> dict:
     """Load checkpoint dictionary from file."""
-    return torch.load(Path(path), map_location=map_location, weights_only=False)
+    p = Path(path)
+    if not p.is_file():
+        raise FileNotFoundError(
+            f"Checkpoint file not found: '{p}'.\n"
+            "Please verify the path or download the model checkpoint (see models/README.md)."
+        )
+    return torch.load(p, map_location=map_location, weights_only=False)
 
 
 def empty_history() -> dict[str, list]:
