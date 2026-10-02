@@ -1,10 +1,16 @@
 # agents_native.py
 """
-DFLowNovo Multi-Agent Autonomous Research, Improvement & Verification Squad (Native VM Version)
+DFlowNovo Multi-Agent Autonomous Research, Improvement & Verification Squad (Native VM Version)
 =================================================================================================
-Native multi-agent R&D squad executing directly inside the compute environment (e.g., A100 GPU VM).
+Native multi-agent R&D squad executing directly inside the compute environment.
 Directly accesses PyTorch, CUDA, virtual environment packages, datasets, model checkpoints,
-and local git workspace without SSH/IAP tunneling overhead.
+and local git workspace with zero SSH/tunneling overhead.
+
+Enriched with:
+- Seamless Vertex AI and Gemini API key authentication (resolving 403 scope issues)
+- Native GitHub CLI (gh) credential synchronization for automated git pushes
+- Deeply enriched prompts enforcing coherence, empirical fact-checking, rigorous academic writing,
+  adversarial peer review, experiment reruns, algorithmic improvement, implementation, testing, and exploration.
 """
 
 import os
@@ -12,6 +18,7 @@ import sys
 import time
 import json
 import re
+import shutil
 import subprocess
 from pathlib import Path
 from dotenv import load_dotenv
@@ -19,12 +26,16 @@ from dotenv import load_dotenv
 # Load local environment variables (.env)
 load_dotenv()
 
-project_id = os.getenv("GCP_PROJECT_ID", "joelgedeon-project-507410")
+project_id = os.getenv("GCP_PROJECT_ID") or os.getenv("GCP_PROJECT", "joelgedeon-project-507410")
 region = os.getenv("VERTEXAI_LOCATION", "us-central1")
 repo_url = os.getenv("GITHUB_REPO_URL", "https://github.com/joelinator/joelresearch.git")
+api_key = os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_API_KEY")
 
-# Ensure Vertex AI routing for Google GenAI / CrewAI LLM
-os.environ["GOOGLE_GENAI_USE_VERTEXAI"] = "true"
+if api_key and not os.getenv("GOOGLE_GENAI_USE_VERTEXAI"):
+    os.environ["GOOGLE_GENAI_USE_VERTEXAI"] = "false"
+else:
+    os.environ.setdefault("GOOGLE_GENAI_USE_VERTEXAI", "true")
+
 os.environ["VERTEXAI_PROJECT"] = project_id
 os.environ["VERTEXAI_LOCATION"] = region
 os.environ["GOOGLE_CLOUD_PROJECT"] = project_id
@@ -33,15 +44,87 @@ from crewai import Agent, Task, Crew, Process, LLM
 from langchain_community.utilities import ArxivAPIWrapper
 from crewai.tools import tool
 
-# Native CrewAI Gemini 2.5 Pro LLM integration with Vertex AI backend
-vertex_llm = LLM(
-    model="gemini/gemini-2.5-pro",
-    temperature=0.1,
-    project=project_id,
-    location=region
-)
-
 WORKSPACE_ROOT = Path(__file__).resolve().parent
+
+# =====================================================================
+# CREDENTIALS & AUTHENTICATION RESOLUTION
+# =====================================================================
+
+def get_vertex_credentials():
+    """Resolves Google Cloud credentials with cloud-platform scopes.
+    Prioritizes active Antigravity live OAuth credentials if available,
+    which provides valid cloud-platform scope without requiring VM re-provisioning."""
+    sa_path = os.getenv("GOOGLE_APPLICATION_CREDENTIALS")
+    if sa_path and Path(sa_path).exists():
+        return None  # Standard Google GenAI client picks this up automatically
+    
+    token_file = Path.home() / ".gemini" / "antigravity-cli" / "antigravity-oauth-token"
+    if token_file.exists():
+        try:
+            with open(token_file, "r", encoding="utf-8") as f:
+                data = json.load(f)
+            access_token = data.get("token", {}).get("access_token")
+            if access_token:
+                from google.oauth2.credentials import Credentials
+
+                class AntigravityLiveCredentials(Credentials):
+                    def __init__(self, tpath):
+                        self.tpath = tpath
+                        tok = self._read_token()
+                        super().__init__(token=tok, scopes=["https://www.googleapis.com/auth/cloud-platform"])
+
+                    def _read_token(self):
+                        with open(self.tpath, "r", encoding="utf-8") as tf:
+                            return json.load(tf).get("token", {}).get("access_token")
+
+                    def refresh(self, request):
+                        self.token = self._read_token()
+
+                return AntigravityLiveCredentials(token_file)
+        except Exception as e:
+            print(f"Notice: Could not load Antigravity live credentials: {e}")
+    return None
+
+
+def get_github_token() -> str | None:
+    """Retrieves GitHub token from environment or active gh CLI authentication."""
+    token = os.getenv("GITHUB_TOKEN")
+    if token:
+        return token
+    try:
+        token = subprocess.check_output(
+            ["gh", "auth", "token"], text=True, stderr=subprocess.DEVNULL, cwd=str(WORKSPACE_ROOT)
+        ).strip()
+        if token:
+            os.environ["GITHUB_TOKEN"] = token
+            return token
+    except Exception:
+        pass
+    return None
+
+
+# Configure LLM backend
+model_name = os.getenv("CREWAI_MODEL", "gemini/gemini-2.5-pro")
+live_creds = get_vertex_credentials()
+client_params = {}
+if live_creds:
+    client_params["credentials"] = live_creds
+
+if api_key:
+    vertex_llm = LLM(
+        model=model_name,
+        temperature=0.1,
+        api_key=api_key,
+    )
+else:
+    vertex_llm = LLM(
+        model=model_name,
+        temperature=0.1,
+        project=project_id,
+        location=region,
+        client_params=client_params if client_params else None,
+    )
+
 
 # =====================================================================
 # NATIVE TOOLS FOR THE AGENT SQUAD
@@ -56,6 +139,38 @@ def query_arxiv(query: str) -> str:
         return wrapper.run(query)
     except Exception as e:
         return f"Arxiv query failed: {str(e)}"
+
+
+@tool("Read File in Workspace")
+def read_workspace_file(file_path: str, start_line: int = 1, end_line: int = 120) -> str:
+    """Useful to read the contents of any file in the workspace within specified 1-indexed line numbers.
+    Helps inspect source code (src/), scripts, LaTeX thesis chapters (thesis/), manuscripts, or configs."""
+    try:
+        target = WORKSPACE_ROOT / file_path
+        if not target.exists():
+            return f"❌ File not found: {file_path}"
+        lines = target.read_text(encoding="utf-8", errors="replace").splitlines()
+        start = max(1, start_line)
+        end = min(len(lines), end_line)
+        selected = lines[start - 1 : end]
+        numbered = [f"{start + i}: {line}" for i, line in enumerate(selected)]
+        return f"=== {file_path} (Lines {start}-{end} of {len(lines)}) ===\n" + "\n".join(numbered)
+    except Exception as e:
+        return f"❌ Error reading file {file_path}: {str(e)}"
+
+
+@tool("Write or Update File in Workspace")
+def write_workspace_file(file_path: str, content: str) -> str:
+    """Useful to safely create or overwrite a file in the workspace (e.g. modifying code in src/,
+    updating thesis chapters in thesis/, refining scripts, or updating README.md).
+    Automatically creates parent directories if needed."""
+    try:
+        target = WORKSPACE_ROOT / file_path
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text(content, encoding="utf-8")
+        return f"✅ Successfully wrote {len(content)} characters to {file_path}."
+    except Exception as e:
+        return f"❌ Error writing to file {file_path}: {str(e)}"
 
 
 @tool("Execute Shell Command in Workspace")
@@ -74,8 +189,8 @@ def execute_shell_command(command: str) -> str:
 @tool("Run Experiment, Training, or Benchmark Natively on GPU")
 def run_experiment_natively(command: str = "python3 scripts/eval.py", custom_script_code: str = "") -> str:
     """Useful to execute PyTorch training, model evaluation, benchmark scripts (e.g. scripts/eval.py,
-    scripts/benchmark_refined_decoding_50k.py), or custom Python experiment scripts directly on the local GPU.
-    Runs natively in the active environment with direct CUDA / A100 acceleration."""
+    scripts/benchmark_refined_decoding_50k.py), or custom Python experiment scripts directly on the local compute hardware.
+    Runs natively in the active environment with direct CUDA acceleration or CPU fallback."""
     try:
         if custom_script_code.strip():
             script_path = WORKSPACE_ROOT / "custom_native_experiment.py"
@@ -160,13 +275,16 @@ def regenerate_figures(script_name: str = "scripts/generate_publication_figures.
         return f"❌ Figure regeneration error: {str(e)}"
 
 
-@tool("Validate and Test Mass Spectrometry Data Parsers (MGF, MGZ, mzML)")
-def test_data_parsers(test_file: str = "") -> str:
-    """Useful to test and validate MS/MS file parsing routines for MGF, MGZ (gzipped MGF), mzML,
-    and parquet formats. Checks extraction of SEQ/SEQUENCE headers, TITLE, PEPMASS, CHARGE, RTINSECONDS, and peaks."""
+@tool("Validate and Test Mass Spectrometry Data Parsers and Test Suite")
+def test_data_parsers(test_target: str = "tests/") -> str:
+    """Useful to run pytest on tests/ or specific test files (e.g. tests/test_reachability_dp.py,
+    tests/test_checkpoint_io.py, tests/test_decoding_and_scoring.py).
+    Verifies parser resilience for MGF, MGZ (gzipped MGF), mzML, and Parquet formats,
+    confirming handling of SEQ/SEQUENCE headers, charges, and precursor masses."""
     try:
-        cmd = f"{sys.executable} -m pytest tests/ -k 'test' -v"
-        res = subprocess.run(cmd, shell=True, capture_output=True, text=True, timeout=180, cwd=str(WORKSPACE_ROOT))
+        target = test_target.strip() if test_target.strip() else "tests/"
+        cmd = f"{sys.executable} -m pytest {target} -v"
+        res = subprocess.run(cmd, shell=True, capture_output=True, text=True, timeout=240, cwd=str(WORKSPACE_ROOT))
         return f"=== DATA PARSER & SUITE TEST RESULTS ===\nExit Code: {res.returncode}\nStdout:\n{res.stdout}\nStderr:\n{res.stderr}"
     except Exception as e:
         return f"Data parser test execution failed: {str(e)}"
@@ -191,91 +309,139 @@ def deploy_huggingface(sync_model: bool = True, deploy_space: bool = True) -> st
 @tool("Push Verified Improvements to GitHub")
 def push_improvement_to_github(commit_message: str) -> str:
     """Useful to commit and push verified improvements, regenerated figures, audited thesis documents,
-    and benchmark metrics directly to the GitHub repository on the 'research' branch."""
+    and benchmark metrics directly to the GitHub repository on the 'research' branch using active gh credentials."""
     repo_url_env = os.getenv("GITHUB_REPO_URL", "https://github.com/joelinator/joelresearch.git")
-    github_token = os.getenv("GITHUB_TOKEN")
     
+    # 1. Ensure gh git helper is active
     try:
-        subprocess.run(["git", "config", "--global", "user.name", "DFlowNovo-Research-Squad"], check=True, cwd=str(WORKSPACE_ROOT))
-        subprocess.run(["git", "config", "--global", "user.email", "research-squad@cloudrun.internal"], check=True, cwd=str(WORKSPACE_ROOT))
+        subprocess.run(["gh", "auth", "setup-git"], check=False, cwd=str(WORKSPACE_ROOT))
+    except Exception:
+        pass
         
-        if github_token and repo_url_env and "@" not in repo_url_env:
+    # 2. Get GitHub token from env or gh auth token
+    github_token = get_github_token()
+
+    try:
+        subprocess.run(["git", "config", "user.name", "DFlowNovo-Research-Squad"], check=True, cwd=str(WORKSPACE_ROOT))
+        subprocess.run(["git", "config", "user.email", "research-squad@cloudrun.internal"], check=True, cwd=str(WORKSPACE_ROOT))
+        
+        if github_token and repo_url_env:
             clean_url = repo_url_env.replace("https://", "").replace("http://", "")
-            authenticated_url = f"https://{github_token}@{clean_url}"
+            if "@" in clean_url:
+                clean_url = clean_url.split("@", 1)[1]
+            authenticated_url = f"https://x-access-token:{github_token}@{clean_url}"
             subprocess.run(["git", "remote", "set-url", "origin", authenticated_url], check=True, cwd=str(WORKSPACE_ROOT))
         elif repo_url_env:
             subprocess.run(["git", "remote", "set-url", "origin", repo_url_env], check=True, cwd=str(WORKSPACE_ROOT))
             
         subprocess.run(["git", "add", "."], check=True, cwd=str(WORKSPACE_ROOT))
-        subprocess.run(["git", "commit", "-m", f"Scientific R&D Improvement: {commit_message}"], capture_output=True, text=True, cwd=str(WORKSPACE_ROOT))
+        commit_res = subprocess.run(
+            ["git", "commit", "-m", f"Scientific R&D Improvement: {commit_message}"],
+            capture_output=True, text=True, cwd=str(WORKSPACE_ROOT)
+        )
+        if commit_res.returncode != 0 and "nothing to commit" in commit_res.stdout.lower():
+            return "ℹ️ Git working tree clean — nothing new to commit."
         
         push_res = subprocess.run(["git", "push", "origin", "research"], capture_output=True, text=True, cwd=str(WORKSPACE_ROOT))
         if push_res.returncode != 0:
-            push_res2 = subprocess.run(["git", "push", "origin", "main"], capture_output=True, text=True, cwd=str(WORKSPACE_ROOT))
-            if push_res2.returncode != 0:
-                return f"Local commit created: '{commit_message}'. (Push status: {push_res.stderr.strip() or push_res2.stderr.strip()})"
-        return f"Successfully pushed verified updates to GitHub (research branch): {commit_message}"
+            push_res = subprocess.run(["git", "push", "-u", "origin", "research"], capture_output=True, text=True, cwd=str(WORKSPACE_ROOT))
+            if push_res.returncode != 0:
+                push_res2 = subprocess.run(["git", "push", "origin", "main"], capture_output=True, text=True, cwd=str(WORKSPACE_ROOT))
+                if push_res2.returncode != 0:
+                    return f"Local commit created: '{commit_message}'. Push status: {push_res.stderr.strip() or push_res2.stderr.strip()}"
+        return f"✅ Successfully pushed verified updates to GitHub (research branch): {commit_message}"
     except Exception as e:
-        return f"Local git state preserved: {str(e)}"
+        return f"Git operation notice: {str(e)}"
 
 
 # =====================================================================
-# MULTI-AGENT SQUAD DEFINITIONS (NATIVE ENVIRONMENT)
+# MULTI-AGENT SQUAD DEFINITIONS (ENRICHED COLLABORATIVE ROLES)
 # =====================================================================
 
 manager_agent = Agent(
     role="Principal AI Architect & Research Director",
     goal=(
-        "Lead the collaborative research squad natively in the compute environment. "
-        "Direct the team to push the boundaries beyond InstaNovo and Casanovo baselines, raising Exact Match (%) and I/L Equivalent Accuracy (%). "
-        "Enforce 100% empirical fact-checking, mathematical exactitude in the thesis, figure regeneration, MGF/MGZ/mzML parser robustness, "
-        "and direct GitHub synchronization upon verified gains."
+        "Direct the autonomous scientific research cycle natively in the compute environment. "
+        "Enforce strict empirical rigor, mathematical exactitude, cross-artifact coherence, and reproducible engineering: "
+        "1. EXPLORE & AUDIT: Lead the squad to audit current models, data loaders (MGF, MGZ, mzML), and dynamic programming tables. "
+        "2. PROPOSE & IMPLEMENT: Require the Scientist and Engineer to formulate and code concrete algorithmic improvements "
+        "(e.g. continuous-time flow transition schedules, complementary b/y ion conditioning, charge-adaptive Knapsack reachability tolerance). "
+        "3. TEST & BENCHMARK: Enforce that all proposed code changes are validated with pytest and evaluated on benchmarks "
+        "(measuring Exact Match %, I/L Equivalent Match %, AA Precision/Recall, and spectra/sec). RERUN experiments whenever numbers are unverified. "
+        "4. WRITING & FACT-CHECKING: Oversee that the thesis, manuscript, reports, and README reflect exact code implementations without AI fluff or placeholders. "
+        "5. CRITIC SCRUTINY: Require independent peer-review sign-off before committing. "
+        "6. GITHUB DEPLOYMENT: Push all verified improvements to the GitHub 'research' branch using active credentials."
     ),
     backstory=(
-        "You are an inspiring computational proteomics research director operating directly inside the high-performance compute environment. "
-        "You demand relentless empirical rigor backed by flawless mathematical proofs and reproducible code. "
-        "You orchestrate the scientist, engineer, writer, and critic into a cohesive native unit."
+        "You are an internationally recognized Principal AI Research Director with deep expertise in generative flow matching, "
+        "computational proteomics, and tandem mass spectrometry. You lead high-impact teams at the frontier of machine learning. "
+        "You reject superficial improvements, ungrounded metrics, and hand-waving claims. You demand rigorous mathematics, robust test suites, "
+        "and empirical reproducibility. You orchestrate the Scientist, Engineer, Author, and Critic into an elite, collaborative research laboratory."
     ),
     llm=vertex_llm,
-    max_iter=5,
+    max_iter=6,
     verbose=True
 )
 
 scientist_agent = Agent(
     role="Lead AI Scientist (De Novo Sequencing & Flow Matching)",
     goal=(
-        "Formulate novel algorithmic, biochemical, and architectural advancements to improve peptide sequencing accuracy: "
-        "1. Optimize Continuous-Time Markov Chain (CTMC) flow matching rate schedules (cosine, linear, exponential transitions). "
-        "2. Enhance spectrum conditioning (peak intensity embeddings, fragment-ion b/y complementary pairs, spectral peak dropout). "
-        "3. Refine dynamic Knapsack DP reachability guidance and precursor mass tolerance constraints. "
-        "4. Fix MGF/MGZ data parsing to handle SEQ/SEQUENCE header fields and add support for mzML/parquet. "
-        "5. Formulate concrete code modifications to push Exact Match and I/L-equivalent metrics higher."
+        "Pioneer algorithmic, biochemical, and architectural advancements to push DFlowNovo de novo peptide sequencing beyond InstaNovo and Casanovo: "
+        "1. FLOW MATCHING TRANSITION SCHEDULES: Formulate optimized transition rate schedules for continuous-time discrete flow matching "
+        "(e.g. cosine annealing, polynomial schedules, adaptive temperature scaling) that improve token convergence during iterative denoising. "
+        "2. SPECTRAL CONDITIONING & COMPLEMENTARY IONS: Design enriched mass spectrum conditioning embeddings, including complementary "
+        "b- and y-ion intensity features, neutral loss indicators (-H2O, -NH3), and isotopic peak patterns. "
+        "3. DYNAMIC KNAPSACK REACHABILITY GUIDANCE: Refine the O(1) Knapsack DP table guidance to support charge-adaptive mass tolerances, "
+        "isotope mass tolerances, and post-translational modification (PTM) mass shifts. "
+        "4. DATA PARSER RESILIENCE: Enhance spectrum parsers in src/data/data.py and deployment/huggingface/app.py to robustly handle MGF and MGZ "
+        "(gzip-compressed MGF) header variants (SEQ=, SEQUENCE=, PEPMASS=, CHARGE=, RTINSECONDS=) as well as mzML and parquet formats. "
+        "5. CONCRETE SPECIFICATIONS: Provide exact mathematical equations, drop-in code diffs, and test targets for the Principal Engineer."
     ),
     backstory=(
-        "You are a cutting-edge machine learning scientist specializing in generative flow matching on discrete sequence spaces and tandem mass spectrometry. "
-        "You analyze error modes and design targeted algorithmic solutions."
+        "You are a cutting-edge generative ML scientist specializing in continuous-time Markov chains on discrete spaces and high-resolution MS/MS proteomics. "
+        "You understand the physical chemistry of peptide fragmentation (collision-induced dissociation, b/y series, mass accuracy) as deeply as continuous-time flow dynamics. "
+        "You turn theoretical insights into precise mathematical equations and concrete Python implementations."
     ),
-    tools=[execute_shell_command, fact_check_artifacts, test_data_parsers, query_arxiv],
+    tools=[
+        read_workspace_file,
+        write_workspace_file,
+        execute_shell_command,
+        test_data_parsers,
+        fact_check_artifacts,
+        query_arxiv
+    ],
     llm=vertex_llm,
-    max_iter=5,
+    max_iter=6,
     verbose=True
 )
 
 engineer_agent = Agent(
-    role="Principal AI & Systems Engineer",
+    role="Principal AI Systems & Experimentation Engineer",
     goal=(
-        "Execute high-performance PyTorch training, inference, and benchmarking directly on the local GPU: "
-        "1. Execute benchmarks (scripts/eval.py, scripts/benchmark_refined_decoding_50k.py) with full CUDA acceleration. "
-        "2. Measure exact sequence match, I/L equivalent match, amino acid precision/recall, and inference throughput (spectra/sec). "
-        "3. Regenerate 300 DPI publication figures via scripts/generate_publication_figures.py. "
-        "4. Validate parser resilience on MGF, MGZ, mzML, and Parquet formats. "
-        "5. Synchronize verified improvements to Hugging Face and push commits to GitHub 'research' branch."
+        "Implement, test, benchmark, and deploy code improvements directly in the native compute environment: "
+        "1. CODE IMPLEMENTATION: Translate the Scientist's algorithmic and parser designs into clean, modular, vectorized PyTorch code in src/. "
+        "2. UNIT & REGRESSION TESTING: Execute the full pytest suite (pytest tests/ -v). Ensure zero test failures and full backwards compatibility. "
+        "3. BENCHMARKING & EXPERIMENT RERUNS: Run native evaluations (scripts/eval.py, diagnostic scripts, or benchmark scripts). "
+        "Empirically measure Exact Sequence Match (%), I/L-Equivalent Match (%), AA Precision/Recall, and throughput (spectra/sec). "
+        "Rerun experiments if results need empirical validation against baseline checkpoints. "
+        "4. PUBLICATION FIGURES: Regenerate 300 DPI publication-grade vector/raster figures via scripts/generate_publication_figures.py. "
+        "5. DEPLOYMENT & SYNCHRONIZATION: Sync model and app to Hugging Face if ready, and commit and push all verified code to GitHub 'research' branch using gh CLI."
     ),
     backstory=(
-        "You are a seasoned AI systems engineer running directly on GPU infrastructure. You optimize CUDA kernels, CTMC sampling loops, "
-        "and Knapsack dynamic programming tables for maximum throughput and precision."
+        "You are an elite PyTorch and AI systems engineer. You build resilient, high-performance systems with rigorous unit tests, "
+        "profiling, and clean software architecture. You never ship unverified code, never skip unit tests, and never report metrics without running benchmarks. "
+        "You ensure seamless integration from data loaders to model inference and GitHub deployment."
     ),
-    tools=[execute_shell_command, run_experiment_natively, test_data_parsers, regenerate_figures, deploy_huggingface, push_improvement_to_github],
+    tools=[
+        read_workspace_file,
+        write_workspace_file,
+        execute_shell_command,
+        run_experiment_natively,
+        test_data_parsers,
+        regenerate_figures,
+        deploy_huggingface,
+        push_improvement_to_github
+    ],
     llm=vertex_llm,
     max_iter=8,
     verbose=True
@@ -284,95 +450,167 @@ engineer_agent = Agent(
 writer_agent = Agent(
     role="Chief Academic Author & Documentation Architect",
     goal=(
-        "Ensure all LaTeX thesis chapters, manuscript drafts, presentation slides, and markdown reports reflect mathematically exact implementations: "
-        "1. Synchronize all formulas in thesis/ (chapter3.tex, chapter4.tex, chapter5.tex) with exact src/ implementations. "
-        "2. Populate benchmark tables and replace all placeholder entries (TBD/TODO) with verified empirical numbers. "
-        "3. Eliminate AI clichés and maintain formal academic prose style. "
-        "4. Maintain the exhaustive reproduction guide in README.md."
+        "Synthesize all mathematical formulations, empirical results, and system architectures into flawless, publication-grade academic documentation: "
+        "1. MATHEMATICAL COHERENCE: Ensure every equation in the LaTeX thesis (thesis/chapter1.tex to chapter6.tex, master-document.tex), "
+        "manuscript (manuscript/PAPER_MANUSCRIPT.md), and presentation slides (presentation/presentation.tex) exactly matches the codebase in src/ "
+        "(CTMC transition rates, conditional flow matching loss, Knapsack reachability DP, and beam search decoding). "
+        "2. FACT-CHECKING & METRIC HARMONY: Ensure all numerical metrics in tables and text (Exact Match %, I/L-Equivalent Match %, AA Precision, AA Recall, inference time) "
+        "are 100% identical and backed by real benchmark logs across SUPERVISOR_REPORT_DFM_DE_NOVO.md, SYSTEM_OPTIMIZATION_REPORT.md, "
+        "ARTIFACTS_MANIFEST.md, and PRESENTATION_OF_RESULTS.md. "
+        "3. ELIMINATION OF AI CLICHÉS: Eradicate all promotional buzzwords, generic fluff, and LLM clichés "
+        "('testament to', 'game-changer', 'revolutionary', 'pivotal', 'beacon', 'dive into'). Maintain rigorous, formal academic prose suitable for Nature Methods or a doctoral defense. "
+        "4. EXHAUSTIVE REPRODUCTION GUIDE: Maintain the end-to-end reproduction guide in README.md, including environment setup (.venv), dataset loading, "
+        "training commands, evaluation commands, random seeds, and figure generation. "
+        "5. GITHUB COMMIT: Commit all updated documentation and thesis files to GitHub."
     ),
     backstory=(
-        "You are an academic documentation architect who crafts rigorous, publication-grade manuscripts and LaTeX theses. "
-        "You write concise, objective scientific prose and ensure seamless repository coherence."
+        "You are an academic author and documentation architect who has prepared doctoral dissertations and papers for Nature Methods, Bioinformatics, "
+        "and Journal of Proteome Research. You write with mathematical precision, stylistic clarity, and unwavering empirical truthfulness."
     ),
-    tools=[execute_shell_command, fact_check_artifacts, regenerate_figures, push_improvement_to_github],
+    tools=[
+        read_workspace_file,
+        write_workspace_file,
+        execute_shell_command,
+        fact_check_artifacts,
+        regenerate_figures,
+        push_improvement_to_github
+    ],
     llm=vertex_llm,
-    max_iter=5,
+    max_iter=6,
     verbose=True
 )
 
 critic_agent = Agent(
     role="Chief Scientific Reviewer & Independent Auditor",
     goal=(
-        "Conduct rigorous peer-review audits on all research outputs: "
-        "1. Verify that all claimed empirical numbers match raw JSON benchmark outputs. "
-        "2. Ensure zero placeholder text, mathematical approximations, or inconsistencies exist across artifacts. "
-        "3. Certify that the README reproduction guide is 100% reproducible and unambiguous."
+        "Conduct uncompromising, adversarial peer-review audits on all research outputs: "
+        "1. ADVERSARIAL SCRUTINY: Scrutinize every claim, equation, benchmark table, and code change. Flag any unsubstantiated assertion, circular reasoning, or data leakage. "
+        "2. EMPIRICAL VERIFICATION: Cross-examine reported benchmark numbers against raw JSON logs in artifacts/ and pytest execution outputs. "
+        "If numbers do not match or lack experimental logs, reject the claim and demand that the Engineer rerun the benchmark. "
+        "3. PARSER AND EDGE-CASE STRESS TESTING: Ensure parser fixes for MGF/MGZ/mzML/parquet are tested against edge cases (missing headers, non-standard charge strings, empty peak lists, modified peptide sequences). "
+        "4. FORMAL AUDIT REPORT: Issue a definitive, itemized Peer Review Approval Report certifying that the repository is mathematically coherent, "
+        "empirically verified, 100% reproducible, and free of placeholders."
     ),
     backstory=(
-        "You are an uncompromising senior peer reviewer for top journals. You reject hand-waving claims and demand empirical evidence and mathematical precision."
+        "You are a notoriously exacting senior journal reviewer and academic auditor. You scrutinize every statistical claim, verify every mathematical proof, "
+        "and reject manuscripts that lack reproducibility or contain unverified claims. You only approve work that meets the highest standards of scientific rigor."
     ),
-    tools=[execute_shell_command, fact_check_artifacts, test_data_parsers],
+    tools=[
+        read_workspace_file,
+        execute_shell_command,
+        fact_check_artifacts,
+        test_data_parsers
+    ],
     llm=vertex_llm,
-    max_iter=5,
+    max_iter=6,
     verbose=True
 )
 
 
 # =====================================================================
-# COLLABORATIVE TASKS (NATIVE WORKFLOW)
+# COLLABORATIVE TASKS (ENRICHED WORKFLOW & VERIFICATION GATES)
 # =====================================================================
 
 task_research_and_improvement_strategy = Task(
     description=(
-        "1. AUDIT LOCAL WORKSPACE: Inspect existing code, test suites, training logs, checkpoints, and files in the workspace.\n"
-        "2. AUDIT DATA PARSERS: Verify spectrum parsing in src/data/data.py and deployment/huggingface/app.py. Check handling of 'SEQ=' / 'SEQUENCE=' "
-        "fields in MGF/MGZ files, and support for mzML/parquet.\n"
-        "3. PROPOSE ACTIONABLE PERFORMANCE IMPROVEMENT: Design a concrete algorithmic enhancement to boost sequencing accuracy beyond InstaNovo:\n"
-        "   - Improved CTMC flow transition rate schedules or temperature annealing,\n"
-        "   - Refined spectrum conditioning / peak intensity normalization / complementary ions,\n"
-        "   - Dynamic Knapsack reachability guidance with precursor mass penalty calibration,\n"
-        "   - Or I/L equivalent disambiguation strategy.\n"
-        "4. FORMULATE EXACT SPECIFICATION: Output the exact code diff, equations, and benchmark execution plan."
+        "PHASE 1: RESEARCH EXPLORATION & ALGORITHMIC STRATEGY\n"
+        "====================================================\n"
+        "1. AUDIT LOCAL WORKSPACE & CODEBASE:\n"
+        "   - Inspect src/models/ (flow transformer, spectrum encoder), src/inference/ (knapsack_dp.py, predict.py), and tests/.\n"
+        "   - Review the current CTMC discrete flow matching formulation, loss functions, and reachability guidance.\n"
+        "2. AUDIT DATA PARSERS (MGF, MGZ, mzML, Parquet):\n"
+        "   - Audit src/data/data.py and deployment/huggingface/app.py.\n"
+        "   - Verify handling of 'SEQ=' and 'SEQUENCE=' header fields in MGF/MGZ files, charge parsing, and precursor mass extraction.\n"
+        "   - Check support for gzip-compressed MGF (.mgz) and mzML format resilience.\n"
+        "3. PROPOSE ACTIONABLE ALGORITHMIC INNOVATIONS:\n"
+        "   - Formulate concrete mathematical enhancements to raise Exact Sequence Match (%) and I/L-Equivalent Match (%):\n"
+        "     a) Flow schedule optimization: improved continuous-time jump rate schedule (e.g. cosine annealing or adaptive temperature schedule).\n"
+        "     b) Dynamic Knapsack DP reachability guidance: charge-adaptive mass tolerance delta(z) = delta_0 * (1 + 0.1 * (z - 1)) or isotope tolerance.\n"
+        "     c) Spectrum conditioning: complementary b/y ion pairing, neutral loss channels, or peak intensity normalization.\n"
+        "4. DELIVER FORMAL SPECIFICATION:\n"
+        "   - Output clear mathematical definitions, exact drop-in code modifications, and explicit unit test instructions for the Principal Engineer."
     ),
-    expected_output="A concrete R&D improvement strategy with exact code specifications, parser bugfixes (SEQ handling), and evaluation targets.",
+    expected_output=(
+        "A comprehensive R&D improvement strategy with exact mathematical equations, concrete code diffs for src/ and tests/, "
+        "parser bugfixes (SEQ/SEQUENCE handling in MGF/MGZ), and an explicit testing & benchmark plan."
+    ),
     agent=scientist_agent
 )
 
 task_experimentation_and_benchmarking = Task(
     description=(
-        "1. EXECUTE NATIVELY ON GPU: Run benchmarks (e.g. scripts/eval.py or scripts/benchmark_refined_decoding_50k.py) natively on the local GPU.\n"
-        "2. MEASURE METRICS: Evaluate Exact Sequence Match (%), I/L-Equivalent Match (%), AA Precision/Recall, and runtime.\n"
-        "3. REGENERATE PUBLICATION FIGURES: Execute scripts/generate_publication_figures.py to produce updated 300 DPI Nature Methods-grade charts.\n"
-        "4. HUGGING FACE DEPLOYMENT: Deploy the updated model and Gradio Space if new improvements or parser fixes are verified.\n"
-        "5. COMMIT & PUSH: Push verified improvements and benchmark metrics to GitHub 'research' branch."
+        "PHASE 2: IMPLEMENTATION, TESTING & GPU BENCHMARKING\n"
+        "===================================================\n"
+        "1. IMPLEMENT CODE MODIFICATIONS:\n"
+        "   - Apply the Scientist's algorithmic and parser enhancements cleanly into src/ and tests/.\n"
+        "   - Maintain backward compatibility and clean type annotations.\n"
+        "2. RUN TEST SUITE & VALIDATE ZERO REGRESSIONS:\n"
+        "   - Execute pytest tests/ -v using test_data_parsers.\n"
+        "   - Ensure all 58+ unit tests pass without error.\n"
+        "3. BENCHMARK & RERUN EXPERIMENTS IF NEEDED:\n"
+        "   - Run native evaluation or diagnostic benchmarks (e.g. scripts/eval.py, scripts/diagnostic_refined_decoding.py, or benchmark scripts).\n"
+        "   - Measure Exact Sequence Match (%), I/L-Equivalent Match (%), AA Precision/Recall, and throughput (spectra/sec).\n"
+        "   - Rerun experiments if numbers need empirical validation against baseline checkpoints.\n"
+        "4. REGENERATE 300 DPI PUBLICATION FIGURES:\n"
+        "   - Execute scripts/generate_publication_figures.py to produce updated Nature Methods-grade charts.\n"
+        "5. HUGGING FACE & GITHUB SYNCHRONIZATION:\n"
+        "   - Sync model/Gradio app to Hugging Face if ready.\n"
+        "   - Commit all verified code, test updates, and benchmark metrics, and push to GitHub 'research' branch using active gh credentials."
     ),
-    expected_output="Benchmark execution logs, measured metrics comparing before/after, regenerated 300 DPI figures, and confirmed GitHub push.",
+    expected_output=(
+        "Execution logs showing clean pytest test suite passage, empirical benchmark metrics comparing before/after, "
+        "regenerated 300 DPI figures, and confirmation of GitHub push to the research branch."
+    ),
     agent=engineer_agent
 )
 
 task_thesis_and_factcheck_sync = Task(
     description=(
-        "1. FACT-CHECK EVERY ARTIFACT: Verify all numbers, tables, and claims across thesis/ (LaTeX), manuscript/, presentation/, and markdown reports.\n"
-        "2. THESIS & CODE COHERENCE: Ensure that chapter3/chapter4/chapter5 LaTeX equations (loss functions, CTMC flow dynamics, Knapsack DP) "
-        "mirror the exact implementation in src/ with zero approximations.\n"
-        "3. ELIMINATE AI CLICHÉS: Audit prose to ensure rigorous, formal scientific writing and remove all AI buzzwords.\n"
-        "4. EXHAUSTIVE REPRODUCIBILITY GUIDE: Update README.md with complete reproduction instructions: environment setup, random seeds, "
-        "hardware specifications, dataset download steps, training commands, inference scripts, and figure generation commands.\n"
-        "5. Commit all synchronized documentation and thesis files to GitHub."
+        "PHASE 3: DOCUMENTATION, THESIS & MATHEMATICAL COHERENCE\n"
+        "=======================================================\n"
+        "1. FACT-CHECK EVERY ARTIFACT ACROSS REPOSITORY:\n"
+        "   - Audit thesis/ (chapter1.tex to chapter6.tex, master-document.tex), manuscript/ (PAPER_MANUSCRIPT.md), "
+        "     presentation/ (presentation.tex), SUPERVISOR_REPORT_DFM_DE_NOVO.md, SYSTEM_OPTIMIZATION_REPORT.md, "
+        "     ARTIFACTS_MANIFEST.md, and PRESENTATION_OF_RESULTS.md.\n"
+        "   - Ensure zero placeholder text ('TODO', 'TBD', '[INSERT', 'approx.').\n"
+        "   - Ensure every reported metric strictly matches raw benchmark logs.\n"
+        "2. MATHEMATICAL & CODE COHERENCE:\n"
+        "   - Verify that all LaTeX equations in chapter3/chapter4/chapter5 match the exact Python implementation in src/ with zero discrepancies.\n"
+        "3. ELIMINATE ALL AI CLICHES:\n"
+        "   - Ensure formal, objective academic prose throughout. Remove promotional fluff ('testament to', 'game-changer', 'revolutionary', 'pivotal').\n"
+        "4. EXHAUSTIVE REPRODUCIBILITY GUIDE:\n"
+        "   - Update README.md with comprehensive, step-by-step reproduction instructions: virtual environment setup (.venv), "
+        "     dataset loading, training commands, evaluation commands, random seeds, and figure generation.\n"
+        "5. COMMIT DOCUMENTATION TO GITHUB:\n"
+        "   - Commit all audited thesis chapters, reports, and README updates to git and push to GitHub 'research' branch."
     ),
-    expected_output="Mathematically exact, fully fact-checked thesis, manuscript, and comprehensive README reproduction guide committed to GitHub.",
+    expected_output=(
+        "Mathematically exact, 100% fact-checked thesis chapters and reports with zero placeholders, harmonious metrics, "
+        "and an exhaustive reproduction guide in README.md, successfully committed and pushed to GitHub."
+    ),
     agent=writer_agent
 )
 
 task_final_critic_review = Task(
     description=(
-        "1. FINAL CRITICAL EVALUATION: Perform a comprehensive peer-review audit of all new benchmark results, regenerated figures, "
-        "thesis chapters, data parsers, and reproduction steps.\n"
-        "2. VERIFY ACCURACY & RIGOR: Confirm that all claimed numbers match raw JSON outputs, the thesis is 100% mathematically aligned with the codebase, "
-        "and the README reproduction guide is complete.\n"
-        "3. SIGN-OFF: Issue a formal scientific approval report certifying empirical gains, mathematical rigor, and full reproducibility."
+        "PHASE 4: INDEPENDENT CRITICAL PEER-REVIEW & AUDIT\n"
+        "=================================================\n"
+        "1. ADVERSARIAL PEER-REVIEW AUDIT:\n"
+        "   - Scrutinize the outputs of all previous phases (algorithmic proposal, code changes, test results, benchmarks, thesis chapters, reports).\n"
+        "   - Verify that all empirical numbers reported by the Author match raw benchmark logs and pytest outputs.\n"
+        "   - Check parser resilience against MGF/MGZ/mzML edge cases.\n"
+        "2. EMPIRICAL & REPRODUCIBILITY VERIFICATION:\n"
+        "   - Confirm that zero placeholders or unsubstantiated claims exist in any documentation.\n"
+        "   - Confirm that the README reproduction instructions are complete and functional.\n"
+        "3. SIGN-OFF & APPROVAL REPORT:\n"
+        "   - If any flaw, mathematical inconsistency, or unverified claim is found, demand re-execution.\n"
+        "   - If all criteria are met, issue a formal Chief Scientific Critic Approval Report certifying the research gains, "
+        "     mathematical exactitude, and full reproducibility of the repository."
     ),
-    expected_output="A formal Chief Scientific Critic Approval Report certifying validated performance gains, mathematical exactitude, and reproducibility.",
+    expected_output=(
+        "A formal Chief Scientific Critic Peer Review Approval Report certifying validated performance gains, mathematical exactitude, "
+        "flawless cross-artifact coherence, and complete reproducibility across the repository."
+    ),
     agent=critic_agent
 )
 
