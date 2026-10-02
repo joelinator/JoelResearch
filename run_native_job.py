@@ -84,7 +84,10 @@ def display_environment_dashboard():
     print(f"  🤖 LLM Engine          : {model}")
     print(f"  🔐 LLM Authentication  : {auth_mode}")
     has_git_auth = bool(os.getenv("GITHUB_TOKEN") or shutil.which("gh"))
+    skills_dir = Path.home() / ".gemini" / "config" / "skills"
+    skills_count = len(list(skills_dir.iterdir())) if skills_dir.exists() else 0
     print(f"  🐙 GitHub Push Auth    : {'✓ Active (gh CLI)' if has_git_auth else '⚠️ Not configured'}")
+    print(f"  🧠 Scientific Skills   : ✓ Active ({skills_count} specialized skills loaded)")
     print("=" * 80)
 
 

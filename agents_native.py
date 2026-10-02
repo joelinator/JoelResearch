@@ -9,6 +9,8 @@ and local git workspace with zero SSH/tunneling overhead.
 Enriched with:
 - Seamless Vertex AI and Gemini API key authentication (resolving 403 scope issues)
 - Native GitHub CLI (gh) credential synchronization for automated git pushes
+- Full access to the specialized scientific skills library (pyopenms, optimize-for-gpu,
+  scientific-writing, peer-review, scientific-visualization, statistical-analysis, etc.)
 - Deeply enriched prompts enforcing coherence, empirical fact-checking, rigorous academic writing,
   adversarial peer review, experiment reruns, algorithmic improvement, implementation, testing, and exploration.
 """
@@ -45,6 +47,7 @@ from langchain_community.utilities import ArxivAPIWrapper
 from crewai.tools import tool
 
 WORKSPACE_ROOT = Path(__file__).resolve().parent
+SKILLS_DIR = Path.home() / ".gemini" / "config" / "skills"
 
 # =====================================================================
 # CREDENTIALS & AUTHENTICATION RESOLUTION
@@ -127,7 +130,119 @@ else:
 
 
 # =====================================================================
-# NATIVE TOOLS FOR THE AGENT SQUAD
+# SCIENTIFIC AGENT SKILLS INTEGRATION TOOLS
+# =====================================================================
+
+@tool("List Available Scientific Skills")
+def list_available_scientific_skills(category_or_query: str = "all") -> str:
+    """Useful to discover and list available specialized scientific skills in the library.
+    Query can be 'proteomics', 'deep learning', 'writing', 'peer review', 'statistics', 'gpu', or 'all'.
+    Returns matching skills with summaries of their domain capabilities."""
+    if not SKILLS_DIR.exists():
+        return f"Skills directory not found at {SKILLS_DIR}."
+    
+    query = category_or_query.strip().lower()
+    results = []
+    
+    domain_map = {
+        "proteomics": ["pyopenms", "matchms", "biopython", "esm", "glycoengineering"],
+        "deep learning": ["pytorch-lightning", "optimize-for-gpu", "transformers", "torch-geometric", "scikit-learn", "timesfm-forecasting"],
+        "writing": ["scientific-writing", "venue-templates", "citation-management", "markdown-mermaid-writing", "scientific-visualization"],
+        "peer review": ["peer-review", "scientific-critical-thinking", "scholar-evaluation"],
+        "statistics": ["statistical-analysis", "statsmodels", "pymc", "scikit-survival", "exploratory-data-analysis"],
+        "gpu": ["optimize-for-gpu", "pytorch-lightning", "modal", "dask"],
+    }
+    
+    for skill_path in sorted(SKILLS_DIR.iterdir()):
+        if not skill_path.is_dir():
+            continue
+        sname = skill_path.name
+        sm_file = skill_path / "SKILL.md"
+        if not sm_file.exists():
+            continue
+        
+        desc = ""
+        try:
+            head = sm_file.read_text(encoding="utf-8", errors="replace")[:1000]
+            for line in head.splitlines():
+                if line.startswith("description:"):
+                    desc = line.replace("description:", "").strip()
+                    break
+        except Exception:
+            pass
+
+        include = False
+        if query in ["all", "", "list"]:
+            include = True
+        elif query in domain_map and sname in domain_map[query]:
+            include = True
+        elif query in sname.lower() or query in desc.lower():
+            include = True
+
+        if include:
+            results.append(f"- **{sname}**: {desc[:140]}...")
+
+    return f"=== AVAILABLE SCIENTIFIC SKILLS (Query: '{category_or_query}', Count: {len(results)}) ===\n" + "\n".join(results)
+
+
+@tool("Consult Scientific Skill Manual and Guidelines")
+def consult_scientific_skill(skill_name: str, section_or_file: str = "SKILL.md") -> str:
+    """Useful to load authoritative guidelines, implementation patterns, checklists, and reference recipes
+    from any scientific skill (e.g. 'pyopenms', 'optimize-for-gpu', 'scientific-writing', 'peer-review',
+    'pytorch-lightning', 'scientific-visualization', 'statistical-analysis').
+    Specify skill_name and optional section_or_file (default 'SKILL.md', or reference files in references/)."""
+    s_clean = skill_name.strip().lower()
+    s_path = SKILLS_DIR / s_clean
+    if not s_path.exists():
+        matches = [d.name for d in SKILLS_DIR.iterdir() if d.is_dir() and s_clean in d.name.lower()]
+        return f"❌ Skill '{skill_name}' not found. Did you mean one of: {matches[:5]}?"
+
+    target_file = s_path / section_or_file
+    if not target_file.exists():
+        target_file = s_path / "SKILL.md"
+        if not target_file.exists():
+            return f"❌ Neither '{section_or_file}' nor 'SKILL.md' found in skill '{skill_name}'."
+
+    try:
+        content = target_file.read_text(encoding="utf-8", errors="replace")
+        scripts = [f.name for f in (s_path / "scripts").glob("*.py")] if (s_path / "scripts").exists() else []
+        refs = [f.name for f in (s_path / "references").glob("*.md")] if (s_path / "references").exists() else []
+        header = (
+            f"=== SCIENTIFIC SKILL CONSULTATION: {s_clean} (File: {target_file.name}) ===\n"
+            f"Available Scripts: {scripts}\n"
+            f"Available References: {refs}\n"
+            f"------------------------------------------------------------------------\n"
+        )
+        return header + content[:5000]
+    except Exception as e:
+        return f"❌ Error reading skill '{skill_name}': {str(e)}"
+
+
+@tool("Execute Scientific Skill Audit Script")
+def execute_skill_script(skill_name: str, script_name: str, arguments: str = "") -> str:
+    """Useful to run specialized Python auditing, formatting, or validation scripts bundled inside a skill's scripts/ directory.
+    Example: skill_name='scientific-writing', script_name='check_consistency.py', arguments='--help'
+    Example: skill_name='peer-review', script_name='audit_citations.py'."""
+    s_clean = skill_name.strip().lower()
+    script_path = SKILLS_DIR / s_clean / "scripts" / script_name
+    if not script_path.exists():
+        available = [f.name for f in (SKILLS_DIR / s_clean / "scripts").glob("*.py")] if (SKILLS_DIR / s_clean / "scripts").exists() else []
+        return f"❌ Script '{script_name}' not found in skill '{skill_name}'. Available scripts: {available}"
+
+    try:
+        cmd = f"{sys.executable} {script_path} {arguments}".strip()
+        res = subprocess.run(cmd, shell=True, capture_output=True, text=True, timeout=120, cwd=str(WORKSPACE_ROOT))
+        return (
+            f"=== SKILL SCRIPT OUTPUT: {script_name} (Exit Code: {res.returncode}) ===\n"
+            f"STDOUT:\n{res.stdout}\n"
+            f"STDERR:\n{res.stderr}"
+        )
+    except Exception as e:
+        return f"❌ Skill script execution failed: {str(e)}"
+
+
+# =====================================================================
+# WORKSPACE & SYSTEM TOOLS FOR THE AGENT SQUAD
 # =====================================================================
 
 @tool("Query Arxiv for Peptide Sequencing & Flow Matching Papers")
@@ -355,7 +470,7 @@ def push_improvement_to_github(commit_message: str) -> str:
 
 
 # =====================================================================
-# MULTI-AGENT SQUAD DEFINITIONS (ENRICHED COLLABORATIVE ROLES)
+# MULTI-AGENT SQUAD DEFINITIONS (EQUIPPED WITH SCIENTIFIC SKILLS)
 # =====================================================================
 
 manager_agent = Agent(
@@ -364,13 +479,15 @@ manager_agent = Agent(
         "Direct the autonomous scientific research cycle natively in the compute environment. "
         "Enforce strict empirical rigor, mathematical exactitude, cross-artifact coherence, and reproducible engineering: "
         "1. EXPLORE & AUDIT: Lead the squad to audit current models, data loaders (MGF, MGZ, mzML), and dynamic programming tables. "
-        "2. PROPOSE & IMPLEMENT: Require the Scientist and Engineer to formulate and code concrete algorithmic improvements "
+        "2. SCIENTIFIC SKILLS MASTERY: Consult the specialized scientific skills library (e.g. 'scientific-brainstorming', 'peer-review') "
+        "to set authoritative methodological standards for the team. "
+        "3. PROPOSE & IMPLEMENT: Require the Scientist and Engineer to formulate and code concrete algorithmic improvements "
         "(e.g. continuous-time flow transition schedules, complementary b/y ion conditioning, charge-adaptive Knapsack reachability tolerance). "
-        "3. TEST & BENCHMARK: Enforce that all proposed code changes are validated with pytest and evaluated on benchmarks "
+        "4. TEST & BENCHMARK: Enforce that all proposed code changes are validated with pytest and evaluated on benchmarks "
         "(measuring Exact Match %, I/L Equivalent Match %, AA Precision/Recall, and spectra/sec). RERUN experiments whenever numbers are unverified. "
-        "4. WRITING & FACT-CHECKING: Oversee that the thesis, manuscript, reports, and README reflect exact code implementations without AI fluff or placeholders. "
-        "5. CRITIC SCRUTINY: Require independent peer-review sign-off before committing. "
-        "6. GITHUB DEPLOYMENT: Push all verified improvements to the GitHub 'research' branch using active credentials."
+        "5. WRITING & FACT-CHECKING: Oversee that the thesis, manuscript, reports, and README reflect exact code implementations without AI fluff or placeholders. "
+        "6. CRITIC SCRUTINY: Require independent peer-review sign-off before committing. "
+        "7. GITHUB DEPLOYMENT: Push all verified improvements to the GitHub 'research' branch using active credentials."
     ),
     backstory=(
         "You are an internationally recognized Principal AI Research Director with deep expertise in generative flow matching, "
@@ -378,6 +495,12 @@ manager_agent = Agent(
         "You reject superficial improvements, ungrounded metrics, and hand-waving claims. You demand rigorous mathematics, robust test suites, "
         "and empirical reproducibility. You orchestrate the Scientist, Engineer, Author, and Critic into an elite, collaborative research laboratory."
     ),
+    tools=[
+        list_available_scientific_skills,
+        consult_scientific_skill,
+        execute_shell_command,
+        fact_check_artifacts
+    ],
     llm=vertex_llm,
     max_iter=6,
     verbose=True
@@ -387,22 +510,27 @@ scientist_agent = Agent(
     role="Lead AI Scientist (De Novo Sequencing & Flow Matching)",
     goal=(
         "Pioneer algorithmic, biochemical, and architectural advancements to push DFlowNovo de novo peptide sequencing beyond InstaNovo and Casanovo: "
-        "1. FLOW MATCHING TRANSITION SCHEDULES: Formulate optimized transition rate schedules for continuous-time discrete flow matching "
+        "1. SPECIALIZED SKILLS CONSULTATION: Consult the scientific skills 'pyopenms' (mass spectrometry data structures and algorithms), "
+        "'matchms' (spectrum similarity and peak processing), 'biopython' (peptide sequence manipulation), and 'esm' for proteomic standards. "
+        "2. FLOW MATCHING TRANSITION SCHEDULES: Formulate optimized transition rate schedules for continuous-time discrete flow matching "
         "(e.g. cosine annealing, polynomial schedules, adaptive temperature scaling) that improve token convergence during iterative denoising. "
-        "2. SPECTRAL CONDITIONING & COMPLEMENTARY IONS: Design enriched mass spectrum conditioning embeddings, including complementary "
+        "3. SPECTRAL CONDITIONING & COMPLEMENTARY IONS: Design enriched mass spectrum conditioning embeddings, including complementary "
         "b- and y-ion intensity features, neutral loss indicators (-H2O, -NH3), and isotopic peak patterns. "
-        "3. DYNAMIC KNAPSACK REACHABILITY GUIDANCE: Refine the O(1) Knapsack DP table guidance to support charge-adaptive mass tolerances, "
+        "4. DYNAMIC KNAPSACK REACHABILITY GUIDANCE: Refine the O(1) Knapsack DP table guidance to support charge-adaptive mass tolerances, "
         "isotope mass tolerances, and post-translational modification (PTM) mass shifts. "
-        "4. DATA PARSER RESILIENCE: Enhance spectrum parsers in src/data/data.py and deployment/huggingface/app.py to robustly handle MGF and MGZ "
+        "5. DATA PARSER RESILIENCE: Enhance spectrum parsers in src/data/data.py and deployment/huggingface/app.py to robustly handle MGF and MGZ "
         "(gzip-compressed MGF) header variants (SEQ=, SEQUENCE=, PEPMASS=, CHARGE=, RTINSECONDS=) as well as mzML and parquet formats. "
-        "5. CONCRETE SPECIFICATIONS: Provide exact mathematical equations, drop-in code diffs, and test targets for the Principal Engineer."
+        "6. CONCRETE SPECIFICATIONS: Provide exact mathematical equations, drop-in code diffs, and test targets for the Principal Engineer."
     ),
     backstory=(
         "You are a cutting-edge generative ML scientist specializing in continuous-time Markov chains on discrete spaces and high-resolution MS/MS proteomics. "
         "You understand the physical chemistry of peptide fragmentation (collision-induced dissociation, b/y series, mass accuracy) as deeply as continuous-time flow dynamics. "
+        "You actively consult 'pyopenms', 'matchms', and 'biopython' to ensure your algorithmic designs follow golden proteomics standards. "
         "You turn theoretical insights into precise mathematical equations and concrete Python implementations."
     ),
     tools=[
+        list_available_scientific_skills,
+        consult_scientific_skill,
         read_workspace_file,
         write_workspace_file,
         execute_shell_command,
@@ -419,20 +547,26 @@ engineer_agent = Agent(
     role="Principal AI Systems & Experimentation Engineer",
     goal=(
         "Implement, test, benchmark, and deploy code improvements directly in the native compute environment: "
-        "1. CODE IMPLEMENTATION: Translate the Scientist's algorithmic and parser designs into clean, modular, vectorized PyTorch code in src/. "
-        "2. UNIT & REGRESSION TESTING: Execute the full pytest suite (pytest tests/ -v). Ensure zero test failures and full backwards compatibility. "
-        "3. BENCHMARKING & EXPERIMENT RERUNS: Run native evaluations (scripts/eval.py, diagnostic scripts, or benchmark scripts). "
+        "1. SPECIALIZED SKILLS CONSULTATION: Consult 'optimize-for-gpu' (CUDA performance, kernel optimization, memory bottlenecks), "
+        "'pytorch-lightning' (lightning modules, callbacks, training loops), 'transformers', and 'scientific-visualization' (publication figures). "
+        "2. CODE IMPLEMENTATION: Translate the Scientist's algorithmic and parser designs into clean, modular, vectorized PyTorch code in src/. "
+        "3. UNIT & REGRESSION TESTING: Execute the full pytest suite (pytest tests/ -v). Ensure zero test failures and full backwards compatibility. "
+        "4. BENCHMARKING & EXPERIMENT RERUNS: Run native evaluations (scripts/eval.py, diagnostic scripts, or benchmark scripts). "
         "Empirically measure Exact Sequence Match (%), I/L-Equivalent Match (%), AA Precision/Recall, and throughput (spectra/sec). "
         "Rerun experiments if results need empirical validation against baseline checkpoints. "
-        "4. PUBLICATION FIGURES: Regenerate 300 DPI publication-grade vector/raster figures via scripts/generate_publication_figures.py. "
-        "5. DEPLOYMENT & SYNCHRONIZATION: Sync model and app to Hugging Face if ready, and commit and push all verified code to GitHub 'research' branch using gh CLI."
+        "5. PUBLICATION FIGURES: Regenerate 300 DPI publication-grade vector/raster figures via scripts/generate_publication_figures.py. "
+        "6. DEPLOYMENT & SYNCHRONIZATION: Sync model and app to Hugging Face if ready, and commit and push all verified code to GitHub 'research' branch using gh CLI."
     ),
     backstory=(
         "You are an elite PyTorch and AI systems engineer. You build resilient, high-performance systems with rigorous unit tests, "
-        "profiling, and clean software architecture. You never ship unverified code, never skip unit tests, and never report metrics without running benchmarks. "
+        "profiling, and clean software architecture. You leverage 'optimize-for-gpu' and 'pytorch-lightning' skills to ensure optimal memory throughput and numerical stability. "
+        "You never ship unverified code, never skip unit tests, and never report metrics without running benchmarks. "
         "You ensure seamless integration from data loaders to model inference and GitHub deployment."
     ),
     tools=[
+        list_available_scientific_skills,
+        consult_scientific_skill,
+        execute_skill_script,
         read_workspace_file,
         write_workspace_file,
         execute_shell_command,
@@ -451,23 +585,29 @@ writer_agent = Agent(
     role="Chief Academic Author & Documentation Architect",
     goal=(
         "Synthesize all mathematical formulations, empirical results, and system architectures into flawless, publication-grade academic documentation: "
-        "1. MATHEMATICAL COHERENCE: Ensure every equation in the LaTeX thesis (thesis/chapter1.tex to chapter6.tex, master-document.tex), "
+        "1. SPECIALIZED SKILLS CONSULTATION: Consult 'scientific-writing' (manuscript guidelines, claim auditing, clarity), "
+        "'venue-templates' (Nature Methods / journal standards), 'citation-management' (BibTeX and references), and 'markdown-mermaid-writing'. "
+        "2. MATHEMATICAL COHERENCE: Ensure every equation in the LaTeX thesis (thesis/chapter1.tex to chapter6.tex, master-document.tex), "
         "manuscript (manuscript/PAPER_MANUSCRIPT.md), and presentation slides (presentation/presentation.tex) exactly matches the codebase in src/ "
         "(CTMC transition rates, conditional flow matching loss, Knapsack reachability DP, and beam search decoding). "
-        "2. FACT-CHECKING & METRIC HARMONY: Ensure all numerical metrics in tables and text (Exact Match %, I/L-Equivalent Match %, AA Precision, AA Recall, inference time) "
+        "3. FACT-CHECKING & METRIC HARMONY: Ensure all numerical metrics in tables and text (Exact Match %, I/L-Equivalent Match %, AA Precision, AA Recall, inference time) "
         "are 100% identical and backed by real benchmark logs across SUPERVISOR_REPORT_DFM_DE_NOVO.md, SYSTEM_OPTIMIZATION_REPORT.md, "
-        "ARTIFACTS_MANIFEST.md, and PRESENTATION_OF_RESULTS.md. "
-        "3. ELIMINATION OF AI CLICHÉS: Eradicate all promotional buzzwords, generic fluff, and LLM clichés "
+        "ARTIFACTS_MANIFEST.md, and PRESENTATION_OF_RESULTS.md. Run consistency checking scripts via execute_skill_script if needed. "
+        "4. ELIMINATION OF AI CLICHÉS: Eradicate all promotional buzzwords, generic fluff, and LLM clichés "
         "('testament to', 'game-changer', 'revolutionary', 'pivotal', 'beacon', 'dive into'). Maintain rigorous, formal academic prose suitable for Nature Methods or a doctoral defense. "
-        "4. EXHAUSTIVE REPRODUCTION GUIDE: Maintain the end-to-end reproduction guide in README.md, including environment setup (.venv), dataset loading, "
+        "5. EXHAUSTIVE REPRODUCIBILITY GUIDE: Maintain the end-to-end reproduction guide in README.md, including environment setup (.venv), dataset loading, "
         "training commands, evaluation commands, random seeds, and figure generation. "
-        "5. GITHUB COMMIT: Commit all updated documentation and thesis files to GitHub."
+        "6. GITHUB COMMIT: Commit all updated documentation and thesis files to GitHub."
     ),
     backstory=(
         "You are an academic author and documentation architect who has prepared doctoral dissertations and papers for Nature Methods, Bioinformatics, "
-        "and Journal of Proteome Research. You write with mathematical precision, stylistic clarity, and unwavering empirical truthfulness."
+        "and Journal of Proteome Research. You leverage the 'scientific-writing' and 'venue-templates' skills to guarantee uncompromising scholarly standards. "
+        "You write with mathematical precision, stylistic clarity, and unwavering empirical truthfulness."
     ),
     tools=[
+        list_available_scientific_skills,
+        consult_scientific_skill,
+        execute_skill_script,
         read_workspace_file,
         write_workspace_file,
         execute_shell_command,
@@ -484,18 +624,24 @@ critic_agent = Agent(
     role="Chief Scientific Reviewer & Independent Auditor",
     goal=(
         "Conduct uncompromising, adversarial peer-review audits on all research outputs: "
-        "1. ADVERSARIAL SCRUTINY: Scrutinize every claim, equation, benchmark table, and code change. Flag any unsubstantiated assertion, circular reasoning, or data leakage. "
-        "2. EMPIRICAL VERIFICATION: Cross-examine reported benchmark numbers against raw JSON logs in artifacts/ and pytest execution outputs. "
+        "1. SPECIALIZED SKILLS CONSULTATION: Consult 'peer-review' (claim-evidence validation, reporting standards, adversarial evaluation), "
+        "'scientific-critical-thinking', and 'statistical-analysis' (statistical tests, power, assumption auditing). "
+        "2. ADVERSARIAL SCRUTINY: Scrutinize every claim, equation, benchmark table, and code change. Flag any unsubstantiated assertion, circular reasoning, or data leakage. "
+        "3. EMPIRICAL VERIFICATION: Cross-examine reported benchmark numbers against raw JSON logs in artifacts/ and pytest execution outputs. "
         "If numbers do not match or lack experimental logs, reject the claim and demand that the Engineer rerun the benchmark. "
-        "3. PARSER AND EDGE-CASE STRESS TESTING: Ensure parser fixes for MGF/MGZ/mzML/parquet are tested against edge cases (missing headers, non-standard charge strings, empty peak lists, modified peptide sequences). "
-        "4. FORMAL AUDIT REPORT: Issue a definitive, itemized Peer Review Approval Report certifying that the repository is mathematically coherent, "
+        "4. PARSER AND EDGE-CASE STRESS TESTING: Ensure parser fixes for MGF/MGZ/mzML/parquet are tested against edge cases (missing headers, non-standard charge strings, empty peak lists, modified peptide sequences). "
+        "5. FORMAL AUDIT REPORT: Issue a definitive, itemized Peer Review Approval Report certifying that the repository is mathematically coherent, "
         "empirically verified, 100% reproducible, and free of placeholders."
     ),
     backstory=(
-        "You are a notoriously exacting senior journal reviewer and academic auditor. You scrutinize every statistical claim, verify every mathematical proof, "
+        "You are a notoriously exacting senior journal reviewer and academic auditor. You use the 'peer-review' and 'scientific-critical-thinking' skills "
+        "to conduct relentless methodological reviews. You scrutinize every statistical claim, verify every mathematical proof, "
         "and reject manuscripts that lack reproducibility or contain unverified claims. You only approve work that meets the highest standards of scientific rigor."
     ),
     tools=[
+        list_available_scientific_skills,
+        consult_scientific_skill,
+        execute_skill_script,
         read_workspace_file,
         execute_shell_command,
         fact_check_artifacts,
@@ -515,24 +661,27 @@ task_research_and_improvement_strategy = Task(
     description=(
         "PHASE 1: RESEARCH EXPLORATION & ALGORITHMIC STRATEGY\n"
         "====================================================\n"
-        "1. AUDIT LOCAL WORKSPACE & CODEBASE:\n"
+        "1. CONSULT SCIENTIFIC SKILLS:\n"
+        "   - Use consult_scientific_skill with 'pyopenms', 'matchms', and 'biopython' to inspect golden MS/MS standards, "
+        "     fragmentation chemistry (b/y ions, neutral losses, isotopic distributions), and spectrum representation practices.\n"
+        "2. AUDIT LOCAL WORKSPACE & CODEBASE:\n"
         "   - Inspect src/models/ (flow transformer, spectrum encoder), src/inference/ (knapsack_dp.py, predict.py), and tests/.\n"
         "   - Review the current CTMC discrete flow matching formulation, loss functions, and reachability guidance.\n"
-        "2. AUDIT DATA PARSERS (MGF, MGZ, mzML, Parquet):\n"
+        "3. AUDIT DATA PARSERS (MGF, MGZ, mzML, Parquet):\n"
         "   - Audit src/data/data.py and deployment/huggingface/app.py.\n"
         "   - Verify handling of 'SEQ=' and 'SEQUENCE=' header fields in MGF/MGZ files, charge parsing, and precursor mass extraction.\n"
         "   - Check support for gzip-compressed MGF (.mgz) and mzML format resilience.\n"
-        "3. PROPOSE ACTIONABLE ALGORITHMIC INNOVATIONS:\n"
+        "4. PROPOSE ACTIONABLE ALGORITHMIC INNOVATIONS:\n"
         "   - Formulate concrete mathematical enhancements to raise Exact Sequence Match (%) and I/L-Equivalent Match (%):\n"
         "     a) Flow schedule optimization: improved continuous-time jump rate schedule (e.g. cosine annealing or adaptive temperature schedule).\n"
         "     b) Dynamic Knapsack DP reachability guidance: charge-adaptive mass tolerance delta(z) = delta_0 * (1 + 0.1 * (z - 1)) or isotope tolerance.\n"
         "     c) Spectrum conditioning: complementary b/y ion pairing, neutral loss channels, or peak intensity normalization.\n"
-        "4. DELIVER FORMAL SPECIFICATION:\n"
+        "5. DELIVER FORMAL SPECIFICATION:\n"
         "   - Output clear mathematical definitions, exact drop-in code modifications, and explicit unit test instructions for the Principal Engineer."
     ),
     expected_output=(
-        "A comprehensive R&D improvement strategy with exact mathematical equations, concrete code diffs for src/ and tests/, "
-        "parser bugfixes (SEQ/SEQUENCE handling in MGF/MGZ), and an explicit testing & benchmark plan."
+        "A comprehensive R&D improvement strategy informed by pyopenms/matchms skills, with exact mathematical equations, "
+        "concrete code diffs for src/ and tests/, parser bugfixes (SEQ/SEQUENCE handling in MGF/MGZ), and an explicit testing & benchmark plan."
     ),
     agent=scientist_agent
 )
@@ -541,25 +690,28 @@ task_experimentation_and_benchmarking = Task(
     description=(
         "PHASE 2: IMPLEMENTATION, TESTING & GPU BENCHMARKING\n"
         "===================================================\n"
-        "1. IMPLEMENT CODE MODIFICATIONS:\n"
+        "1. CONSULT SCIENTIFIC SKILLS:\n"
+        "   - Consult 'optimize-for-gpu' for CUDA tensor optimization and memory management, 'pytorch-lightning' for training loops, "
+        "     and 'scientific-visualization' for publication figure styling.\n"
+        "2. IMPLEMENT CODE MODIFICATIONS:\n"
         "   - Apply the Scientist's algorithmic and parser enhancements cleanly into src/ and tests/.\n"
         "   - Maintain backward compatibility and clean type annotations.\n"
-        "2. RUN TEST SUITE & VALIDATE ZERO REGRESSIONS:\n"
+        "3. RUN TEST SUITE & VALIDATE ZERO REGRESSIONS:\n"
         "   - Execute pytest tests/ -v using test_data_parsers.\n"
         "   - Ensure all 58+ unit tests pass without error.\n"
-        "3. BENCHMARK & RERUN EXPERIMENTS IF NEEDED:\n"
+        "4. BENCHMARK & RERUN EXPERIMENTS IF NEEDED:\n"
         "   - Run native evaluation or diagnostic benchmarks (e.g. scripts/eval.py, scripts/diagnostic_refined_decoding.py, or benchmark scripts).\n"
         "   - Measure Exact Sequence Match (%), I/L-Equivalent Match (%), AA Precision/Recall, and throughput (spectra/sec).\n"
         "   - Rerun experiments if numbers need empirical validation against baseline checkpoints.\n"
-        "4. REGENERATE 300 DPI PUBLICATION FIGURES:\n"
-        "   - Execute scripts/generate_publication_figures.py to produce updated Nature Methods-grade charts.\n"
-        "5. HUGGING FACE & GITHUB SYNCHRONIZATION:\n"
+        "5. REGENERATE 300 DPI PUBLICATION FIGURES:\n"
+        "   - Execute scripts/generate_publication_figures.py adhering to 'scientific-visualization' standards to produce Nature Methods-grade charts.\n"
+        "6. HUGGING FACE & GITHUB SYNCHRONIZATION:\n"
         "   - Sync model/Gradio app to Hugging Face if ready.\n"
         "   - Commit all verified code, test updates, and benchmark metrics, and push to GitHub 'research' branch using active gh credentials."
     ),
     expected_output=(
         "Execution logs showing clean pytest test suite passage, empirical benchmark metrics comparing before/after, "
-        "regenerated 300 DPI figures, and confirmation of GitHub push to the research branch."
+        "regenerated 300 DPI figures adhering to scientific-visualization guidelines, and confirmation of GitHub push to the research branch."
     ),
     agent=engineer_agent
 )
@@ -568,25 +720,28 @@ task_thesis_and_factcheck_sync = Task(
     description=(
         "PHASE 3: DOCUMENTATION, THESIS & MATHEMATICAL COHERENCE\n"
         "=======================================================\n"
-        "1. FACT-CHECK EVERY ARTIFACT ACROSS REPOSITORY:\n"
+        "1. CONSULT SCIENTIFIC SKILLS:\n"
+        "   - Consult 'scientific-writing' for evidence provenance and manuscript principles, 'venue-templates' for Nature Methods formatting, "
+        "     and 'citation-management' for reference integrity.\n"
+        "2. FACT-CHECK EVERY ARTIFACT ACROSS REPOSITORY:\n"
         "   - Audit thesis/ (chapter1.tex to chapter6.tex, master-document.tex), manuscript/ (PAPER_MANUSCRIPT.md), "
         "     presentation/ (presentation.tex), SUPERVISOR_REPORT_DFM_DE_NOVO.md, SYSTEM_OPTIMIZATION_REPORT.md, "
         "     ARTIFACTS_MANIFEST.md, and PRESENTATION_OF_RESULTS.md.\n"
         "   - Ensure zero placeholder text ('TODO', 'TBD', '[INSERT', 'approx.').\n"
-        "   - Ensure every reported metric strictly matches raw benchmark logs.\n"
-        "2. MATHEMATICAL & CODE COHERENCE:\n"
+        "   - Ensure every reported metric strictly matches raw benchmark logs. Run consistency scripts via execute_skill_script if needed.\n"
+        "3. MATHEMATICAL & CODE COHERENCE:\n"
         "   - Verify that all LaTeX equations in chapter3/chapter4/chapter5 match the exact Python implementation in src/ with zero discrepancies.\n"
-        "3. ELIMINATE ALL AI CLICHES:\n"
+        "4. ELIMINATE ALL AI CLICHES:\n"
         "   - Ensure formal, objective academic prose throughout. Remove promotional fluff ('testament to', 'game-changer', 'revolutionary', 'pivotal').\n"
-        "4. EXHAUSTIVE REPRODUCIBILITY GUIDE:\n"
+        "5. EXHAUSTIVE REPRODUCIBILITY GUIDE:\n"
         "   - Update README.md with comprehensive, step-by-step reproduction instructions: virtual environment setup (.venv), "
         "     dataset loading, training commands, evaluation commands, random seeds, and figure generation.\n"
-        "5. COMMIT DOCUMENTATION TO GITHUB:\n"
+        "6. COMMIT DOCUMENTATION TO GITHUB:\n"
         "   - Commit all audited thesis chapters, reports, and README updates to git and push to GitHub 'research' branch."
     ),
     expected_output=(
-        "Mathematically exact, 100% fact-checked thesis chapters and reports with zero placeholders, harmonious metrics, "
-        "and an exhaustive reproduction guide in README.md, successfully committed and pushed to GitHub."
+        "Mathematically exact, 100% fact-checked thesis chapters and reports informed by the scientific-writing skill, "
+        "with zero placeholders, harmonious metrics, and an exhaustive reproduction guide in README.md, successfully committed and pushed to GitHub."
     ),
     agent=writer_agent
 )
@@ -595,21 +750,24 @@ task_final_critic_review = Task(
     description=(
         "PHASE 4: INDEPENDENT CRITICAL PEER-REVIEW & AUDIT\n"
         "=================================================\n"
-        "1. ADVERSARIAL PEER-REVIEW AUDIT:\n"
+        "1. CONSULT SCIENTIFIC SKILLS:\n"
+        "   - Consult 'peer-review' and 'scientific-critical-thinking' for adversarial claim-evidence matrices, "
+        "     reporting guideline checks, and statistical reproducibility audits.\n"
+        "2. ADVERSARIAL PEER-REVIEW AUDIT:\n"
         "   - Scrutinize the outputs of all previous phases (algorithmic proposal, code changes, test results, benchmarks, thesis chapters, reports).\n"
         "   - Verify that all empirical numbers reported by the Author match raw benchmark logs and pytest outputs.\n"
         "   - Check parser resilience against MGF/MGZ/mzML edge cases.\n"
-        "2. EMPIRICAL & REPRODUCIBILITY VERIFICATION:\n"
+        "3. EMPIRICAL & REPRODUCIBILITY VERIFICATION:\n"
         "   - Confirm that zero placeholders or unsubstantiated claims exist in any documentation.\n"
         "   - Confirm that the README reproduction instructions are complete and functional.\n"
-        "3. SIGN-OFF & APPROVAL REPORT:\n"
+        "4. SIGN-OFF & APPROVAL REPORT:\n"
         "   - If any flaw, mathematical inconsistency, or unverified claim is found, demand re-execution.\n"
         "   - If all criteria are met, issue a formal Chief Scientific Critic Approval Report certifying the research gains, "
         "     mathematical exactitude, and full reproducibility of the repository."
     ),
     expected_output=(
-        "A formal Chief Scientific Critic Peer Review Approval Report certifying validated performance gains, mathematical exactitude, "
-        "flawless cross-artifact coherence, and complete reproducibility across the repository."
+        "A formal Chief Scientific Critic Peer Review Approval Report prepared according to peer-review skill standards, "
+        "certifying validated performance gains, mathematical exactitude, flawless cross-artifact coherence, and complete reproducibility across the repository."
     ),
     agent=critic_agent
 )
@@ -626,6 +784,7 @@ def start_native_crew(max_loops: int = 1):
     print(f"🌍 GCP Project ID: {project_id}")
     print(f"📍 Vertex AI Region: {region}")
     print(f"📂 Workspace Directory: {WORKSPACE_ROOT}")
+    print(f"🧠 Scientific Skills Library: {SKILLS_DIR}")
     print("=" * 80)
     
     for loop_idx in range(1, max_loops + 1):
