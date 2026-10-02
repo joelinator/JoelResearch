@@ -495,12 +495,6 @@ manager_agent = Agent(
         "You reject superficial improvements, ungrounded metrics, and hand-waving claims. You demand rigorous mathematics, robust test suites, "
         "and empirical reproducibility. You orchestrate the Scientist, Engineer, Author, and Critic into an elite, collaborative research laboratory."
     ),
-    tools=[
-        list_available_scientific_skills,
-        consult_scientific_skill,
-        execute_shell_command,
-        fact_check_artifacts
-    ],
     llm=vertex_llm,
     max_iter=6,
     verbose=True
