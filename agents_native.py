@@ -77,8 +77,17 @@ def get_vertex_credentials():
                         super().__init__(token=tok, scopes=["https://www.googleapis.com/auth/cloud-platform"])
 
                     def _read_token(self):
-                        with open(self.tpath, "r", encoding="utf-8") as tf:
+                        try:
+                          with open(self.tpath, "r", encoding="utf-8") as tf:
                             return json.load(tf).get("token", {}).get("access_token")
+                        except Exception:
+                          return getattr(self, "token", None)
+
+                    def before_request(self, request, method, url, headers):
+                        fresh = self._read_token()
+                        if fresh:
+                            self.token = fresh
+                        super().before_request(request, method, url, headers)
 
                     def refresh(self, request):
                         self.token = self._read_token()
@@ -796,6 +805,7 @@ def start_native_crew(max_loops: int = 1):
             ],
             process=Process.hierarchical,
             manager_agent=manager_agent,
+            manager_llm=vertex_llm,
             verbose=True
         )
         
