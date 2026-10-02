@@ -91,8 +91,29 @@ def display_environment_dashboard():
     print("=" * 80)
 
 
+class TeeLogger:
+    def __init__(self, filepath, stream):
+        self.file = open(filepath, "a", encoding="utf-8")
+        self.stream = stream
+
+    def write(self, data):
+        self.stream.write(data)
+        self.stream.flush()
+        self.file.write(data)
+        self.file.flush()
+
+    def flush(self):
+        self.stream.flush()
+        self.file.flush()
+
+
 def main():
     start_time = time.time()
+    
+    # 0. Setup Tee logging to squad_execution.log in workspace root
+    log_file = WORKSPACE_ROOT / "squad_execution.log"
+    sys.stdout = TeeLogger(log_file, sys.stdout)
+    sys.stderr = TeeLogger(log_file, sys.stderr)
     
     # 1. Setup GitHub credentials via gh CLI
     setup_github_authentication()
