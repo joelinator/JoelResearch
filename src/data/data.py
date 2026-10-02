@@ -29,6 +29,35 @@ def precursor_mass_from_mz(precursor_mz: float, charge: int) -> float:
     """Convert precursor m/z to neutral monoisotopic mass."""
     return precursor_mz * charge - charge * M_H
 
+
+def parse_mgf_sequence(params: dict | str | None) -> str | None:
+    """
+    Extracts peptide sequence from MGF/MGZ spectrum metadata parameters.
+    Handles 'seq', 'SEQ', 'sequence', 'SEQUENCE', 'pep_seq', and raw header comments.
+    """
+    if params is None:
+        return None
+    if isinstance(params, str):
+        for line in params.splitlines():
+            line = line.strip()
+            if line.upper().startswith("SEQ="):
+                return line.split("=", 1)[1].strip()
+            if line.upper().startswith("SEQUENCE="):
+                return line.split("=", 1)[1].strip()
+        return None
+    if isinstance(params, dict):
+        for key in ["seq", "SEQ", "sequence", "SEQUENCE", "pep_seq", "title"]:
+            if key in params and params[key]:
+                val = str(params[key]).strip()
+                if "SEQ=" in val.upper():
+                    match = re.search(r"SEQ=([A-Za-z0-9_\[\]\+\-\.]+)", val, re.IGNORECASE)
+                    if match:
+                        return match.group(1)
+                elif key != "title":
+                    return val
+    return None
+
+
 def get_dataset(
     repo_id: str = DEFAULT_DATASET,
     split: str = DEFAULT_SPLIT,
@@ -36,7 +65,7 @@ def get_dataset(
     token: str | None = None,
 ):
     """
-    Load the ProteomeTools dataset from HuggingFace.
+    Load the ProteomeTools or custom MGF dataset from HuggingFace / local.
 
     The raw dataset exposes `precursor_mz` and `charge`; we derive `precursor_mass`
     so the rest of the pipeline can keep using mass-based conditioning.
@@ -57,6 +86,13 @@ def get_dataset(
 
     if "precursor_charge" not in ds.column_names and "charge" in ds.column_names:
         ds = ds.rename_column("charge", "precursor_charge")
+
+    # If sequence is missing but params metadata contains SEQ/SEQUENCE, extract it
+    if "sequence" not in ds.column_names and "params" in ds.column_names:
+        ds = ds.map(
+            lambda row: {"sequence": parse_mgf_sequence(row.get("params"))},
+            desc="Extracting sequence from MGF params",
+        )
 
     keep_columns = [
         "mz_array",

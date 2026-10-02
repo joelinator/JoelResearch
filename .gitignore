@@ -222,7 +222,7 @@ __marimo__/
 
 # Custom
 report.md
-data/
+/data/
 lightning_logs/
 scratch/
 artifacts/
