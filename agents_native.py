@@ -238,13 +238,27 @@ def execute_skill_script(skill_name: str, script_name: str, arguments: str = "")
         available = [f.name for f in (SKILLS_DIR / s_clean / "scripts").glob("*.py")] if (SKILLS_DIR / s_clean / "scripts").exists() else []
         return f"❌ Script '{script_name}' not found in skill '{skill_name}'. Available scripts: {available}"
 
+def _truncate_output(text: str, max_chars: int = 8000, keep_tail: bool = False) -> str:
+    """Safely clamp string length to prevent blowing past LLM context token windows."""
+    if not text or len(text) <= max_chars:
+        return text
+    if keep_tail:
+        omitted = len(text) - max_chars
+        return f"[... Truncated {omitted} leading characters to preserve LLM context window ...]\n" + text[-max_chars:]
+    else:
+        omitted = len(text) - max_chars
+        return text[:max_chars] + f"\n[... Truncated {omitted} trailing characters to preserve LLM context window. Target specific files or subdirectories ...]"
+
+
     try:
         cmd = f"{sys.executable} {script_path} {arguments}".strip()
         res = subprocess.run(cmd, shell=True, capture_output=True, text=True, timeout=120, cwd=str(WORKSPACE_ROOT))
+        stdout_tr = _truncate_output(res.stdout, max_chars=6000)
+        stderr_tr = _truncate_output(res.stderr, max_chars=2000)
         return (
             f"=== SKILL SCRIPT OUTPUT: {script_name} (Exit Code: {res.returncode}) ===\n"
-            f"STDOUT:\n{res.stdout}\n"
-            f"STDERR:\n{res.stderr}"
+            f"STDOUT:\n{stdout_tr}\n"
+            f"STDERR:\n{stderr_tr}"
         )
     except Exception as e:
         return f"❌ Skill script execution failed: {str(e)}"
@@ -275,10 +289,13 @@ def read_workspace_file(file_path: str, start_line: int = 1, end_line: int = 120
             return f"❌ File not found: {file_path}"
         lines = target.read_text(encoding="utf-8", errors="replace").splitlines()
         start = max(1, start_line)
-        end = min(len(lines), end_line)
+        if end_line - start > 150:
+            end_line = start + 150
+        end = min(len(lines), max(start, end_line))
         selected = lines[start - 1 : end]
         numbered = [f"{start + i}: {line}" for i, line in enumerate(selected)]
-        return f"=== {file_path} (Lines {start}-{end} of {len(lines)}) ===\n" + "\n".join(numbered)
+        output_text = f"=== {file_path} (Lines {start}-{end} of {len(lines)}) ===\n" + "\n".join(numbered)
+        return _truncate_output(output_text, max_chars=8000)
     except Exception as e:
         return f"❌ Error reading file {file_path}: {str(e)}"
 
@@ -300,12 +317,20 @@ def write_workspace_file(file_path: str, content: str) -> str:
 @tool("Execute Shell Command in Workspace")
 def execute_shell_command(command: str) -> str:
     """Useful to inspect files, check git status, list directories, read logs, or execute bash utilities
-    directly inside the native workspace."""
+    directly inside the native workspace.
+    IMPORTANT: When searching or listing files, NEVER run unbounded `find .` across `.venv` or `.git`. Always target specific directories (e.g. `src/`, `thesis/`) or exclude `.venv`."""
     try:
+        cmd_clean = command.strip()
+        # Intercept unbounded find commands that could scan the entire .venv/ (89,000+ files)
+        if "find ." in cmd_clean and ".venv" not in cmd_clean and "-prune" not in cmd_clean:
+            cmd_clean = cmd_clean.replace("find .", "find . -not -path '*/.*' -not -path './.venv*'")
+
         res = subprocess.run(
-            command, shell=True, capture_output=True, text=True, timeout=180, cwd=str(WORKSPACE_ROOT)
+            cmd_clean, shell=True, capture_output=True, text=True, timeout=180, cwd=str(WORKSPACE_ROOT)
         )
-        return f"=== SHELL COMMAND OUTPUT (Exit: {res.returncode}) ===\nSTDOUT:\n{res.stdout}\nSTDERR:\n{res.stderr}"
+        stdout_tr = _truncate_output(res.stdout, max_chars=8000)
+        stderr_tr = _truncate_output(res.stderr, max_chars=3000)
+        return f"=== SHELL COMMAND OUTPUT (Exit: {res.returncode}) ===\nSTDOUT:\n{stdout_tr}\nSTDERR:\n{stderr_tr}"
     except Exception as e:
         return f"Shell command execution error: {str(e)}"
 
@@ -329,9 +354,11 @@ def run_experiment_natively(command: str = "python3 scripts/eval.py", custom_scr
             command, shell=True, capture_output=True, text=True, timeout=1800, cwd=str(WORKSPACE_ROOT)
         )
         elapsed = time.time() - start_time
+        stdout_tr = _truncate_output(res.stdout, max_chars=8000, keep_tail=True)
+        stderr_tr = _truncate_output(res.stderr, max_chars=3000, keep_tail=True)
         return (
             f"=== EXPERIMENT EXECUTION COMPLETED (Elapsed: {elapsed:.1f}s, Exit: {res.returncode}) ===\n"
-            f"STDOUT:\n{res.stdout}\nSTDERR:\n{res.stderr}"
+            f"STDOUT:\n{stdout_tr}\nSTDERR:\n{stderr_tr}"
         )
     except subprocess.TimeoutExpired:
         return f"❌ Experiment execution timed out after 1800 seconds."
@@ -409,7 +436,9 @@ def test_data_parsers(test_target: str = "tests/") -> str:
         target = test_target.strip() if test_target.strip() else "tests/"
         cmd = f"{sys.executable} -m pytest {target} -v"
         res = subprocess.run(cmd, shell=True, capture_output=True, text=True, timeout=240, cwd=str(WORKSPACE_ROOT))
-        return f"=== DATA PARSER & SUITE TEST RESULTS ===\nExit Code: {res.returncode}\nStdout:\n{res.stdout}\nStderr:\n{res.stderr}"
+        stdout_tr = _truncate_output(res.stdout, max_chars=4000, keep_tail=True)
+        stderr_tr = _truncate_output(res.stderr, max_chars=2000, keep_tail=True)
+        return f"=== DATA PARSER & SUITE TEST RESULTS ===\nExit Code: {res.returncode}\nStdout:\n{stdout_tr}\nStderr:\n{stderr_tr}"
     except Exception as e:
         return f"Data parser test execution failed: {str(e)}"
 
@@ -425,7 +454,9 @@ def deploy_huggingface(sync_model: bool = True, deploy_space: bool = True) -> st
         
         cmd = f"{sys.executable} {script_path}"
         res = subprocess.run(cmd, shell=True, capture_output=True, text=True, timeout=300, cwd=str(WORKSPACE_ROOT))
-        return f"=== HUGGING FACE DEPLOYMENT STATUS ===\nExit Code: {res.returncode}\nStdout:\n{res.stdout}\nStderr:\n{res.stderr}"
+        stdout_tr = _truncate_output(res.stdout, max_chars=4000, keep_tail=True)
+        stderr_tr = _truncate_output(res.stderr, max_chars=2000, keep_tail=True)
+        return f"=== HUGGING FACE DEPLOYMENT STATUS ===\nExit Code: {res.returncode}\nStdout:\n{stdout_tr}\nStderr:\n{stderr_tr}"
     except Exception as e:
         return f"Hugging Face deployment failed: {str(e)}"
 
@@ -619,7 +650,7 @@ writer_agent = Agent(
         push_improvement_to_github
     ],
     llm=vertex_llm,
-    max_iter=6,
+    max_iter=8,
     verbose=True
 )
 
@@ -651,7 +682,7 @@ critic_agent = Agent(
         test_data_parsers
     ],
     llm=vertex_llm,
-    max_iter=6,
+    max_iter=8,
     verbose=True
 )
 

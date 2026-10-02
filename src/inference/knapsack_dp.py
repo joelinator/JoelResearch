@@ -15,6 +15,13 @@ from data.constants import AA_MASSES_DICT, STANDARD_AMINO_ACIDS
 from data.lengths import MAX_PEPTIDE_LENGTH
 
 
+def calculate_charge_adaptive_tolerance(precursor_mass: float, precursor_charge: int, tolerance_ppm: float, alpha: float = 0.1) -> float:
+    """Calculates mass tolerance in Daltons, scaling with precursor charge."""
+    base_tolerance_da = precursor_mass * tolerance_ppm * 1e-6
+    charge_factor = 1.0 + alpha * (max(1, precursor_charge) - 1)
+    return base_tolerance_da * charge_factor
+
+
 class ExactReachabilityDP:
     """
     Exact reachable-mass table computed via dynamic programming.
@@ -64,7 +71,7 @@ class ExactReachabilityDP:
 
         self.masses = masses
         self.dp_table = self._build_dp_table()
-        self.pooled_table = self._build_pooled_table(tol_da)
+        self.pooled_table = self._pool_for_tolerance(tol_da)
 
     def _build_dp_table(self) -> torch.Tensor:
         """Construct reachable mass table for all k in [0, max_len]."""
@@ -90,7 +97,7 @@ class ExactReachabilityDP:
 
         return table
 
-    def _build_pooled_table(self, tol_da: float) -> torch.Tensor:
+    def _pool_for_tolerance(self, tol_da: float) -> torch.Tensor:
         """Apply max-pooling across tolerance window for O(1) reachability lookup."""
         w = max(1, int(round(tol_da / self.bin_size)))
         kernel_size = 2 * w + 1
@@ -107,14 +114,32 @@ class ExactReachabilityDP:
             self.pooled_table = self.pooled_table.to(dev)
         return self
 
-    def is_reachable(self, k: int | torch.Tensor, remaining_mass: float | torch.Tensor) -> torch.Tensor:
+    def is_reachable(
+        self,
+        k: int | torch.Tensor,
+        remaining_mass: float | torch.Tensor,
+        precursor_mass: float | None = None,
+        precursor_charge: int | None = None,
+        tolerance_ppm: float | None = None,
+    ) -> torch.Tensor:
         """
-        Query reachability: can k residues sum to remaining_mass within tol_da?
+        Query reachability: can k residues sum to remaining_mass within tol_da (or charge-adaptive tolerance)?
 
         Args:
             k: Tensor of remaining lengths (integer >= 0)
             remaining_mass: Tensor of target remaining masses in Daltons
+            precursor_mass: Optional precursor mass of the peptide
+            precursor_charge: Optional precursor charge of the peptide
+            tolerance_ppm: Optional tolerance in PPM for the precursor mass
         """
+        if precursor_mass is not None and precursor_charge is not None and tolerance_ppm is not None:
+            effective_tol = calculate_charge_adaptive_tolerance(precursor_mass, precursor_charge, tolerance_ppm)
+            pooled_table = self._pool_for_tolerance(effective_tol)
+            tol_check = effective_tol
+        else:
+            pooled_table = self.pooled_table
+            tol_check = self.tol_da
+
         if not isinstance(remaining_mass, torch.Tensor):
             remaining_mass = torch.tensor(remaining_mass, device=self.device, dtype=torch.float32)
         if not isinstance(k, torch.Tensor):
@@ -124,15 +149,15 @@ class ExactReachabilityDP:
         remaining_mass = remaining_mass.to(device=self.device, dtype=torch.float32)
 
         # k == 0 case: remaining mass must be ~0
-        k0_valid = (k == 0) & (remaining_mass.abs() <= self.tol_da)
+        k0_valid = (k == 0) & (remaining_mass.abs() <= tol_check)
 
         # k in [1, max_len] case:
-        in_range = (k >= 1) & (k <= self.max_len) & (remaining_mass >= -self.tol_da) & (remaining_mass <= self.max_mass)
+        in_range = (k >= 1) & (k <= self.max_len) & (remaining_mass >= -tol_check) & (remaining_mass <= self.max_mass)
         clamped_mass = remaining_mass.clamp(0.0, self.max_mass)
         bins = (clamped_mass / self.bin_size).round().long().clamp(0, self.num_bins - 1)
         clamped_k = k.clamp(0, self.max_len)
 
-        dp_valid = self.pooled_table[clamped_k, bins] & in_range
+        dp_valid = pooled_table[clamped_k, bins] & in_range
 
         return torch.where(k == 0, k0_valid, dp_valid)
 
@@ -144,4 +169,11 @@ class ExactReachabilityDP:
             cls._cached_instance = cls(device=dev, tol_da=tol_da)
         elif cls._cached_instance.device != dev or abs(cls._cached_instance.tol_da - tol_da) > 1e-4:
             cls._cached_instance = cls(device=dev, tol_da=tol_da)
+        return cls._cached_instance
+
+    @classmethod
+    def get_instance(cls, **kwargs) -> ExactReachabilityDP:
+        """Get singleton instance, creating it if needed."""
+        if cls._cached_instance is None:
+            cls._cached_instance = cls(**kwargs)
         return cls._cached_instance

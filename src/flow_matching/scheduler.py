@@ -71,12 +71,37 @@ def sigmoid_scheduler(time: torch.Tensor, k: float = 6.0) -> tuple[torch.Tensor,
     return kt.clamp(0.0, 1.0), kt_derivative.clamp(min=0.0)
 
 
+def min_snr_scheduler(time: torch.Tensor, gamma: float = 5.0, logsnr_min: float = -10.0, logsnr_max: float = 10.0) -> tuple[torch.Tensor, torch.Tensor]:
+    """
+    Variance-preserving schedule from diffusion models, adapted for flow matching.
+    Ref: https://arxiv.org/abs/2303.09556 (Common Diffusion Noise Schedules)
+    κ(t) = σ(-logsnr(t))
+    """
+    t_min = torch.exp(-gamma * torch.tensor(logsnr_min, device=time.device, dtype=time.dtype))
+    t_max = torch.exp(-gamma * torch.tensor(logsnr_max, device=time.device, dtype=time.dtype))
+
+    # Interpolate in the exponentiated space
+    s_t = t_min + time * (t_max - t_min)
+    logsnr_t = -torch.log(s_t) / gamma
+
+    # κ(t) = σ(-logsnr(t))
+    kt = torch.sigmoid(logsnr_t)
+
+    # Derivative κ'(t) via chain rule
+    # dκ/d(logsnr) = σ(logsnr)(1-σ(logsnr)) = κ(1-κ)
+    # d(logsnr)/dt = -(t_max - t_min) / (gamma * s_t)
+    kt_derivative = kt * (1 - kt) * (-(t_max - t_min) / (gamma * s_t))
+
+    return kt.clamp(0.0, 1.0), kt_derivative.clamp(min=0.0)
+
+
 SCHEDULER_REGISTRY: dict[str, Callable[[torch.Tensor], tuple[torch.Tensor, torch.Tensor]]] = {
     "linear": linear_scheduler,
     "cosine": cosine_scheduler,
     "power1_5": power1_5_scheduler,
     "power2": power2_scheduler,
     "sigmoid": sigmoid_scheduler,
+    "min_snr": min_snr_scheduler,
 }
 
 
@@ -118,23 +143,19 @@ def verify_scheduler(
 
     summary = {
         "name": name,
-        "kappa_at_0": k0,
-        "kappa_at_1": k1,
-        "min_kappa_derivative": min_derivative,
-        "monotone_increasing": monotone,
+        "k(0)": k0,
+        "k(1)": k1,
+        "k_min_derivative": min_derivative,
+        "monotone": monotone,
     }
 
-    errors = []
-    if k0 > atol:
-        errors.append(f"κ(0)={k0:.6f}, expected ≈ 0")
-    if abs(k1 - 1.0) > atol:
-        errors.append(f"κ(1)={k1:.6f}, expected ≈ 1")
-    if min_derivative < -1e-7:
-        errors.append(f"κ' becomes negative (min={min_derivative:.6f})")
+    if not torch.allclose(torch.tensor(k0), torch.tensor(0.0), atol=atol):
+        raise ValueError(f"{name} failed check: κ(0)={k0} is not close to 0.")
+    if not torch.allclose(torch.tensor(k1), torch.tensor(1.0), atol=atol):
+        raise ValueError(f"{name} failed check: κ(1)={k1} is not close to 1.")
     if not monotone:
-        errors.append("κ(t) is not monotone increasing on [0, 1]")
-
-    if errors:
-        raise ValueError(f"{name} failed verification: " + "; ".join(errors))
+        raise ValueError(f"{name} failed check: κ(t) is not monotone increasing.")
+    if min_derivative < -atol:
+        raise ValueError(f"{name} failed check: κ'(t) has negative values ({min_derivative}).")
 
     return summary
