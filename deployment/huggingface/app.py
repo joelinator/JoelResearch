@@ -8,6 +8,7 @@ import numpy as np
 import pandas as pd
 import torch
 import gradio as gr
+import pyteomics.mgf
 
 # Ensure root and src/ are in sys.path
 ROOT_DIR = Path(__file__).resolve().parent
@@ -85,75 +86,54 @@ def get_model(ckpt_name=CANONICAL_CKPT):
 
 
 def parse_mgf_stream(stream):
-    """Parse spectra from an open text stream in Mascot Generic Format (MGF)."""
+    """Parse spectra from an open text stream in Mascot Generic Format (MGF) using standard pyteomics."""
     spectra = []
-    current_title = ""
-    current_pepmass = None
-    current_charge = 2
-    mz_list = []
-    intensity_list = []
-    in_ions = False
-    scan_idx = 0
-
-    for line in stream:
-        line = line.strip()
-        if not line:
+    for idx, spec in enumerate(pyteomics.mgf.read(stream, use_index=False)):
+        params = spec.get("params", {})
+        title = params.get("title", f"scan_{idx + 1}")
+        pepmass = params.get("pepmass")
+        if pepmass is None:
             continue
-        if line == "BEGIN IONS":
-            in_ions = True
-            current_title = f"scan_{scan_idx + 1}"
-            current_pepmass = None
-            current_charge = 2
-            mz_list = []
-            intensity_list = []
-            continue
-        elif line == "END IONS":
-            if in_ions and current_pepmass is not None and len(mz_list) > 0:
-                precursor_mass = current_pepmass * current_charge - current_charge * M_H
-                spectra.append(
-                    {
-                        "title": current_title,
-                        "precursor_mz": float(current_pepmass),
-                        "precursor_mass": float(precursor_mass),
-                        "precursor_charge": int(current_charge),
-                        "mz_array": np.array(mz_list, dtype=np.float32),
-                        "intensity_array": np.array(intensity_list, dtype=np.float32),
-                    }
-                )
-                scan_idx += 1
-            in_ions = False
-            continue
-
-        if not in_ions:
-            continue
-
-        if "=" in line:
-            key, val = line.split("=", 1)
-            key = key.strip().upper()
-            val = val.strip()
-            if key == "TITLE":
-                current_title = val
-            elif key == "PEPMASS":
-                current_pepmass = float(val.split()[0])
-            elif key == "CHARGE":
-                val = val.rstrip("+").rstrip("-")
-                try:
-                    current_charge = int(val)
-                except ValueError:
-                    current_charge = 2
+        if isinstance(pepmass, (list, tuple)):
+            precursor_mz = float(pepmass[0])
         else:
-            parts = line.split()
-            if len(parts) >= 2:
-                try:
-                    mz_list.append(float(parts[0]))
-                    intensity_list.append(float(parts[1]))
-                except ValueError:
-                    pass
+            precursor_mz = float(pepmass)
+
+        charge_val = params.get("charge", 2)
+        if isinstance(charge_val, (list, tuple)):
+            charge_val = charge_val[0]
+        try:
+            charge = int(str(charge_val).rstrip("+-"))
+        except (ValueError, TypeError):
+            charge = 2
+
+        precursor_mass = precursor_mz * charge - charge * M_H
+        mz_arr = spec.get("m/z array")
+        intens_arr = spec.get("intensity array")
+
+        if mz_arr is not None and len(mz_arr) > 0:
+            target_seq = params.get("seq", "")
+            if not target_seq:
+                parts = title.split("_")
+                if len(parts) >= 2 and parts[-1].isalpha():
+                    target_seq = parts[-1]
+
+            spectra.append(
+                {
+                    "title": title,
+                    "sequence": target_seq,
+                    "precursor_mz": float(precursor_mz),
+                    "precursor_mass": float(precursor_mass),
+                    "precursor_charge": int(charge),
+                    "mz_array": np.array(mz_arr, dtype=np.float32),
+                    "intensity_array": np.array(intens_arr, dtype=np.float32),
+                }
+            )
     return spectra
 
 
 def load_spectra_file(file_path):
-    """Load spectra from a file, automatically detecting gzip compression (.mgz / .mgf.gz)."""
+    """Load spectra from a file using pyteomics, automatically detecting gzip compression (.mgz / .mgf.gz)."""
     with open(file_path, "rb") as f:
         magic = f.read(2)
     if magic == b"\x1f\x8b":
