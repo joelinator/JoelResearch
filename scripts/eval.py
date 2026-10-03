@@ -97,6 +97,12 @@ def parse_args():
         help="Mass tolerance in Daltons for single remaining residue knapsack filter (default: 1.0 Da).",
     )
     parser.add_argument(
+        "--knapsack-guidance-penalty",
+        type=float,
+        default=float(os.environ["KNAPSACK_GUIDANCE_PENALTY"]) if os.environ.get("KNAPSACK_GUIDANCE_PENALTY") else None,
+        help="Soft knapsack penalty subtracted from unreachable token logits instead of -1e9 hard mask (e.g. 2.0 or 5.0).",
+    )
+    parser.add_argument(
         "--num-samples-per-length",
         type=int,
         default=int(os.environ.get("NUM_SAMPLES_PER_LENGTH", eval_cfg.num_samples_per_length)),
@@ -312,6 +318,7 @@ def main():
         use_knapsack_filter=args.use_knapsack_filter,
         use_exact_dp_knapsack=args.use_exact_dp_knapsack,
         knapsack_tol_da=args.knapsack_tol_da,
+        knapsack_guidance_penalty=args.knapsack_guidance_penalty,
         num_samples_per_length=args.num_samples_per_length,
         eta=args.eta,
         enzyme=args.enzyme,
@@ -439,6 +446,7 @@ def main():
                 "target_precision": args.target_precision,
                 "score_threshold": primary_threshold,
                 "use_exact_dp_knapsack": args.use_exact_dp_knapsack,
+                "knapsack_guidance_penalty": args.knapsack_guidance_penalty,
                 "enzyme": args.enzyme,
                 "use_composite_ladders": args.use_composite_ladders,
             },

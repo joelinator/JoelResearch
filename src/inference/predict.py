@@ -243,6 +243,7 @@ def knapsack_filter_logits_vectorized(
     max_aa_mass: float = 186.079313,
     reachability_dp: ExactReachabilityDP | None = None,
     use_exact_dp: bool = True,
+    guidance_penalty: float | None = None,
 ) -> torch.Tensor:
     """
     Multi-step dynamic precursor mass-budget (knapsack) constraint for discrete flow matching.
@@ -273,9 +274,10 @@ def knapsack_filter_logits_vectorized(
         has_valid = valid_tokens.any(dim=-1, keepdim=True)
 
         dist_to_budget = (R_next - (k_next * 110.0).unsqueeze(-1)).abs()
+        unreachable_val = (logits - guidance_penalty) if guidance_penalty is not None else torch.full_like(logits, -1e9)
         modified_logits = torch.where(
             has_valid,
-            torch.where(valid_tokens, logits, torch.full_like(logits, -1e9)),
+            torch.where(valid_tokens, logits, unreachable_val),
             logits - dist_to_budget * 2.0,
         )
         return torch.where(is_masked.unsqueeze(-1), modified_logits, logits)
@@ -361,6 +363,7 @@ def resolve_sequential_knapsack(
     max_aa_mass: float = 186.079313,
     reachability_dp: ExactReachabilityDP | None = None,
     use_exact_dp: bool = True,
+    guidance_penalty: float | None = None,
 ) -> torch.Tensor:
     """
     Sequentially resolves residual masked positions one-by-one with exact DP reachability updates.
@@ -391,6 +394,7 @@ def resolve_sequential_knapsack(
             max_aa_mass=max_aa_mass,
             reachability_dp=reachability_dp,
             use_exact_dp=use_exact_dp,
+            guidance_penalty=guidance_penalty,
         )
 
         conf = filtered_logits.max(dim=-1).values
@@ -445,6 +449,7 @@ def predict_peptide(
     use_composite_ladders: bool = True,
     use_sequential_knapsack: bool = True,
     use_peak_evidence: bool = True,
+    knapsack_guidance_penalty: float | None = None,
 ) -> tuple[torch.Tensor, torch.Tensor, list[str]] | tuple[torch.Tensor, torch.Tensor, list[str], torch.Tensor]:
     """
     Run de novo inference with Top-k Length Beam Decoding, Dynamic Knapsack Filtering, and fragment ladder scoring.
@@ -657,6 +662,7 @@ def predict_peptide(
                 max_aa_mass=max_aa_mass,
                 reachability_dp=reachability_dp,
                 use_exact_dp=use_exact_dp_knapsack,
+                guidance_penalty=knapsack_guidance_penalty,
             )
 
         confidence_bonus = None
@@ -731,6 +737,7 @@ def predict_peptide(
                     max_aa_mass=max_aa_mass,
                     reachability_dp=reachability_dp,
                     use_exact_dp=use_exact_dp_knapsack,
+                    guidance_penalty=knapsack_guidance_penalty,
                 )
             elif use_knapsack_filter:
                 final_logits = knapsack_filter_logits_vectorized(
@@ -748,6 +755,7 @@ def predict_peptide(
                     max_aa_mass=max_aa_mass,
                     reachability_dp=reachability_dp,
                     use_exact_dp=use_exact_dp_knapsack,
+                    guidance_penalty=knapsack_guidance_penalty,
                 )
                 x_t[rem_mask] = final_logits.argmax(dim=-1)[rem_mask]
             else:

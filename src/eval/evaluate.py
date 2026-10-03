@@ -51,6 +51,7 @@ def evaluate_generative(
     use_composite_ladders: bool = True,
     use_sequential_knapsack: bool = True,
     use_peak_evidence: bool = True,
+    knapsack_guidance_penalty: float | None = None,
 ) -> DenovoMetrics | tuple[DenovoMetrics, dict]:
     """Decode peptides with the full DFM inference loop and score against labels."""
     predictions: list[str] = []
@@ -122,6 +123,7 @@ def evaluate_generative(
                 use_composite_ladders=use_composite_ladders,
                 use_sequential_knapsack=use_sequential_knapsack,
                 use_peak_evidence=use_peak_evidence,
+                knapsack_guidance_penalty=knapsack_guidance_penalty,
             )
 
         predictions.extend(pred_sequences)
