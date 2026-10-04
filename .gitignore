@@ -232,6 +232,7 @@ models/*.ckpt
 val_metrics/
 thesis/
 presentation/
+arxiv_paper/
 
 
 # Thesis and archives
