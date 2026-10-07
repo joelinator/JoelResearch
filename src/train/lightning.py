@@ -38,7 +38,34 @@ class DFMLightningModule(pl.LightningModule):
         self.args = args
 
         compile_models = self.args.get("compile", False)
-        self.model_cfg = self.args.get("model_cfg", None)
+        self.implicit_length = bool(self.args.get("implicit_length", False))
+        model_cfg = self.args.get("model_cfg", None)
+        if model_cfg is None:
+            model_cfg = {
+                k: v
+                for k, v in self.args.items()
+                if k
+                in {
+                    "model_dim",
+                    "encoder_layers",
+                    "encoder_heads",
+                    "encoder_ff_dim",
+                    "decoder_blocks",
+                    "decoder_heads",
+                    "mlp_hidden_dim",
+                    "dropout",
+                    "max_charge",
+                    "max_length",
+                    "min_length",
+                }
+            }
+        elif isinstance(model_cfg, dict):
+            model_cfg = dict(model_cfg)
+        else:
+            model_cfg = {}
+        model_cfg["implicit_length"] = self.implicit_length
+        self.model_cfg = model_cfg
+
         (
             self.spectrum_encoder,
             self.length_predictor,
@@ -51,7 +78,10 @@ class DFMLightningModule(pl.LightningModule):
             model_cfg=self.model_cfg,
         )
 
-        aa_masses = get_output_aa_masses(vocabulary)
+        if self.implicit_length:
+            self.length_predictor.requires_grad_(False)
+
+        aa_masses = get_output_aa_masses(vocabulary, include_pad=self.implicit_length)
         self.register_buffer("aa_masses", aa_masses)
         full_aa_masses = get_aa_masses(vocabulary)
         self.register_buffer("full_aa_masses", full_aa_masses, persistent=False)
@@ -72,7 +102,27 @@ class DFMLightningModule(pl.LightningModule):
         ) = batch
 
         batch_size = mz_array.shape[0]
-        active_mask = length_to_active_mask(length, sequence.shape[1])
+        if self.implicit_length:
+            active_mask = None
+            padded_mask = None
+            length_for_decoder = torch.full_like(length, sequence.shape[1])
+            is_length_noised = False
+            seq_padding_mask = None
+        else:
+            active_mask = length_to_active_mask(length, sequence.shape[1])
+            use_length_noising = self.args.get("length_noising", True)
+            noising_prob = self.args.get("length_noising_prob", 0.1)
+            if mode == "train" and use_length_noising:
+                length_for_decoder, is_length_noised = length_noiser(
+                    length, noising_prob=noising_prob
+                )
+            else:
+                length_for_decoder = length
+                is_length_noised = False
+
+            mask_self_attention = self.args.get("mask_self_attention", True)
+            seq_padding_mask = ~active_mask if mask_self_attention else None
+
         time = torch.rand(batch_size, device=self.device).clamp(1e-7, 1 - 1e-7)
         kt, _kt_derivative = self.scheduler(time)
 
@@ -102,19 +152,6 @@ class DFMLightningModule(pl.LightningModule):
         )
 
         true_length = length
-        is_length_noised = False
-        use_length_noising = self.args.get("length_noising", True)
-        noising_prob = self.args.get("length_noising_prob", 0.1)
-
-        if mode == "train" and use_length_noising:
-            length_for_decoder, is_length_noised = length_noiser(
-                length, noising_prob=noising_prob
-            )
-        else:
-            length_for_decoder = length
-
-        mask_self_attention = self.args.get("mask_self_attention", True)
-        seq_padding_mask = ~active_mask if mask_self_attention else None
 
         peptide_logits = self.decoder(
             time,
@@ -128,7 +165,15 @@ class DFMLightningModule(pl.LightningModule):
         )
 
         label_smoothing = self.args.get("label_smoothing", 0.0) if mode == "train" else 0.0
-        if self.args.get("use_length_weighted_loss", False) and mode == "train":
+        if self.implicit_length:
+            decoder_loss = peptide_loss(
+                peptide_logits,
+                sequence,
+                pad_id=None,
+                label_smoothing=label_smoothing,
+            )
+            len_loss = torch.tensor(0.0, device=self.device)
+        elif self.args.get("use_length_weighted_loss", False) and mode == "train":
             decoder_loss = length_weighted_peptide_loss(
                 peptide_logits,
                 sequence,
@@ -137,6 +182,7 @@ class DFMLightningModule(pl.LightningModule):
                 label_smoothing=label_smoothing,
                 alpha=self.args.get("length_weight_alpha", 0.5),
             )
+            len_loss = length_loss(length_logits, true_length)
         else:
             decoder_loss = peptide_loss(
                 peptide_logits,
@@ -144,7 +190,7 @@ class DFMLightningModule(pl.LightningModule):
                 pad_id=self.vocabulary["<pad>"],
                 label_smoothing=label_smoothing,
             )
-        len_loss = length_loss(length_logits, true_length)
+            len_loss = length_loss(length_logits, true_length)
 
         epoch = self.current_epoch
         trainer = getattr(self, "_trainer", None)
@@ -167,11 +213,11 @@ class DFMLightningModule(pl.LightningModule):
                 vocab_aa_masses=self.full_aa_masses,
             )
 
-            loss = decoder_loss + lambd * len_loss + .5*gamma * mass_loss + .5*gamma * cum_mass_loss
+            loss = decoder_loss + (0.0 if self.implicit_length else lambd * len_loss) + .5*gamma * mass_loss + .5*gamma * cum_mass_loss
             mass_loss_log = mass_loss
             cum_mass_loss_log = cum_mass_loss
         else:
-            loss = decoder_loss + lambd * len_loss
+            loss = decoder_loss + (0.0 if self.implicit_length else lambd * len_loss)
             mass_loss_log = torch.tensor(0.0, device=loss.device)
             cum_mass_loss_log = torch.tensor(0.0, device=loss.device)
 
@@ -190,6 +236,7 @@ class DFMLightningModule(pl.LightningModule):
                 true_length,
                 active_mask,
                 self.vocabulary,
+                implicit_length=self.implicit_length,
             )
             for k, v in proxy.items():
                 self.log(f"valid/{k}", v, batch_size=batch_size, sync_dist=True)
@@ -299,7 +346,8 @@ class DFMLightningModule(pl.LightningModule):
                             guidance=self.guidance,
                             scheduler=self.scheduler,
                             num_steps=num_steps,
-                            noising_scheme="mask",
+                            noising_scheme=self.args.get("noising_scheme", "mask"),
+                            eta=float(self.args.get("eta", 0.0)),
                             guidance_scale=guidance_scale,
                             top_k_lengths=top_k_lengths,
                             alpha=alpha,
@@ -309,6 +357,9 @@ class DFMLightningModule(pl.LightningModule):
                             trypsin_prior=self.args.get("trypsin_prior", True),
                             mask_self_attention=self.args.get("mask_self_attention", True),
                             return_scores=True,
+                            implicit_length=self.implicit_length,
+                            max_peptide_length=int(self.args.get("max_length", 30)),
+                            use_knapsack_filter=not self.implicit_length and self.args.get("use_knapsack_filter", True),
                         )
 
                     predictions.extend(pred_seqs)
@@ -425,9 +476,12 @@ class DFMLightningModule(pl.LightningModule):
             weight_decay=self.args.get("weight_decay", 0.01),
         )
         
-        # PyTorch Lightning helper to get the exact total number of optimization steps
-        # across all epochs, accounting for multi-GPU and gradient accumulation.
-        total_steps = self.trainer.estimated_stepping_batches
+        # Total optimization steps across all epochs, accounting for multi-GPU and gradient accumulation.
+        total_steps = self.args.get("total_steps")
+        if total_steps is None or total_steps <= 0:
+            total_steps = getattr(self.trainer, "estimated_stepping_batches", -1)
+        if total_steps is None or total_steps <= 0:
+            total_steps = 100000  # Safe fallback
         
         lr_schedule = str(self.args.get("lr_schedule", "wsd")).lower()
         warmup_ratio = float(self.args.get("warmup_ratio", 0.05))

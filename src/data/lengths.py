@@ -5,7 +5,7 @@ from __future__ import annotations
 import torch
 
 MIN_PEPTIDE_LENGTH = 1
-MAX_PEPTIDE_LENGTH = 30
+MAX_PEPTIDE_LENGTH = 50
 NUM_LENGTH_CLASSES = MAX_PEPTIDE_LENGTH - MIN_PEPTIDE_LENGTH + 1
 
 
@@ -18,12 +18,12 @@ def validate_peptide_length(length: int) -> None:
 
 
 def length_to_class(length: torch.Tensor) -> torch.Tensor:
-    """Map peptide length L ∈ [1, 30] to class index L - 1 ∈ [0, 29]."""
+    """Map peptide length L ∈ [1, MAX_PEPTIDE_LENGTH] to class index L - 1 ∈ [0, NUM_LENGTH_CLASSES - 1]."""
     return length - MIN_PEPTIDE_LENGTH
 
 
 def class_to_length(class_id: torch.Tensor) -> torch.Tensor:
-    """Map class index ∈ [0, 29] back to peptide length ∈ [1, 30]."""
+    """Map class index ∈ [0, NUM_LENGTH_CLASSES - 1] back to peptide length ∈ [1, MAX_PEPTIDE_LENGTH]."""
     return class_id + MIN_PEPTIDE_LENGTH
 
 

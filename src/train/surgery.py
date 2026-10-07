@@ -235,6 +235,170 @@ def transplant_checkpoint(
     return checkpoint
 
 
+def transplant_length_state_dict(
+    state_dict: dict[str, torch.Tensor],
+    old_max_length: int = 30,
+    new_max_length: int = 50,
+    min_length: int = 1,
+    perturbation_std: float = 0.005,
+    weight_noise_std: float = 0.01,
+    bias_decay_slope: float = 0.03,
+) -> dict[str, torch.Tensor]:
+    """
+    Surgically expand peptide length capacity from old_max_length to new_max_length.
+    Preserves 100% bitwise verbatim weights for all positions/classes <= old_max_length.
+
+    1. decoder.length_embedding.weight:
+       Shape [old_max_length + 1, emb_dim] -> [new_max_length + 1, emb_dim]
+       Rows 0..old_max_length copied verbatim.
+       Rows (old_max_length+1)..new_max_length initialized from row old_max_length + N(0, perturbation_std^2).
+
+    2. length_predictor.mlp.7.weight:
+       Shape [old_n_classes, 512] -> [new_n_classes, 512]
+       Rows 0..(old_n_classes-1) copied verbatim.
+       Rows old_n_classes..(new_n_classes-1) warm-started from row (old_n_classes-1) + N(0, weight_noise_std^2).
+
+    3. length_predictor.mlp.7.bias:
+       Shape [old_n_classes] -> [new_n_classes]
+       Indices 0..(old_n_classes-1) copied verbatim.
+       Indices i in old_n_classes..(new_n_classes-1) initialized with empirical log-decay:
+       bias[i] = bias[old_n_classes-1] - bias_decay_slope * (i - old_n_classes + 1).
+
+    4. All other parameter tensors copied verbatim.
+    """
+    new_state_dict = {}
+    old_n_classes = old_max_length - min_length + 1
+    new_n_classes = new_max_length - min_length + 1
+
+    for key, tensor in state_dict.items():
+        if key.endswith("decoder.length_embedding.weight") or key == "decoder.length_embedding.weight":
+            emb_dim = tensor.shape[1]
+            new_len_emb = torch.zeros(
+                new_max_length + 1, emb_dim, dtype=tensor.dtype, device=tensor.device
+            )
+            # Copy existing length embeddings verbatim (0..old_max_length)
+            new_len_emb[: old_max_length + 1] = tensor[: old_max_length + 1]
+            # Warm-start lengths old_max_length+1 .. new_max_length from old_max_length + small perturbation
+            last_emb = tensor[old_max_length]
+            for i in range(old_max_length + 1, new_max_length + 1):
+                noise = torch.randn(emb_dim, dtype=tensor.dtype, device=tensor.device) * perturbation_std
+                new_len_emb[i] = last_emb + noise
+            new_state_dict[key] = new_len_emb
+
+        elif key.endswith("length_predictor.mlp.7.weight") or key == "length_predictor.mlp.7.weight":
+            in_dim = tensor.shape[1]
+            new_w = torch.zeros(
+                new_n_classes, in_dim, dtype=tensor.dtype, device=tensor.device
+            )
+            # Copy existing length classifier weights verbatim (0..old_n_classes-1)
+            new_w[:old_n_classes] = tensor[:old_n_classes]
+            # Warm-start newly added length classes from last class + small perturbation
+            last_row = tensor[old_n_classes - 1]
+            for i in range(old_n_classes, new_n_classes):
+                noise = torch.randn(in_dim, dtype=tensor.dtype, device=tensor.device) * weight_noise_std
+                new_w[i] = last_row + noise
+            new_state_dict[key] = new_w
+
+        elif key.endswith("length_predictor.mlp.7.bias") or key == "length_predictor.mlp.7.bias":
+            new_b = torch.zeros(
+                new_n_classes, dtype=tensor.dtype, device=tensor.device
+            )
+            # Copy existing length classifier biases verbatim (0..old_n_classes-1)
+            new_b[:old_n_classes] = tensor[:old_n_classes]
+            # Set empirical log-frequency decay prior for longer peptides
+            last_bias = tensor[old_n_classes - 1]
+            for i in range(old_n_classes, new_n_classes):
+                offset = bias_decay_slope * float(i - old_n_classes + 1)
+                new_b[i] = last_bias - offset
+            new_state_dict[key] = new_b
+
+        else:
+            new_state_dict[key] = tensor.clone()
+
+    return new_state_dict
+
+
+def transplant_length_checkpoint(
+    source_ckpt_path: str | Path,
+    target_ckpt_path: str | Path,
+    new_max_length: int = 50,
+    min_length: int = 1,
+    perturbation_std: float = 0.005,
+    weight_noise_std: float = 0.01,
+    bias_decay_slope: float = 0.03,
+    reset_optimizer: bool = True,
+) -> dict:
+    """
+    Transplant an existing checkpoint to a larger max sequence length (e.g. 30 -> 50 AA)
+    and save the new checkpoint ready for immediate fine-tuning or evaluation.
+    """
+    source_path = Path(source_ckpt_path)
+    target_path = Path(target_ckpt_path)
+    target_path.parent.mkdir(parents=True, exist_ok=True)
+
+    print(f"[Length Surgery] Loading source checkpoint from: {source_path}")
+    checkpoint = torch.load(source_path, map_location="cpu", weights_only=False)
+
+    old_max_length = 30
+    if "model_cfg" in checkpoint and "max_length" in checkpoint["model_cfg"]:
+        old_max_length = int(checkpoint["model_cfg"]["max_length"])
+    elif "hyper_parameters" in checkpoint and "args" in checkpoint["hyper_parameters"]:
+        args = checkpoint["hyper_parameters"]["args"]
+        if isinstance(args, dict) and "model_cfg" in args and "max_length" in args["model_cfg"]:
+            old_max_length = int(args["model_cfg"]["max_length"])
+
+    print(f"[Length Surgery] Expanding max sequence length: {old_max_length} -> {new_max_length} AA")
+
+    # 1. Surgery on state_dict
+    state_dict = checkpoint.get("state_dict", checkpoint)
+    new_state_dict = transplant_length_state_dict(
+        state_dict,
+        old_max_length=old_max_length,
+        new_max_length=new_max_length,
+        min_length=min_length,
+        perturbation_std=perturbation_std,
+        weight_noise_std=weight_noise_std,
+        bias_decay_slope=bias_decay_slope,
+    )
+    checkpoint["state_dict"] = new_state_dict
+
+    # 2. Surgery on EMA shadow params if present
+    if "ema_shadow_params" in checkpoint and checkpoint["ema_shadow_params"]:
+        print("[Length Surgery] Transplanting EMA shadow parameters...")
+        checkpoint["ema_shadow_params"] = transplant_length_state_dict(
+            checkpoint["ema_shadow_params"],
+            old_max_length=old_max_length,
+            new_max_length=new_max_length,
+            min_length=min_length,
+            perturbation_std=perturbation_std,
+            weight_noise_std=weight_noise_std,
+            bias_decay_slope=bias_decay_slope,
+        )
+
+    # 3. Update configuration metadata
+    if "model_cfg" in checkpoint and isinstance(checkpoint["model_cfg"], dict):
+        checkpoint["model_cfg"]["max_length"] = new_max_length
+    if "hyper_parameters" in checkpoint and isinstance(checkpoint["hyper_parameters"], dict):
+        args = checkpoint["hyper_parameters"].get("args", {})
+        if isinstance(args, dict):
+            args["max_length"] = new_max_length
+            if "model_cfg" in args and isinstance(args["model_cfg"], dict):
+                args["model_cfg"]["max_length"] = new_max_length
+
+    # 4. Clean up optimizer state if resetting
+    if reset_optimizer:
+        print("[Length Surgery] Resetting optimizer states and step counters for fresh warm-start fine-tuning.")
+        checkpoint["optimizer_states"] = []
+        checkpoint["lr_schedulers"] = []
+        checkpoint["epoch"] = 0
+        checkpoint["global_step"] = 0
+
+    print(f"[Length Surgery] Saving transplanted checkpoint to: {target_path}")
+    torch.save(checkpoint, target_path)
+    print(f"[Length Surgery] Successfully saved transplanted checkpoint!")
+    return checkpoint
+
+
 def main():
     import argparse
     parser = argparse.ArgumentParser(description="Weight Surgery: Expand vocabulary to support PTMs.")
