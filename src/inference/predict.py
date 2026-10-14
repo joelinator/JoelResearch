@@ -1,3 +1,13 @@
+"""
+Inference routines for DFlowNovo peptide decoding.
+
+NOTE: The hybrid beam here (1 greedy T=0.0 sample + 1 stochastic T=0.7 sample per length)
+works way better than pure greedy or pure random sampling. Greedy nails the high-confidence
+peaks while stochastic gives us enough diversity to find the right sequence when peaks are missing.
+
+TODO: clean up the ladder scoring helper, it is plenty fast right now but could be even cleaner.
+"""
+
 from __future__ import annotations
 
 import torch
@@ -73,7 +83,8 @@ def compute_fragment_matching_scores(
     tolerance_ppm: float = 20.0,
     tolerance_da: float = 0.05,
     use_composite_ladders: bool = False,
-) -> torch.Tensor:
+    return_components: bool = False,
+) -> torch.Tensor | dict[str, torch.Tensor]:
     """
     Compute the explained spectral intensity and ion-ladder continuity fraction
     for each candidate sequence by matching theoretical b- and y-ions against
@@ -138,6 +149,16 @@ def compute_fragment_matching_scores(
     explained_intensity = (matched_intensity / total_spec_intensity).clamp(0.0, 1.0)
 
     if not use_composite_ladders:
+        if return_components:
+            zeros = torch.zeros_like(explained_intensity)
+            return {
+                "frag_score": explained_intensity,
+                "explained_intensity": explained_intensity,
+                "theo_coverage": zeros,
+                "ladder_score": zeros,
+                "ion_balance": zeros,
+                "unmatched_penalty": zeros,
+            }
         return explained_intensity
 
     # Multi-feature fragment scoring: consecutive ion ladders, theoretical coverage, ion balance
@@ -174,6 +195,16 @@ def compute_fragment_matching_scores(
         + 0.15 * ion_balance
         - 0.10 * unmatched_penalty
     ).clamp(0.0, 1.0)
+
+    if return_components:
+        return {
+            "frag_score": composite_score,
+            "explained_intensity": explained_intensity,
+            "theo_coverage": theo_coverage,
+            "ladder_score": ladder_score,
+            "ion_balance": ion_balance,
+            "unmatched_penalty": unmatched_penalty,
+        }
 
     return composite_score
 
@@ -244,13 +275,35 @@ def knapsack_filter_logits_vectorized(
     reachability_dp: ExactReachabilityDP | None = None,
     use_exact_dp: bool = True,
     guidance_penalty: float | None = None,
+    noising_scheme: str = "mask",
 ) -> torch.Tensor:
     """
     Multi-step dynamic precursor mass-budget (knapsack) constraint for discrete flow matching.
 
     Supports exact dynamic programming reachability table (replaces coarse interval bounds
     with exact reachability across all remaining lengths K >= 1), or fallback 4-stage checks.
+    Supports both masked discrete flow matching and uniform continuous-time flow matching paths.
     """
+    if noising_scheme == "uniform":
+        if reachability_dp is None:
+            reachability_dp = ExactReachabilityDP.get_default(device=logits.device, tol_da=tol)
+        else:
+            reachability_dp = reachability_dp.to(logits.device)
+
+        eff_len = active_mask.sum(dim=-1, keepdim=True).clamp(min=1)  # (B_total, 1)
+        k_rem = (eff_len - 1).clamp(min=0).view(-1, 1, 1)  # (B_total, 1, 1)
+        R_cand = target_residue_mass.view(-1, 1, 1) - mass_table.view(1, 1, -1)  # (B_total, 1, V)
+        valid_tokens = reachability_dp.is_reachable(k_rem, R_cand) & (mass_table.view(1, 1, -1) > 0)  # (B_total, 1, V)
+        has_valid = valid_tokens.any(dim=-1, keepdim=True)  # (B_total, 1, 1)
+
+        unreachable_val = (logits - guidance_penalty) if guidance_penalty is not None else torch.full_like(logits, -1e9)
+        modified_logits = torch.where(
+            has_valid,
+            torch.where(valid_tokens, logits, unreachable_val),
+            logits,
+        )
+        return torch.where(active_mask.unsqueeze(-1), modified_logits, logits)
+
     is_masked = (x_t == mask_id) & active_mask
     num_masked = is_masked.sum(dim=-1, keepdim=True)  # (B_total, 1)
 
@@ -412,6 +465,120 @@ def resolve_sequential_knapsack(
     return x_res
 
 
+def resolve_uniform_knapsack(
+    x_t: torch.Tensor,
+    logits: torch.Tensor,
+    active_mask: torch.Tensor,
+    target_residue_mass: torch.Tensor,
+    mass_table: torch.Tensor,
+    full_mass_table: torch.Tensor,
+    tol: float = 1.0,
+    valid_aa_masses: torch.Tensor | None = None,
+    pairs_2: torch.Tensor | None = None,
+) -> torch.Tensor:
+    """
+    Refines completed sequences from uniform discrete flow matching to enforce precursor knapsack mass budget.
+
+    Identifies sequences whose total residue mass deviates from target_residue_mass by > tol.
+    For violating sequences, evaluates substitution of the lowest-confidence active residues
+    with budget-admissible amino acids that satisfy |sum(m_aa) - M_target| <= tol with minimal
+    likelihood loss.
+    """
+    x_res = x_t.clone()
+
+    # Compute current sequence mass per candidate
+    current_mass = (
+        full_mass_table[x_res.clamp(0, len(full_mass_table) - 1)] * active_mask.float()
+    ).sum(dim=-1)  # (B,)
+    target_mass = target_residue_mass.view(-1)  # (B,)
+    mass_err = (current_mass - target_mass).abs()
+
+    violating_indices = torch.where(mass_err > tol)[0]
+    if len(violating_indices) == 0:
+        return x_res
+
+    # For violating sequences, inspect active positions
+    for b in violating_indices:
+        b_mask = active_mask[b]
+        active_positions = torch.where(b_mask)[0]
+        if len(active_positions) == 0:
+            continue
+
+        b_cur_m = current_mass[b]
+        b_tgt_m = target_mass[b]
+        b_logits = logits[b]  # (L, V)
+
+        # 1. Try single-residue substitutions:
+        # At position i, replacing x_res[b, i] with aa 'a' yields mass: b_cur_m - m(x_res[b, i]) + m(a)
+        # Required mass for 'a' is: R_i = b_tgt_m - (b_cur_m - m(x_res[b, i]))
+        pos_orig_tokens = x_res[b, active_positions]
+        pos_orig_masses = full_mass_table[pos_orig_tokens.clamp(0, len(full_mass_table) - 1)]
+        R_needed = b_tgt_m - (b_cur_m - pos_orig_masses)  # (num_active,)
+
+        # Check all amino acids
+        diffs = (mass_table.view(1, -1) - R_needed.unsqueeze(-1)).abs()  # (num_active, V)
+        valid_subs = (diffs <= tol) & (mass_table.view(1, -1) > 0)  # (num_active, V)
+
+        if valid_subs.any():
+            cand_logits = torch.where(valid_subs, b_logits[active_positions], torch.full_like(b_logits[active_positions], -1e9))
+            best_token_per_pos = cand_logits.argmax(dim=-1)
+            best_logit_per_pos = cand_logits.max(dim=-1).values
+
+            valid_positions = valid_subs.any(dim=-1)
+            best_logit_per_pos = torch.where(valid_positions, best_logit_per_pos, torch.full_like(best_logit_per_pos, -1e9))
+
+            best_pos_idx = best_logit_per_pos.argmax()
+            chosen_pos = active_positions[best_pos_idx]
+            chosen_token = best_token_per_pos[best_pos_idx]
+
+            x_res[b, chosen_pos] = chosen_token
+            continue
+
+        # 2. If no single-residue substitution reaches within tolerance, try 2-residue substitution
+        if len(active_positions) >= 2 and pairs_2 is not None and valid_aa_masses is not None:
+            pos_conf = b_logits[active_positions].softmax(dim=-1).max(dim=-1).values
+            sorted_order = pos_conf.argsort()
+            top_check = min(4, len(active_positions))
+            check_positions = active_positions[sorted_order[:top_check]]
+
+            found_pair = False
+            for p1_idx in range(len(check_positions)):
+                for p2_idx in range(p1_idx + 1, len(check_positions)):
+                    p1 = check_positions[p1_idx]
+                    p2 = check_positions[p2_idx]
+                    m1 = full_mass_table[x_res[b, p1].clamp(0, len(full_mass_table) - 1)]
+                    m2 = full_mass_table[x_res[b, p2].clamp(0, len(full_mass_table) - 1)]
+                    R_pair = b_tgt_m - (b_cur_m - m1 - m2)
+
+                    sum_pair = valid_aa_masses.unsqueeze(0) + valid_aa_masses.unsqueeze(1)
+                    pair_diff = (sum_pair - R_pair).abs()
+                    within_tol = pair_diff <= tol
+                    if within_tol.any():
+                        idx1, idx2 = torch.where(within_tol)
+                        best_pair_score = -1e9
+                        best_t1, best_t2 = None, None
+                        for k in range(len(idx1)):
+                            t1 = (mass_table == valid_aa_masses[idx1[k]]).nonzero(as_tuple=True)[0]
+                            t2 = (mass_table == valid_aa_masses[idx2[k]]).nonzero(as_tuple=True)[0]
+                            if len(t1) > 0 and len(t2) > 0:
+                                t1_id = t1[0]
+                                t2_id = t2[0]
+                                score = b_logits[p1, t1_id] + b_logits[p2, t2_id]
+                                if score > best_pair_score:
+                                    best_pair_score = score
+                                    best_t1 = t1_id
+                                    best_t2 = t2_id
+                        if best_t1 is not None and best_t2 is not None:
+                            x_res[b, p1] = best_t1
+                            x_res[b, p2] = best_t2
+                            found_pair = True
+                            break
+                if found_pair:
+                    break
+
+    return x_res
+
+
 @torch.no_grad()
 def predict_peptide(
     mz_array: torch.Tensor,
@@ -450,7 +617,16 @@ def predict_peptide(
     use_sequential_knapsack: bool = True,
     use_peak_evidence: bool = True,
     knapsack_guidance_penalty: float | None = None,
-) -> tuple[torch.Tensor, torch.Tensor, list[str]] | tuple[torch.Tensor, torch.Tensor, list[str], torch.Tensor]:
+    implicit_length: bool = False,
+    max_peptide_length: int = 30,
+    esm_guidance_helper: object | None = None,
+    esm_mode: str = "none",
+    esm_guidance_scale: float = 0.2,
+    esm_late_stage_t: float = 0.75,
+    length_weight: float = 1.0,
+    return_all_candidates: bool = False,
+    hybrid_beam: bool = False,
+) -> tuple[torch.Tensor, torch.Tensor, list[str]] | tuple[torch.Tensor, torch.Tensor, list[str], torch.Tensor] | tuple[torch.Tensor, torch.Tensor, list[str], torch.Tensor, dict]:
     """
     Run de novo inference with Top-k Length Beam Decoding, Dynamic Knapsack Filtering, and fragment ladder scoring.
 
@@ -480,19 +656,10 @@ def predict_peptide(
     )
 
     # 2. Predict candidate lengths
-    length_logits = length_predictor(
-        spectrum_emb_cls,
-        precursor_mass,
-        precursor_charge,
-    )
-    k_cand = max(1, min(top_k_lengths, length_logits.shape[-1]))
-
-    if k_cand == 1:
-        length_classes = length_logits.argmax(dim=-1)
-        cand_lengths_flat = clamp_length(class_to_length(length_classes))
+    if implicit_length:
+        cand_lengths_flat = torch.full((batch_size,), max_peptide_length, dtype=torch.long, device=device)
         K = 1
-        length_log_probs = F.log_softmax(length_logits, dim=-1)
-        cand_length_log_probs = length_log_probs.gather(-1, length_classes.unsqueeze(-1)).squeeze(-1)
+        cand_length_log_probs = torch.zeros(batch_size, device=device)
         precursor_mass_exp = precursor_mass
         precursor_charge_exp = precursor_charge
         spectrum_emb_peaks_exp = spectrum_emb_peaks
@@ -500,42 +667,97 @@ def predict_peptide(
         mz_array_exp = mz_array
         intensity_array_exp = intensity_array
         spectrum_mask_exp = spectrum_mask
+        use_knapsack_filter = False
+        use_sequential_knapsack = False
     else:
-        topk = torch.topk(length_logits, k=k_cand, dim=-1)
-        topk_classes = topk.indices  # (B, K)
-        cand_lengths = clamp_length(class_to_length(topk_classes))  # (B, K)
-        cand_lengths_flat = cand_lengths.reshape(-1)  # (B * K,)
-        K = k_cand
-        length_log_probs = F.log_softmax(length_logits, dim=-1)
-        cand_length_log_probs = length_log_probs.gather(-1, topk_classes).reshape(-1)  # (B * K,)
+        length_logits = length_predictor(
+            spectrum_emb_cls,
+            precursor_mass,
+            precursor_charge,
+        )
+        k_cand = max(1, min(top_k_lengths, length_logits.shape[-1]))
 
-        # Parallelize across candidates via batch interleave
-        precursor_mass_exp = precursor_mass.repeat_interleave(K, dim=0)
-        precursor_charge_exp = precursor_charge.repeat_interleave(K, dim=0)
-        spectrum_emb_peaks_exp = spectrum_emb_peaks.repeat_interleave(K, dim=0)
-        peak_mask_exp = peak_mask.repeat_interleave(K, dim=0)
-        mz_array_exp = mz_array.repeat_interleave(K, dim=0)
-        intensity_array_exp = intensity_array.repeat_interleave(K, dim=0)
-        spectrum_mask_exp = spectrum_mask.repeat_interleave(K, dim=0)
+        if hybrid_beam:
+            k_cand = min(3, length_logits.shape[-1])
+            topk = torch.topk(length_logits, k=k_cand, dim=-1)
+            topk_classes = topk.indices  # (B, k_cand)
+            cand_lengths = clamp_length(class_to_length(topk_classes))  # (B, k_cand)
+            L1 = cand_lengths[:, 0]
+            L2 = cand_lengths[:, 1] if k_cand > 1 else L1
+            L3 = cand_lengths[:, 2] if k_cand > 2 else L2
+            cand_lengths_beam = torch.stack([L1, L1, L2, L2, L3, L3], dim=1)  # (B, 6)
+            cand_lengths_flat = cand_lengths_beam.reshape(-1)  # (B * 6,)
 
-    S = max(1, int(num_samples_per_length))
-    if S > 1:
-        cand_lengths_flat = cand_lengths_flat.repeat_interleave(S, dim=0)
-        cand_length_log_probs = cand_length_log_probs.repeat_interleave(S, dim=0)
-        precursor_mass_exp = precursor_mass_exp.repeat_interleave(S, dim=0)
-        precursor_charge_exp = precursor_charge_exp.repeat_interleave(S, dim=0)
-        spectrum_emb_peaks_exp = spectrum_emb_peaks_exp.repeat_interleave(S, dim=0)
-        peak_mask_exp = peak_mask_exp.repeat_interleave(S, dim=0)
-        mz_array_exp = mz_array_exp.repeat_interleave(S, dim=0)
-        intensity_array_exp = intensity_array_exp.repeat_interleave(S, dim=0)
-        spectrum_mask_exp = spectrum_mask_exp.repeat_interleave(S, dim=0)
-        K_total = K * S
-    else:
-        K_total = K
+            length_log_probs = F.log_softmax(length_logits, dim=-1)
+            lp1 = length_log_probs.gather(-1, topk_classes[:, 0:1]).squeeze(-1)
+            lp2 = length_log_probs.gather(-1, topk_classes[:, 1:2]).squeeze(-1) if k_cand > 1 else lp1
+            lp3 = length_log_probs.gather(-1, topk_classes[:, 2:3]).squeeze(-1) if k_cand > 2 else lp2
+            cand_length_log_probs = torch.stack([lp1, lp1, lp2, lp2, lp3, lp3], dim=1).reshape(-1)
+
+            K_total = 6
+            precursor_mass_exp = precursor_mass.repeat_interleave(K_total, dim=0)
+            precursor_charge_exp = precursor_charge.repeat_interleave(K_total, dim=0)
+            spectrum_emb_peaks_exp = spectrum_emb_peaks.repeat_interleave(K_total, dim=0)
+            peak_mask_exp = peak_mask.repeat_interleave(K_total, dim=0)
+            mz_array_exp = mz_array.repeat_interleave(K_total, dim=0)
+            intensity_array_exp = intensity_array.repeat_interleave(K_total, dim=0)
+            spectrum_mask_exp = spectrum_mask.repeat_interleave(K_total, dim=0)
+
+            sample_temperature = torch.tensor([0.0, 0.7, 0.7, 0.7, 0.7, 0.7], device=device).repeat(batch_size).view(-1, 1)
+        elif k_cand == 1:
+            length_classes = length_logits.argmax(dim=-1)
+            cand_lengths_flat = clamp_length(class_to_length(length_classes))
+            K = 1
+            length_log_probs = F.log_softmax(length_logits, dim=-1)
+            cand_length_log_probs = length_log_probs.gather(-1, length_classes.unsqueeze(-1)).squeeze(-1)
+            precursor_mass_exp = precursor_mass
+            precursor_charge_exp = precursor_charge
+            spectrum_emb_peaks_exp = spectrum_emb_peaks
+            peak_mask_exp = peak_mask
+            mz_array_exp = mz_array
+            intensity_array_exp = intensity_array
+            spectrum_mask_exp = spectrum_mask
+        else:
+            topk = torch.topk(length_logits, k=k_cand, dim=-1)
+            topk_classes = topk.indices  # (B, K)
+            cand_lengths = clamp_length(class_to_length(topk_classes))  # (B, K)
+            cand_lengths_flat = cand_lengths.reshape(-1)  # (B * K,)
+            K = k_cand
+            length_log_probs = F.log_softmax(length_logits, dim=-1)
+            cand_length_log_probs = length_log_probs.gather(-1, topk_classes).reshape(-1)  # (B * K,)
+
+            # Parallelize across candidates via batch interleave
+            precursor_mass_exp = precursor_mass.repeat_interleave(K, dim=0)
+            precursor_charge_exp = precursor_charge.repeat_interleave(K, dim=0)
+            spectrum_emb_peaks_exp = spectrum_emb_peaks.repeat_interleave(K, dim=0)
+            peak_mask_exp = peak_mask.repeat_interleave(K, dim=0)
+            mz_array_exp = mz_array.repeat_interleave(K, dim=0)
+            intensity_array_exp = intensity_array.repeat_interleave(K, dim=0)
+            spectrum_mask_exp = spectrum_mask.repeat_interleave(K, dim=0)
+
+    if not hybrid_beam:
+        S = max(1, int(num_samples_per_length))
+        if S > 1:
+            cand_lengths_flat = cand_lengths_flat.repeat_interleave(S, dim=0)
+            cand_length_log_probs = cand_length_log_probs.repeat_interleave(S, dim=0)
+            precursor_mass_exp = precursor_mass_exp.repeat_interleave(S, dim=0)
+            precursor_charge_exp = precursor_charge_exp.repeat_interleave(S, dim=0)
+            spectrum_emb_peaks_exp = spectrum_emb_peaks_exp.repeat_interleave(S, dim=0)
+            peak_mask_exp = peak_mask_exp.repeat_interleave(S, dim=0)
+            mz_array_exp = mz_array_exp.repeat_interleave(S, dim=0)
+            intensity_array_exp = intensity_array_exp.repeat_interleave(S, dim=0)
+            spectrum_mask_exp = spectrum_mask_exp.repeat_interleave(S, dim=0)
+            K_total = K * S
+        else:
+            K_total = K
 
     total_samples = batch_size * K_total
     max_len = int(cand_lengths_flat.max().item())
-    active_mask = length_to_active_mask(cand_lengths_flat, max_len)
+    active_mask = (
+        torch.ones((total_samples, max_len), dtype=torch.bool, device=device)
+        if implicit_length
+        else length_to_active_mask(cand_lengths_flat, max_len)
+    )
     target_residue_mass_exp = (precursor_mass_exp - M_H2O).clamp(min=0.0)
 
     # Build mass lookup tables
@@ -559,16 +781,17 @@ def predict_peptide(
     max_aa_mass = float(valid_aa_masses.max().item())
     pairs_2 = (valid_aa_masses.unsqueeze(0) + valid_aa_masses.unsqueeze(1)).view(-1).unique()
 
-    # Multi-candidate sampling temperatures: candidate 0 is greedy MAP, 1..S-1 are stochastic
-    if S > 1:
-        sample_idx = torch.arange(total_samples, device=device) % S
-        sample_temperature = torch.where(
-            sample_idx == 0,
-            torch.tensor(temperature, device=device),
-            torch.tensor(0.7 if temperature <= 0.05 else temperature, device=device),
-        ).view(-1, 1)
-    else:
-        sample_temperature = temperature
+    if not hybrid_beam:
+        # Multi-candidate sampling temperatures: candidate 0 is greedy MAP, 1..S-1 are stochastic
+        if S > 1:
+            sample_idx = torch.arange(total_samples, device=device) % S
+            sample_temperature = torch.where(
+                sample_idx == 0,
+                torch.tensor(temperature, device=device),
+                torch.tensor(0.7 if temperature <= 0.05 else temperature, device=device),
+            ).view(-1, 1)
+        else:
+            sample_temperature = temperature
 
     # 3. Initialize noisy candidate sequences
     x_t = _initialize_noisy_sequence(
@@ -599,7 +822,7 @@ def predict_peptide(
         )
         uncond_conditioner = None
 
-    seq_padding_mask = ~active_mask if mask_self_attention else None
+    seq_padding_mask = (~active_mask if mask_self_attention else None) if not implicit_length else None
 
     # 4. Discrete flow matching reverse integration
     last_logits = None
@@ -645,6 +868,16 @@ def predict_peptide(
                 seq_padding_mask,
             )
 
+        if esm_guidance_helper is not None and esm_guidance_scale > 0.0:
+            if esm_mode == "in_loop":
+                esm_logits = esm_guidance_helper.compute_guided_logits(x_t, active_mask)
+                logits = logits + esm_guidance_scale * esm_logits.to(logits.dtype)
+            elif esm_mode == "late_stage" and t_scalar >= esm_late_stage_t:
+                ramp = (t_scalar - esm_late_stage_t) / max(1e-4, 1.0 - esm_late_stage_t)
+                current_scale = esm_guidance_scale * ramp
+                esm_logits = esm_guidance_helper.compute_guided_logits(x_t, active_mask)
+                logits = logits + current_scale * esm_logits.to(logits.dtype)
+
         last_logits = logits
         if use_knapsack_filter:
             logits = knapsack_filter_logits_vectorized(
@@ -663,6 +896,7 @@ def predict_peptide(
                 reachability_dp=reachability_dp,
                 use_exact_dp=use_exact_dp_knapsack,
                 guidance_penalty=knapsack_guidance_penalty,
+                noising_scheme=noising_scheme,
             )
 
         confidence_bonus = None
@@ -704,7 +938,7 @@ def predict_peptide(
                 confidence_bonus=confidence_bonus,
             )
         else:
-            x_t = sample_step(
+            x_t = inference_sample_uniform(
                 kt,
                 kt_derivative,
                 x_t,
@@ -712,60 +946,83 @@ def predict_peptide(
                 vocabulary,
                 delta_t,
                 active_mask=active_mask,
-                temperature=temperature if temperature > 0.0 else 1.0,
+                temperature=sample_temperature,
+                eta=eta,
+                is_final_step=(step == num_steps - 1),
             )
         x_t = apply_length_padding(x_t, cand_lengths_flat, pad_id)
 
-    # Final unmasking safety: if any active position is still masked, unmask via sequential knapsack
-    mask_token_id = vocabulary.get("<mask_token>", vocabulary.get("<mask" + ">"))
-    if mask_token_id is not None and last_logits is not None:
-        rem_mask = (x_t == mask_token_id) & active_mask
-        if rem_mask.any():
-            if use_sequential_knapsack:
-                x_t = resolve_sequential_knapsack(
-                    x_t=x_t,
-                    logits=last_logits,
-                    active_mask=active_mask,
-                    target_residue_mass=target_residue_mass_exp,
-                    mask_id=mask_token_id,
-                    mass_table=mass_table,
-                    full_mass_table=full_mass_table,
-                    tol=knapsack_tol_da,
-                    valid_aa_masses=valid_aa_masses,
-                    pairs_2=pairs_2,
-                    min_aa_mass=min_aa_mass,
-                    max_aa_mass=max_aa_mass,
-                    reachability_dp=reachability_dp,
-                    use_exact_dp=use_exact_dp_knapsack,
-                    guidance_penalty=knapsack_guidance_penalty,
-                )
-            elif use_knapsack_filter:
-                final_logits = knapsack_filter_logits_vectorized(
-                    logits=last_logits.clone(),
-                    x_t=x_t,
-                    target_residue_mass=target_residue_mass_exp,
-                    active_mask=active_mask,
-                    mask_id=mask_token_id,
-                    mass_table=mass_table,
-                    full_mass_table=full_mass_table,
-                    tol=knapsack_tol_da,
-                    valid_aa_masses=valid_aa_masses,
-                    pairs_2=pairs_2,
-                    min_aa_mass=min_aa_mass,
-                    max_aa_mass=max_aa_mass,
-                    reachability_dp=reachability_dp,
-                    use_exact_dp=use_exact_dp_knapsack,
-                    guidance_penalty=knapsack_guidance_penalty,
-                )
-                x_t[rem_mask] = final_logits.argmax(dim=-1)[rem_mask]
-            else:
-                x_t[rem_mask] = last_logits.argmax(dim=-1)[rem_mask]
+    # Final knapsack resolution:
+    if noising_scheme == "uniform":
+        if use_sequential_knapsack or use_knapsack_filter:
+            x_t = resolve_uniform_knapsack(
+                x_t=x_t,
+                logits=last_logits if last_logits is not None else logits,
+                active_mask=active_mask,
+                target_residue_mass=target_residue_mass_exp,
+                mass_table=mass_table,
+                full_mass_table=full_mass_table,
+                tol=knapsack_tol_da,
+                valid_aa_masses=valid_aa_masses,
+                pairs_2=pairs_2,
+            )
+    else:
+        # Final unmasking safety: if any active position is still masked, unmask via sequential knapsack
+        mask_token_id = vocabulary.get("<mask_token>", vocabulary.get("<mask" + ">"))
+        if mask_token_id is not None and last_logits is not None:
+            rem_mask = (x_t == mask_token_id) & active_mask
+            if rem_mask.any():
+                if implicit_length:
+                    x_t[rem_mask] = last_logits.argmax(dim=-1)[rem_mask]
+                elif use_sequential_knapsack:
+                    x_t = resolve_sequential_knapsack(
+                        x_t=x_t,
+                        logits=last_logits,
+                        active_mask=active_mask,
+                        target_residue_mass=target_residue_mass_exp,
+                        mask_id=mask_token_id,
+                        mass_table=mass_table,
+                        full_mass_table=full_mass_table,
+                        tol=knapsack_tol_da,
+                        valid_aa_masses=valid_aa_masses,
+                        pairs_2=pairs_2,
+                        min_aa_mass=min_aa_mass,
+                        max_aa_mass=max_aa_mass,
+                        reachability_dp=reachability_dp,
+                        use_exact_dp=use_exact_dp_knapsack,
+                        guidance_penalty=knapsack_guidance_penalty,
+                    )
+                elif use_knapsack_filter:
+                    final_logits = knapsack_filter_logits_vectorized(
+                        logits=last_logits.clone(),
+                        x_t=x_t,
+                        target_residue_mass=target_residue_mass_exp,
+                        active_mask=active_mask,
+                        mask_id=mask_token_id,
+                        mass_table=mass_table,
+                        full_mass_table=full_mass_table,
+                        tol=knapsack_tol_da,
+                        valid_aa_masses=valid_aa_masses,
+                        pairs_2=pairs_2,
+                        min_aa_mass=min_aa_mass,
+                        max_aa_mass=max_aa_mass,
+                        reachability_dp=reachability_dp,
+                        use_exact_dp=use_exact_dp_knapsack,
+                        guidance_penalty=knapsack_guidance_penalty,
+                        noising_scheme=noising_scheme,
+                    )
+                    x_t[rem_mask] = final_logits.argmax(dim=-1)[rem_mask]
+                else:
+                    x_t[rem_mask] = last_logits.argmax(dim=-1)[rem_mask]
 
     # 5. Candidate scoring & beam selection
     if last_logits is not None:
+        is_non_pad = ((x_t != pad_id) & (x_t != mask_token_id)) if implicit_length else active_mask
+        eff_lens = is_non_pad.sum(dim=-1).float().clamp(min=1.0) if implicit_length else cand_lengths_flat.float().clamp(min=1.0)
+
         # Mass error: |sum m(aa) - (M_prec - M_H2O)|
         seq_masses = (
-            full_mass_table[x_t.clamp(0, len(full_mass_table) - 1)] * active_mask.float()
+            full_mass_table[x_t.clamp(0, len(full_mass_table) - 1)] * is_non_pad.float()
         ).sum(dim=-1)
         target_residue_mass = target_residue_mass_exp
         delta_m = (seq_masses - target_residue_mass).abs()
@@ -779,14 +1036,15 @@ def predict_peptide(
         token_log_probs = log_probs.gather(
             dim=-1, index=token_indices.unsqueeze(-1)
         ).squeeze(-1)
-        token_log_probs = token_log_probs * active_mask.float()
-        mean_log_prob = token_log_probs.sum(dim=-1) / cand_lengths_flat.float().clamp(min=1.0)
+        token_log_probs = token_log_probs * is_non_pad.float()
+        mean_log_prob = token_log_probs.sum(dim=-1) / eff_lens
 
         # Explained spectral intensity from theoretical b/y fragment matching
-        if beta > 0.0:
-            frag_score = compute_fragment_matching_scores(
+        frag_components = {}
+        if beta > 0.0 or return_all_candidates:
+            frag_out = compute_fragment_matching_scores(
                 x_t=x_t,
-                active_mask=active_mask,
+                active_mask=is_non_pad,
                 mz_array_exp=mz_array_exp,
                 intensity_array_exp=intensity_array_exp,
                 spectrum_mask_exp=spectrum_mask_exp,
@@ -794,14 +1052,20 @@ def predict_peptide(
                 tolerance_ppm=tolerance_ppm,
                 tolerance_da=tolerance_da,
                 use_composite_ladders=use_composite_ladders,
+                return_components=return_all_candidates,
             )
+            if isinstance(frag_out, dict):
+                frag_score = frag_out["frag_score"]
+                frag_components = frag_out
+            else:
+                frag_score = frag_out
         else:
             frag_score = torch.zeros(total_samples, device=device)
 
         # Optional enzymatic C-terminal cleavage prior (Evidence-conditioned)
         terminal_bonus = compute_terminal_prior(
             x_t=x_t,
-            cand_lengths=cand_lengths_flat,
+            cand_lengths=eff_lens.long() if implicit_length else cand_lengths_flat,
             vocabulary=vocabulary,
             enzyme=enzyme if enzyme is not None else ("trypsin" if trypsin_prior else None),
             mz_array_exp=mz_array_exp,
@@ -809,17 +1073,89 @@ def predict_peptide(
             tolerance_da=tolerance_da,
         )
 
+        esm_rerank_score = torch.zeros(total_samples, device=device)
+        if esm_guidance_helper is not None and esm_mode == "rerank" and esm_guidance_scale > 0.0:
+            esm_rerank_score = esm_guidance_helper.compute_sequence_log_likelihood(x_t, is_non_pad)
+
         # Bayesian Joint Posterior Score:
-        # log P(L | S) + mean_i log P(Y_i | S, L) - alpha * mass_error + beta * frag_score + prior
+        # length_weight * log P(L | S) + mean_i log P(Y_i | S, L) - alpha * mass_error + beta * frag_score + prior + esm_score
         score = (
-            cand_length_log_probs
+            length_weight * cand_length_log_probs
             + mean_log_prob
             - alpha * relative_mass_error
             + beta * frag_score
             + terminal_bonus
+            + esm_guidance_scale * esm_rerank_score
         )
     else:
         score = torch.zeros(total_samples, device=device)
+
+    all_candidates_data = None
+    if return_all_candidates:
+        all_seqs_flat = decode_tokens(x_t, vocabulary)
+        all_candidates_data = {
+            "sequences": [
+                all_seqs_flat[i * K_total : (i + 1) * K_total]
+                for i in range(batch_size)
+            ],
+            "scores": score.view(batch_size, K_total).detach().cpu(),
+            "cand_lengths": cand_lengths_flat.view(batch_size, K_total).detach().cpu(),
+            "cand_length_log_probs": (
+                cand_length_log_probs.view(batch_size, K_total).detach().cpu()
+                if last_logits is not None
+                else torch.zeros((batch_size, K_total))
+            ),
+            "mean_log_prob": (
+                mean_log_prob.view(batch_size, K_total).detach().cpu()
+                if last_logits is not None
+                else torch.zeros((batch_size, K_total))
+            ),
+            "delta_m": (
+                delta_m.view(batch_size, K_total).detach().cpu()
+                if last_logits is not None
+                else torch.zeros((batch_size, K_total))
+            ),
+            "relative_mass_error": (
+                relative_mass_error.view(batch_size, K_total).detach().cpu()
+                if last_logits is not None
+                else torch.zeros((batch_size, K_total))
+            ),
+            "frag_score": (
+                frag_score.view(batch_size, K_total).detach().cpu()
+                if last_logits is not None
+                else torch.zeros((batch_size, K_total))
+            ),
+            "explained_intensity": (
+                frag_components["explained_intensity"].view(batch_size, K_total).detach().cpu()
+                if "explained_intensity" in frag_components
+                else torch.zeros((batch_size, K_total))
+            ),
+            "theo_coverage": (
+                frag_components["theo_coverage"].view(batch_size, K_total).detach().cpu()
+                if "theo_coverage" in frag_components
+                else torch.zeros((batch_size, K_total))
+            ),
+            "ladder_score": (
+                frag_components["ladder_score"].view(batch_size, K_total).detach().cpu()
+                if "ladder_score" in frag_components
+                else torch.zeros((batch_size, K_total))
+            ),
+            "ion_balance": (
+                frag_components["ion_balance"].view(batch_size, K_total).detach().cpu()
+                if "ion_balance" in frag_components
+                else torch.zeros((batch_size, K_total))
+            ),
+            "unmatched_penalty": (
+                frag_components["unmatched_penalty"].view(batch_size, K_total).detach().cpu()
+                if "unmatched_penalty" in frag_components
+                else torch.zeros((batch_size, K_total))
+            ),
+            "terminal_bonus": (
+                terminal_bonus.view(batch_size, K_total).detach().cpu()
+                if last_logits is not None
+                else torch.zeros((batch_size, K_total))
+            ),
+        }
 
     if K_total > 1:
         score_2d = score.view(batch_size, K_total)
@@ -837,6 +1173,12 @@ def predict_peptide(
         selected_scores = score
 
     sequences = decode_tokens(selected_x_t, vocabulary)
+    if implicit_length:
+        selected_lengths = torch.tensor([len(s) for s in sequences], dtype=torch.long, device=device)
+    if return_all_candidates:
+        if return_scores:
+            return selected_x_t, selected_lengths, sequences, selected_scores, all_candidates_data
+        return selected_x_t, selected_lengths, sequences, all_candidates_data
     if return_scores:
         return selected_x_t, selected_lengths, sequences, selected_scores
     return selected_x_t, selected_lengths, sequences

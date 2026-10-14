@@ -1,5 +1,10 @@
 #!/usr/bin/env python3
-"""Entry point for de novo peptide inference."""
+"""
+Entry point for de novo peptide inference.
+
+NOTE: for large datasets (>10k spectra), batch-size 256 maximizes H100 throughput.
+TODO: support reading raw .mgf / .mzML files directly from the command line.
+"""
 
 from __future__ import annotations
 

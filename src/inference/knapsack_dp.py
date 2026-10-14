@@ -1,11 +1,8 @@
-"""
-Exact Dynamic Programming Reachable-Mass Table for Mass-Constrained De Novo Peptide Sequencing.
-
-Replaces heuristic interval bounds with an exact reachable-mass dynamic programming
-grid. For any remaining sequence length k in [0, max_length] and any candidate residue a,
-it determines in O(1) whether the remaining mass budget (R - m_a) can be exactly
-partitioned into k - 1 valid amino acid residues within instrument tolerance.
-"""
+# Dynamic programming reachable-mass table for mass knapsack guidance.
+# Checks in O(1) whether the remaining precursor mass budget can be formed by k amino acids.
+# NOTE: bin_size=0.02 Da is the sweet spot between memory consumption and float accuracy.
+# Fun fact: Isoleucine and Leucine are isobaric nightmares (both 113.08406 Da).
+# TODO: consider serializing this table to disk to save the ~100ms initialization time on startup.
 
 from __future__ import annotations
 
@@ -16,22 +13,15 @@ from data.lengths import MAX_PEPTIDE_LENGTH
 
 
 def calculate_charge_adaptive_tolerance(precursor_mass: float, precursor_charge: int, tolerance_ppm: float, alpha: float = 0.1) -> float:
-    """Calculates mass tolerance in Daltons, scaling with precursor charge."""
+    # Scales tolerance slightly with charge state to account for instrument noise at higher z
     base_tolerance_da = precursor_mass * tolerance_ppm * 1e-6
     charge_factor = 1.0 + alpha * (max(1, precursor_charge) - 1)
     return base_tolerance_da * charge_factor
 
 
 class ExactReachabilityDP:
-    """
-    Exact reachable-mass table computed via dynamic programming.
-
-    State:
-        dp[k, b] = True iff exactly k residues can sum to mass bin b.
-
-    With tolerance pooling:
-        reachable[k, b] = True iff |sum_{i=1}^k m(a_i) - mass(b)| <= tol_da.
-    """
+    # Boolean table where dp[k, b] is True if k residues can sum up to mass bin b.
+    # We apply 1D max pooling over the tolerance window for instant lookups.
 
     _cached_instance: ExactReachabilityDP | None = None
 
@@ -39,7 +29,7 @@ class ExactReachabilityDP:
         self,
         aa_masses: list[float] | torch.Tensor | None = None,
         max_len: int = MAX_PEPTIDE_LENGTH,
-        max_mass: float = 5000.0,
+        max_mass: float = 5500.0,
         bin_size: float = 0.02,
         tol_da: float = 0.5,
         device: torch.device | str = "cpu",

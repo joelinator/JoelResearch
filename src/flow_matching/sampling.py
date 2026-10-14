@@ -1,14 +1,9 @@
-"""
-Forward and reverse sampling for discrete flow matching.
-
-Padding policy
---------------
-* `<pad>` is structural batch padding, not a generative token.
-* Active positions (0 .. length-1): sample / noise amino acids only.
-* Inactive positions (j >= length): stay `<pad>`, never noised, never updated.
-* `<mask>` may appear in the input embedding during noising but is not in the
-  decoder output head.
-"""
+# Forward and reverse sampling for discrete flow matching.
+# Reverse Euler solver with continuous-time detailed balance re-masking (eta).
+#
+# NOTE: Active positions (0 .. length-1) get unmasked/remasked; inactive positions stay <pad>.
+# NOTE: temperature <= 0.05 is treated as greedy MAP argmax to avoid 0-division bugs.
+# TODO: experiment with adaptive temperature decay over the integration steps.
 
 import torch
 import torch.nn.functional as F
@@ -122,11 +117,12 @@ def inference_sample_mask(
         confidence_bonus: Optional additive boost tensor (B, L) based on physical peak evidence.
     """
     if isinstance(temperature, torch.Tensor):
-        t_clamped = temperature.view(-1, 1, 1).clamp(min=1e-3)
-        probs = F.softmax(logits / t_clamped, dim=-1)
+        t_tensor = temperature.view(-1, 1, 1)
+        t_safe = torch.where(t_tensor <= 0.05, torch.tensor(1.0, device=logits.device, dtype=logits.dtype), t_tensor.clamp(min=1e-3))
+        probs = F.softmax(logits / t_safe, dim=-1)
         greedy = logits.argmax(dim=-1)
         stochastic = Categorical(probs).sample()
-        is_greedy = (temperature.view(-1, 1) <= 0.05).expand(-1, logits.shape[1])
+        is_greedy = (t_tensor.squeeze(-1) <= 0.05).expand(-1, logits.shape[1])
         x_1 = torch.where(is_greedy, greedy, stochastic)
     elif temperature <= 0.05:
         probs = F.softmax(logits, dim=-1)
@@ -210,19 +206,108 @@ def inference_sample_mask(
 
 
 def inference_sample_uniform(
-    kt, kt_derivatives, x_t, logits, vocab, delta_t, active_mask=None, temperature: float = 1.0
-):
-    """Reverse uniform step; only active positions may change."""
-    if temperature > 0.0 and temperature != 1.0:
-        probs = F.softmax(logits / temperature, dim=-1)
+    kt: torch.Tensor,
+    kt_derivatives: torch.Tensor,
+    x_t: torch.Tensor,
+    logits: torch.Tensor,
+    vocab: dict[str, int],
+    delta_t: float,
+    active_mask: torch.Tensor | None = None,
+    temperature: float | torch.Tensor = 0.0,
+    eta: float = 0.0,
+    is_final_step: bool = False,
+) -> torch.Tensor:
+    """
+    Reverse uniform step under continuous-time discrete flow matching (Campbell et al. 2024).
+
+    Implements the conditional continuous-time Markov chain (CTMC) jump rate matrix on the
+    uniform probability path with Detailed Balance exploration and knapsack-constrained transitions.
+
+    Rate matrix (Campbell et al. 2024, arXiv:2402.04997):
+        For j != x_t (j in valid amino acids):
+            R_t(x_t, j) = p_theta(j | x_t) * [k'(t) / (1 - k(t)) + eta]
+        Discretized transition probability over step dt:
+            P(x_{t+dt} = j | x_t) = dt * R_t(x_t, j) = c_t * p_theta(j | x_t)    (j != x_t)
+            P(x_{t+dt} = x_t | x_t) = (1 - c_t) + c_t * p_theta(x_t | x_t)
+        where c_t = clamp(dt * [k'(t) / (1 - k(t)) + eta], 0.0, 1.0).
+
+    Args:
+        kt: Scheduler state at time t, shape (B,).
+        kt_derivatives: Time derivative of scheduler, shape (B,).
+        x_t: Current noisy sequence of token IDs, shape (B, L).
+        logits: Unnormalized decoder logits over vocabulary, shape (B, L, num_classes).
+        vocab: Token vocabulary mapping string tokens to token IDs.
+        delta_t: Discretization step size dt.
+        active_mask: Boolean tensor (B, L) where True indicates active (non-padded) residues.
+        temperature: Sampling temperature. If <= 0.05, uses greedy MAP on final step.
+        eta: Detailed Balance stochasticity parameter (Campbell et al. 2024).
+             Introduces reversible symmetric transitions enabling error correction.
+        is_final_step: If True, disables stochastic noise to produce clean terminal predictions.
+    """
+    # Restrict active predictions strictly to valid amino acids (mask <pad> and <mask_token>)
+    pad_id, mask_id = special_token_ids(vocab)
+    special = {pad_id, mask_id}
+    num_classes = logits.shape[-1]
+    is_valid_aa = torch.ones(num_classes, dtype=torch.bool, device=logits.device)
+    for s_id in special:
+        if s_id is not None and 0 <= s_id < num_classes:
+            is_valid_aa[s_id] = False
+
+    clean_logits = logits.masked_fill(~is_valid_aa.view(1, 1, -1), -1e9)
+
+    # Compute predicted posterior p_theta(x_1 | x_t)
+    if isinstance(temperature, torch.Tensor):
+        t_clamped = temperature.view(-1, 1, 1).clamp(min=1e-3)
+        probs = F.softmax(clean_logits / t_clamped, dim=-1)
+        is_greedy = (temperature.view(-1, 1) <= 0.05).expand(-1, logits.shape[1])
+    elif temperature <= 0.05:
+        probs = F.softmax(clean_logits, dim=-1)
+        is_greedy = True
     else:
-        probs = F.softmax(logits, dim=-1)
+        probs = F.softmax(clean_logits / temperature, dim=-1)
+        is_greedy = False
+
+    # On final step with greedy temperature, take deterministic MAP prediction
+    if is_final_step:
+        greedy_samples = clean_logits.argmax(dim=-1)
+        if isinstance(is_greedy, torch.Tensor):
+            stoch_samples = Categorical(probs.clamp(min=1e-8)).sample()
+            final_samples = torch.where(is_greedy, greedy_samples, stoch_samples)
+        elif is_greedy:
+            final_samples = greedy_samples
+        else:
+            final_samples = Categorical(probs.clamp(min=1e-8)).sample()
+        return _apply_active_only(x_t, final_samples, active_mask)
+
+    # Campbell CTMC jump rate matrix (Campbell et al. 2024, Eq. 325):
+    # For j != x_t:
+    #   R_t(x_t, j) = [(k'(t) + eta*(1 + (S-1)*k(t))) / (1 - k(t))] * p_theta(j|x_t) + eta * p_theta(x_t|x_t)
+    # Transition probability over delta_t:
+    #   P(j | x_t) = delta_t * R_t(x_t, j)  for j != x_t
+    #   P(x_t | x_t) = 1 - sum_{j != x_t} P(j | x_t)
+    S = is_valid_aa.sum().float()
     denom = clean_weight_denominator(kt).view(-1, 1, 1)
-    step_probs = (probs * kt_derivatives.view(-1, 1, 1) * delta_t / denom).clamp(max=1.0)
-    x_t_clamped = x_t.clamp(0, probs.shape[-1] - 1)
-    step_probs = step_probs.scatter(-1, x_t_clamped.unsqueeze(-1), 0.0)
-    remaining = (1.0 - step_probs.sum(dim=-1, keepdim=True)).clamp(min=0.0)
-    step_probs = step_probs.scatter(-1, x_t_clamped.unsqueeze(-1), remaining)
-    samples = Categorical(step_probs.clamp(min=0.0)).sample()
+    drift_coeff = (kt_derivatives.view(-1, 1, 1) + eta * (1.0 + (S - 1.0) * kt.view(-1, 1, 1))) / denom
+
+    x_t_clamped = x_t.clamp(0, num_classes - 1)
+    curr_p = probs.gather(-1, x_t_clamped.unsqueeze(-1))  # (B, L, 1)
+
+    # Compute off-diagonal step probabilities
+    step_probs = delta_t * (drift_coeff * probs + eta * curr_p)
+
+    # Zero out diagonal, mask non-amino-acid tokens
+    step_probs = step_probs.masked_fill(~is_valid_aa.view(1, 1, -1), 0.0)
+    step_probs.scatter_(-1, x_t_clamped.unsqueeze(-1), 0.0)
+
+    # Compute diagonal (stay probability) ensuring sum = 1
+    off_diag_sum = step_probs.sum(dim=-1, keepdim=True)
+    stay_prob = (1.0 - off_diag_sum).clamp(min=0.0)
+    step_probs.scatter_(-1, x_t_clamped.unsqueeze(-1), stay_prob)
+
+    # Numerical normalization over valid amino acid simplex
+    step_probs = step_probs.clamp(min=0.0)
+    step_probs = step_probs / step_probs.sum(dim=-1, keepdim=True).clamp(min=1e-8)
+
+    samples = Categorical(step_probs).sample()
     return _apply_active_only(x_t, samples, active_mask)
 

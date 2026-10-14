@@ -52,6 +52,11 @@ def evaluate_generative(
     use_sequential_knapsack: bool = True,
     use_peak_evidence: bool = True,
     knapsack_guidance_penalty: float | None = None,
+    implicit_length: bool = False,
+    esm_guidance_helper: object | None = None,
+    esm_mode: str = "none",
+    esm_guidance_scale: float = 0.2,
+    esm_late_stage_t: float = 0.75,
 ) -> DenovoMetrics | tuple[DenovoMetrics, dict]:
     """Decode peptides with the full DFM inference loop and score against labels."""
     predictions: list[str] = []
@@ -65,6 +70,12 @@ def evaluate_generative(
         if torch.cuda.is_available() and torch.cuda.is_bf16_supported()
         else torch.float16
     )
+
+    import time
+    start_time = time.time()
+    # NOTE: throughput timer measures end-to-end wall-clock time including peak encoding,
+    # KnapsackDP lookups, reverse flow ODE integration, and string decoding.
+    # TODO: bucket spectra by precursor mass before batching to minimize padding overhead.
 
     for batch_idx, batch in enumerate(loader):
         if max_batches is not None and batch_idx >= max_batches:
@@ -124,6 +135,11 @@ def evaluate_generative(
                 use_sequential_knapsack=use_sequential_knapsack,
                 use_peak_evidence=use_peak_evidence,
                 knapsack_guidance_penalty=knapsack_guidance_penalty,
+                implicit_length=implicit_length,
+                esm_guidance_helper=esm_guidance_helper,
+                esm_mode=esm_mode,
+                esm_guidance_scale=esm_guidance_scale,
+                esm_late_stage_t=esm_late_stage_t,
             )
 
         predictions.extend(pred_sequences)
@@ -178,6 +194,8 @@ def evaluate_generative(
             targets=targets,
             lengths=target_lengths,
         )
+        elapsed_time = time.time() - start_time
+        throughput = len(predictions) / max(1e-4, elapsed_time)
         details = {
             "predictions": predictions,
             "targets": targets,
@@ -188,6 +206,8 @@ def evaluate_generative(
             "exact_matches_il": exact_matches_il,
             "mass_matches": mass_matches,
             "stratified_breakdown": stratified,
+            "elapsed_time": elapsed_time,
+            "throughput": throughput,
         }
         return metrics, details
 
@@ -200,23 +220,33 @@ def evaluate_teacher_forced(
     sequence: torch.Tensor,
     length_logits: torch.Tensor,
     length: torch.Tensor,
-    active_mask: torch.Tensor,
+    active_mask: torch.Tensor | None,
     vocabulary: dict[str, int],
+    implicit_length: bool = False,
 ) -> dict[str, float]:
     """Fast proxy metrics from a single forward pass (not full generative decoding)."""
     pad_id = vocabulary["<pad>"]
     output_token_tensor = torch.tensor(
-        decoder_output_token_ids(vocabulary), device=sequence.device, dtype=sequence.dtype
+        decoder_output_token_ids(vocabulary, include_pad=implicit_length),
+        device=sequence.device,
+        dtype=sequence.dtype,
     )
 
     # ── Token accuracy (fully vectorised) ──────────────────────────────────
     pred_class = peptide_logits.argmax(dim=-1)            # (B, L)
     pred_tokens = output_token_tensor[pred_class]          # (B, L) vocab ids
-    token_correct = (pred_tokens == sequence) & active_mask
-    token_accuracy = token_correct.sum().item() / active_mask.sum().clamp(min=1).item()
+    if active_mask is not None:
+        token_correct = (pred_tokens == sequence) & active_mask
+        token_accuracy = token_correct.sum().item() / active_mask.sum().clamp(min=1).item()
+    else:
+        token_correct = (pred_tokens == sequence)
+        token_accuracy = token_correct.float().mean().item()
 
     # ── Length accuracy ────────────────────────────────────────────────────
-    pred_lengths = length_logits.argmax(dim=-1) + 1
+    if implicit_length:
+        pred_lengths = (pred_tokens != pad_id).sum(dim=-1)
+    else:
+        pred_lengths = length_logits.argmax(dim=-1) + 1
     length_accuracy = (pred_lengths == length).float().mean().item()
 
     # ── Exact peptide accuracy (vectorised string assembly) ────────────────
@@ -227,12 +257,16 @@ def evaluate_teacher_forced(
     # Move to CPU once; iterate over rows only (not over tokens).
     pred_tokens_cpu = pred_tokens.cpu()
     sequence_cpu = sequence.cpu()
-    active_mask_cpu = active_mask.cpu()
+    active_mask_cpu = active_mask.cpu() if active_mask is not None else None
 
     for row_idx in range(sequence_cpu.shape[0]):
-        mask_row = active_mask_cpu[row_idx]           # (L,) bool
-        tgt_ids = sequence_cpu[row_idx][mask_row]     # active target ids
-        prd_ids = pred_tokens_cpu[row_idx][mask_row]  # active pred ids
+        if active_mask_cpu is not None:
+            mask_row = active_mask_cpu[row_idx]           # (L,) bool
+            tgt_ids = sequence_cpu[row_idx][mask_row]     # active target ids
+            prd_ids = pred_tokens_cpu[row_idx][mask_row]  # active pred ids
+        else:
+            tgt_ids = sequence_cpu[row_idx]
+            prd_ids = pred_tokens_cpu[row_idx]
 
         targets.append("".join(
             index_to_token[t.item()] for t in tgt_ids if t.item() != pad_id
