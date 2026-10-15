@@ -235,3 +235,54 @@ def length_weighted_peptide_loss(
     return (seq_loss * weights).mean()
 
 
+def complementary_ion_loss(
+    logits: torch.Tensor,
+    aa_masses: torch.Tensor,
+    precursor_mass: torch.Tensor,
+    active_mask: torch.Tensor | None = None,
+    temperature: float = 0.5,
+    threshold: float = 1e-2,
+) -> torch.Tensor:
+    """
+    Physical symmetry loss enforcing complementary b/y ion pairing:
+        m(b_i) + m(y_{L-i}) = M_precursor - M_H2O (18.010565 Da)
+
+    For each internal cleavage position i in 1..L-1, the sum of prefix residue masses
+    and suffix residue masses must equal the total neutral residue mass of the precursor.
+
+    Args:
+        logits: Tensor of shape (B, L, num_classes)
+        aa_masses: Tensor of shape (num_classes,) containing residue monoisotopic masses
+        precursor_mass: Tensor of shape (B,) with total neutral precursor mass
+        active_mask: Optional boolean tensor of shape (B, L) indicating non-pad tokens
+        temperature: Softmax temperature for expected mass estimation
+        threshold: Huber loss transition threshold
+    """
+    seq_probs = F.softmax(logits / temperature, dim=-1)
+    num_classes = logits.size(-1)
+    output_masses = aa_masses[:num_classes]
+    expected_residue_mass = torch.sum(seq_probs * output_masses, dim=-1)  # (B, L)
+
+    if active_mask is not None:
+        expected_residue_mass = expected_residue_mass * active_mask.float()
+
+    prefix_cum = expected_residue_mass.cumsum(dim=1)  # m(b_i)
+    total_expected = prefix_cum[:, -1:]  # (B, 1)
+    suffix_cum = total_expected - prefix_cum  # m(y_{L-i})
+
+    target_residue_mass = (precursor_mass - 18.010565).clamp(min=1.0).unsqueeze(-1)  # (B, 1)
+
+    # For internal cleavage points, prefix_cum + suffix_cum == target_residue_mass
+    pair_sum = prefix_cum + suffix_cum
+    rel_error = torch.abs(pair_sum - target_residue_mass) / target_residue_mass
+
+    huber_mask = rel_error < threshold
+    loss = torch.where(huber_mask, 0.5 * (rel_error**2) / threshold, rel_error - 0.5 * threshold)
+
+    if active_mask is not None:
+        loss = loss * active_mask.float()
+        return loss.sum() / active_mask.sum().clamp(min=1.0)
+    return loss.mean()
+
+
+
