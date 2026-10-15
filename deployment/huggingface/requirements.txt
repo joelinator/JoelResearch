@@ -5,3 +5,5 @@ huggingface_hub>=0.20.0
 pyyaml
 scipy
 gradio>=4.0.0
+pyteomics>=4.6
+
