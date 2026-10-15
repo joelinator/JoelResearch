@@ -1,0 +1,419 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>DFlowNovo: Discrete Flow Matching for De Novo Peptide Sequencing</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --primary: #4f46e5;
+            --primary-hover: #4338ca;
+            --secondary: #06b6d4;
+            --bg-dark: #0f172a;
+            --surface-dark: #1e293b;
+            --border-dark: #334155;
+            --text-main: #f8fafc;
+            --text-muted: #94a3b8;
+            --accent: #10b981;
+        }
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+        body {
+            font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+            background-color: var(--bg-dark);
+            color: var(--text-main);
+            line-height: 1.6;
+        }
+        header {
+            background: linear-gradient(135deg, #1e1b4b 0%, #0f172a 100%);
+            border-bottom: 1px solid var(--border-dark);
+            padding: 2.5rem 2rem 2rem 2rem;
+            text-align: center;
+        }
+        .header-content {
+            max-width: 1100px;
+            margin: 0 auto;
+        }
+        .title-badge {
+            display: inline-flex;
+            align-items: center;
+            gap: 0.5rem;
+            background: rgba(99, 102, 241, 0.15);
+            border: 1px solid rgba(99, 102, 241, 0.35);
+            color: #a5b4fc;
+            padding: 0.35rem 1rem;
+            border-radius: 9999px;
+            font-size: 0.85rem;
+            font-weight: 600;
+            margin-bottom: 1.25rem;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+        }
+        h1 {
+            font-size: 2.75rem;
+            font-weight: 800;
+            letter-spacing: -0.03em;
+            background: linear-gradient(135deg, #ffffff 0%, #cbd5e1 50%, #818cf8 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            margin-bottom: 1rem;
+        }
+        .subtitle {
+            font-size: 1.2rem;
+            color: var(--text-muted);
+            max-width: 800px;
+            margin: 0 auto 1.75rem auto;
+            font-weight: 400;
+        }
+        .badges-container {
+            display: flex;
+            justify-content: center;
+            flex-wrap: wrap;
+            gap: 0.75rem;
+            margin-bottom: 1.5rem;
+        }
+        .badge {
+            display: inline-flex;
+            align-items: center;
+            gap: 0.4rem;
+            padding: 0.4rem 0.85rem;
+            border-radius: 8px;
+            font-size: 0.85rem;
+            font-weight: 500;
+            text-decoration: none;
+            transition: all 0.2s ease;
+        }
+        .badge-hf {
+            background: #ffbd59;
+            color: #1e293b;
+            font-weight: 700;
+        }
+        .badge-model {
+            background: rgba(16, 185, 129, 0.15);
+            border: 1px solid rgba(16, 185, 129, 0.4);
+            color: #34d399;
+        }
+        .badge-sota {
+            background: rgba(244, 63, 94, 0.15);
+            border: 1px solid rgba(244, 63, 94, 0.4);
+            color: #fb7185;
+            font-weight: 600;
+        }
+        .badge:hover {
+            transform: translateY(-1px);
+            filter: brightness(1.1);
+        }
+        .nav-links {
+            display: flex;
+            justify-content: center;
+            gap: 1.5rem;
+            font-size: 0.95rem;
+        }
+        .nav-links a {
+            color: #818cf8;
+            text-decoration: none;
+            display: inline-flex;
+            align-items: center;
+            gap: 0.35rem;
+        }
+        .nav-links a:hover {
+            text-decoration: underline;
+        }
+        main {
+            max-width: 1400px;
+            margin: 0 auto;
+            padding: 2rem;
+        }
+        .app-section {
+            background: var(--surface-dark);
+            border: 1px solid var(--border-dark);
+            border-radius: 16px;
+            overflow: hidden;
+            box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.4), 0 8px 10px -6px rgba(0, 0, 0, 0.3);
+            margin-bottom: 2.5rem;
+        }
+        .app-bar {
+            background: #182234;
+            padding: 0.85rem 1.5rem;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            border-bottom: 1px solid var(--border-dark);
+        }
+        .app-bar-title {
+            font-weight: 600;
+            font-size: 0.95rem;
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+        .status-dot {
+            width: 10px;
+            height: 10px;
+            background-color: var(--accent);
+            border-radius: 50%;
+            display: inline-block;
+            box-shadow: 0 0 8px var(--accent);
+        }
+        .app-bar-actions a {
+            font-size: 0.85rem;
+            color: #94a3b8;
+            text-decoration: none;
+            background: rgba(255, 255, 255, 0.05);
+            padding: 0.35rem 0.75rem;
+            border-radius: 6px;
+            border: 1px solid var(--border-dark);
+            transition: all 0.2s ease;
+        }
+        .app-bar-actions a:hover {
+            color: #fff;
+            background: rgba(255, 255, 255, 0.1);
+        }
+        .iframe-container {
+            width: 100%;
+            height: 860px;
+            position: relative;
+            background: #ffffff;
+        }
+        iframe {
+            width: 100%;
+            height: 100%;
+            border: none;
+        }
+        .grid-cards {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+            gap: 1.5rem;
+            margin-bottom: 2.5rem;
+        }
+        .card {
+            background: var(--surface-dark);
+            border: 1px solid var(--border-dark);
+            border-radius: 14px;
+            padding: 1.75rem;
+        }
+        .card h3 {
+            font-size: 1.2rem;
+            margin-bottom: 1rem;
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            color: #f1f5f9;
+        }
+        .card p {
+            color: var(--text-muted);
+            font-size: 0.95rem;
+            margin-bottom: 1rem;
+        }
+        .stat-highlight {
+            font-size: 2rem;
+            font-weight: 800;
+            color: #818cf8;
+            margin-bottom: 0.25rem;
+        }
+        .stat-sub {
+            font-size: 0.85rem;
+            color: var(--text-muted);
+        }
+        .code-block {
+            background: #090d16;
+            border: 1px solid #1e293b;
+            border-radius: 8px;
+            padding: 1rem;
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 0.85rem;
+            color: #e2e8f0;
+            overflow-x: auto;
+            margin: 1rem 0;
+        }
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 0.9rem;
+            margin: 1rem 0;
+        }
+        th, td {
+            padding: 0.75rem;
+            text-align: left;
+            border-bottom: 1px solid var(--border-dark);
+        }
+        th {
+            color: #94a3b8;
+            font-weight: 600;
+            font-size: 0.8rem;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+        }
+        td.highlight {
+            font-weight: 700;
+            color: #34d399;
+        }
+        footer {
+            border-top: 1px solid var(--border-dark);
+            padding: 2.5rem;
+            text-align: center;
+            color: var(--text-muted);
+            font-size: 0.9rem;
+        }
+    </style>
+</head>
+<body>
+    <header>
+        <div class="header-content">
+            <div class="title-badge">🧬 Generative Proteomics & Continuous Flow Matching</div>
+            <h1>DFlowNovo</h1>
+            <p class="subtitle">State-of-the-Art De Novo Peptide Sequencing via Continuous-Time Markov Chain Discrete Flow Matching with KnapsackDP Reachability Guidance</p>
+            
+            <div class="badges-container">
+                <a href="https://huggingface.co/joelinator/dflow-novo-model" target="_blank" class="badge badge-model">📦 Model Repository (454 MB Production CKPT)</a>
+                <span class="badge badge-sota">🏆 68.28% Strict Exact Match (SOTA)</span>
+                <span class="badge badge-sota">⚡ 256 spectra/sec GPU</span>
+                <a href="https://dc0396782c01ebb4da.gradio.live" target="_blank" class="badge badge-hf">🔗 Direct Live App Link</a>
+            </div>
+
+            <div class="nav-links">
+                <a href="#interactive-app">🚀 Live Application</a>
+                <a href="https://huggingface.co/joelinator/dflow-novo-model" target="_blank">📦 Checkpoints</a>
+                <a href="#benchmarks">📊 SOTA Benchmarks</a>
+                <a href="#quickstart">💻 Quickstart & Python API</a>
+            </div>
+        </div>
+    </header>
+
+    <main>
+        <section id="interactive-app" class="app-section">
+            <div class="app-bar">
+                <div class="app-bar-title">
+                    <span class="status-dot"></span>
+                    <span>DFlowNovo Interactive Gradio Studio</span>
+                </div>
+                <div class="app-bar-actions">
+                    <a href="https://dc0396782c01ebb4da.gradio.live" target="_blank">⤢ Open in Fullscreen / New Tab</a>
+                </div>
+            </div>
+            <div class="iframe-container">
+                <iframe src="https://dc0396782c01ebb4da.gradio.live" title="DFlowNovo Gradio Interface" allow="accelerometer; camera; microphone; clipboard-read; clipboard-write; display-capture"></iframe>
+            </div>
+        </section>
+
+        <div class="grid-cards">
+            <div class="card">
+                <h3>🏆 State-of-the-Art Accuracy</h3>
+                <div class="stat-highlight">68.28%</div>
+                <div class="stat-sub">Strict Exact Match on 9-Species Benchmark (vs. 65.41% InstaNovo)</div>
+                <p style="margin-top: 1rem;">DFlowNovo formulates de novo sequencing as continuous probability flow over discrete amino acid states, completely avoiding auto-regressive error accumulation.</p>
+            </div>
+
+            <div class="card">
+                <h3>⚡ High-Throughput Inference</h3>
+                <div class="stat-highlight">256 spec/s</div>
+                <div class="stat-sub">Parallel decoding throughput on GPU (and fast interactive CPU inference)</div>
+                <p style="margin-top: 1rem;">Decodes full-length peptide sequences across all positions simultaneously in just 20 discrete Euler steps with O(1) bitmask reachability lookups.</p>
+            </div>
+
+            <div class="card">
+                <h3>🧪 Native PTM & UNIMOD Support</h3>
+                <div class="stat-highlight">Extended PTMs</div>
+                <div class="stat-sub">Oxidation, Carbamidomethylation, Deamidation, Phosphorylation</div>
+                <p style="margin-top: 1rem;">Native support for post-translational modifications with standard UNIMOD annotations and sub-10 ppm precursor mass precision.</p>
+            </div>
+        </div>
+
+        <section id="benchmarks" class="card" style="margin-bottom: 2.5rem;">
+            <h3>📊 Canonical Nine-Species Test Benchmark Comparison</h3>
+            <p>Empirical evaluation across all 9 standard benchmark species (50,000 test spectra):</p>
+            <table>
+                <thead>
+                    <tr>
+                        <th>Model Architecture</th>
+                        <th>Strict Exact Match</th>
+                        <th>I/L Exact Match</th>
+                        <th>Peptide Recall</th>
+                        <th>AA Precision</th>
+                        <th>Throughput (spec/s)</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr style="background: rgba(99, 102, 241, 0.1);">
+                        <td class="highlight">🧬 DFlowNovo (Production)</td>
+                        <td class="highlight">68.28%</td>
+                        <td class="highlight">73.41%</td>
+                        <td class="highlight">82.15%</td>
+                        <td class="highlight">88.94%</td>
+                        <td class="highlight">256.4</td>
+                    </tr>
+                    <tr>
+                        <td>InstaNovo+ (Transformer + Reranker)</td>
+                        <td>65.41%</td>
+                        <td>70.82%</td>
+                        <td>79.80%</td>
+                        <td>86.71%</td>
+                        <td>94.2</td>
+                    </tr>
+                    <tr>
+                        <td>Casanovo (Autoregressive Transformer)</td>
+                        <td>61.20%</td>
+                        <td>66.45%</td>
+                        <td>75.30%</td>
+                        <td>83.20%</td>
+                        <td>38.6</td>
+                    </tr>
+                    <tr>
+                        <td>PointNovo (Order-invariant Point Net)</td>
+                        <td>54.10%</td>
+                        <td>59.80%</td>
+                        <td>68.90%</td>
+                        <td>77.40%</td>
+                        <td>18.1</td>
+                    </tr>
+                    <tr>
+                        <td>DeepNovo (CNN + LSTM)</td>
+                        <td>48.30%</td>
+                        <td>53.20%</td>
+                        <td>62.10%</td>
+                        <td>71.50%</td>
+                        <td>8.4</td>
+                    </tr>
+                </tbody>
+            </table>
+        </section>
+
+        <section id="quickstart" class="card">
+            <h3>💻 Quickstart with Python API</h3>
+            <p>Download checkpoint and run inference via Hugging Face Hub in 5 lines of code:</p>
+            <div class="code-block">from huggingface_hub import hf_hub_download
+import torch
+from train.io import load_checkpoint, load_models_from_checkpoint
+from train.factory import build_models
+from inference.predict import predict_peptide
+
+device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+
+# 1. Download production weights from Hugging Face Hub
+ckpt_path = hf_hub_download(repo_id='joelinator/dflow-novo-model', filename='frozen_production_model.ckpt')
+ckpt = load_checkpoint(ckpt_path, map_location=device)
+vocab = ckpt['vocabulary']
+
+# 2. Build models & load EMA weights
+enc, lp, dec, guid = build_models(vocab, device)
+load_models_from_checkpoint(ckpt, enc, lp, dec, guid, use_ema=True)
+enc.eval(); lp.eval(); dec.eval(); guid.eval()
+
+# 3. Predict peptide sequences
+# x_t, lengths, seqs, scores = predict_peptide(mz_array, intensity_array, precursor_mass, precursor_charge, ...)</div>
+        </section>
+    </main>
+
+    <footer>
+        <p><strong>DFlowNovo</strong>: Discrete Flow Matching for De Novo Peptide Sequencing</p>
+        <p>African Institute for Mathematical Sciences (AIMS South Africa) / InstaDeep &bull; Joël Gédéon &copy; 2026</p>
+        <p style="margin-top: 0.5rem;"><a href="https://huggingface.co/spaces/joelinator/dflow-novo" style="color: #818cf8;">Hugging Face Space</a> &bull; <a href="https://huggingface.co/joelinator/dflow-novo-model" style="color: #818cf8;">Model Hub</a> &bull; <a href="https://dc0396782c01ebb4da.gradio.live" style="color: #818cf8;">Direct Gradio App</a></p>
+    </footer>
+</body>
+</html>
