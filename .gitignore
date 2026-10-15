@@ -147,7 +147,6 @@ activemq-data/
 # SageMath parsed files
 *.sage.py
 
-# Training artifacts
 artifacts/
 
 # Environments
@@ -222,18 +221,13 @@ __marimo__/
 
 # Custom
 report.md
-data/
+/data/
 lightning_logs/
 scratch/
-artifacts/
 *.log
 .env
 models/*.ckpt
 *.ckpt
 .gradio/
 val_metrics/
-*.aux
-*.nav
-*.out
-*.snm
-*.toc
+
