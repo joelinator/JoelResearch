@@ -429,18 +429,30 @@ class DFMLightningModule(pl.LightningModule):
         # across all epochs, accounting for multi-GPU and gradient accumulation.
         total_steps = self.trainer.estimated_stepping_batches
         
-        # Warmup for 5% of total training steps
-        warmup_steps = int(total_steps * 0.05)
+        lr_schedule = str(self.args.get("lr_schedule", "wsd")).lower()
+        warmup_ratio = float(self.args.get("warmup_ratio", 0.05))
+        stable_ratio = float(self.args.get("stable_ratio", 0.70))
+        min_lr_ratio = float(self.args.get("min_lr_ratio", 0.01))
 
-        min_lr_ratio = float(self.args.get("min_lr_ratio", 0.05))
+        warmup_steps = int(total_steps * warmup_ratio)
+        stable_steps = int(total_steps * (warmup_ratio + stable_ratio))
 
         def lr_lambda(current_step: int):
-            if current_step < warmup_steps:
-                # Linear warmup
-                return float(current_step) / float(max(1, warmup_steps))
-            # Cosine decay with minimum learning rate floor to prevent late training freeze
-            progress = min(1.0, float(current_step - warmup_steps) / float(max(1, total_steps - warmup_steps)))
-            return min_lr_ratio + (1.0 - min_lr_ratio) * 0.5 * (1.0 + math.cos(math.pi * progress))
+            if lr_schedule == "wsd":
+                if current_step < warmup_steps:
+                    return float(current_step) / float(max(1, warmup_steps))
+                elif current_step < stable_steps:
+                    return 1.0
+                else:
+                    decay_steps = max(1, total_steps - stable_steps)
+                    progress = min(1.0, float(current_step - stable_steps) / float(decay_steps))
+                    return min_lr_ratio + (1.0 - min_lr_ratio) * 0.5 * (1.0 + math.cos(math.pi * progress))
+            else:
+                # Cosine decay with minimum learning rate floor to prevent late training freeze
+                if current_step < warmup_steps:
+                    return float(current_step) / float(max(1, warmup_steps))
+                progress = min(1.0, float(current_step - warmup_steps) / float(max(1, total_steps - warmup_steps)))
+                return min_lr_ratio + (1.0 - min_lr_ratio) * 0.5 * (1.0 + math.cos(math.pi * progress))
 
         scheduler = LambdaLR(optimizer, lr_lambda)
 

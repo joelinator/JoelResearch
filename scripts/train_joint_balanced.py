@@ -130,18 +130,22 @@ def parse_args():
         "--batch-size",
         type=int,
         default=None,
-        help="Training batch size. If None, auto-selects batch size to saturate >=80% VRAM (1792 on 80GB H100).",
+        help="Training batch size. If None, auto-selects batch size to saturate >=80%% VRAM (1792 on 80GB H100).",
     )
     parser.add_argument(
         "--target-vram-pct",
         type=float,
         default=0.85,
-        help="Target GPU VRAM utilization ratio (default: 0.85 for >=80% VRAM saturation).",
+        help="Target GPU VRAM utilization ratio (default: 0.85 for >=80%% VRAM saturation).",
     )
     parser.add_argument("--epochs", type=int, default=8)
     parser.add_argument("--samples-per-epoch", type=int, default=1_000_000, help="Total train samples per epoch (50%% each domain)")
     parser.add_argument("--val-samples", type=int, default=20_000, help="Total validation samples (50%% each domain)")
-    parser.add_argument("--lr", type=float, default=5e-5)
+    parser.add_argument("--lr", type=float, default=5e-4, help="Learning rate (default: 5e-4 matching pretraining)")
+    parser.add_argument("--lr-schedule", type=str, default="wsd", choices=["wsd", "cosine"], help="Learning rate schedule (default: wsd)")
+    parser.add_argument("--warmup-ratio", type=float, default=0.05, help="Warmup fraction of total steps (default: 0.05)")
+    parser.add_argument("--stable-ratio", type=float, default=0.70, help="Stable peak LR fraction of total steps (default: 0.70)")
+    parser.add_argument("--min-lr-ratio", type=float, default=0.01, help="Minimum LR floor ratio (default: 0.01)")
     parser.add_argument("--weight-decay", type=float, default=0.01)
     parser.add_argument("--num-workers", type=int, default=8)
     parser.add_argument("--top-k-peaks", type=int, default=200)
@@ -213,6 +217,7 @@ def main():
     print(f"Epochs:              {args.epochs}")
     print(f"Samples per Epoch:   {args.samples_per_epoch:,} (50% NS, 50% HC-PT)")
     print(f"Learning Rate:       {args.lr}")
+    print(f"LR Schedule:         {args.lr_schedule.upper()} (Warmup: {int(args.warmup_ratio*100)}%, Stable: {int(args.stable_ratio*100)}%, Min Floor: {int(args.min_lr_ratio*100)}%)")
     print(f"Device:              {'cuda' if torch.cuda.is_available() else 'cpu'}")
     print("==================================================================")
 
@@ -312,14 +317,22 @@ def main():
         ckpt = torch.load(args.resume_from, map_location="cpu", weights_only=False)
         state_dict = ckpt.get("state_dict", ckpt)
         model_sd = model.state_dict()
-        matching_sd = {
-            k: v for k, v in state_dict.items()
-            if k in model_sd and model_sd[k].shape == v.shape
-        }
+        matching_sd = {}
+        for k, v in state_dict.items():
+            if k in model_sd:
+                if model_sd[k].shape == v.shape:
+                    matching_sd[k] = v
+                elif (
+                    model_sd[k].ndim == v.ndim
+                    and all(model_sd[k].shape[i] >= v.shape[i] for i in range(v.ndim))
+                ):
+                    slices = tuple(slice(0, s) for s in v.shape)
+                    target = model_sd[k].clone()
+                    target[slices] = v
+                    matching_sd[k] = target
         missing, unexpected = model.load_state_dict(matching_sd, strict=False)
-        print(f"  Warm-start weights transferred: {len(matching_sd)} keys matched with identical shapes.")
-        print(f"  New/uninitialized parameters: {len(missing)} keys (e.g. newly scaled layers).")
-        print("  Optimizer & Scheduler reset to start fresh at epoch 0 with cosine warmup schedule.")
+        print(f"  Warm-start weights transferred: {len(matching_sd)} keys matched with identical/sliced shapes (missing: {len(missing)}, unexpected: {len(unexpected)}).")
+        print(f"  Optimizer & Scheduler initialized with fresh {args.lr_schedule.upper()} schedule (lr={args.lr}).")
     else:
         print("Training cleanly from scratch (all layers randomly initialized with fresh AdaLN-Zero zero-gate residual dynamics).")
 
@@ -333,20 +346,12 @@ def main():
         monitor="valid_gen_exact_match",
         mode="max",
         save_top_k=1,
+        save_weights_only=True,
         auto_insert_metric_name=False,
-    )
-
-    last_cb = ModelCheckpoint(
-        dirpath=checkpoint_dir,
-        filename="last",
-        save_last=True,
-        save_top_k=0,
-        save_on_train_epoch_end=True,
     )
 
     callbacks = [
         best_gen_cb,
-        last_cb,
         JointResampleCallback(),
         LearningRateMonitor(logging_interval="step"),
     ]
@@ -381,8 +386,8 @@ def main():
     print("\n==================================================================")
     print("      JOINT BALANCED TRAINING COMPLETE                           ")
     print("==================================================================")
-    print(f"Best checkpoint: {best_gen_cb.best_model_path} (exact={best_gen_cb.best_model_score})")
-    print(f"Latest checkpoint: {last_cb.last_model_path}")
+    if "last_cb" in locals():
+        print(f"Latest checkpoint: {last_cb.last_model_path}")
 
 
 if __name__ == "__main__":

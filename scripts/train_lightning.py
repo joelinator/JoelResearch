@@ -54,22 +54,45 @@ def parse_args():
         "--batch-size",
         type=int,
         default=int(os.environ["BATCH_SIZE"]) if os.environ.get("BATCH_SIZE") else None,
-        help="Batch size. If None and --optimize-vram is set, auto-tunes to saturate >=80% VRAM.",
+        help="Batch size. If None and --optimize-vram is set, auto-tunes to saturate >=80%% VRAM.",
     )
     parser.add_argument(
         "--optimize-vram",
         action="store_true",
         default=bool(int(os.environ.get("OPTIMIZE_VRAM", 1))),
-        help="Auto-tune batch size to saturate >=80% VRAM on detected GPU (default: True).",
+        help="Auto-tune batch size to saturate >=80%% VRAM on detected GPU (default: True).",
     )
     parser.add_argument(
         "--target-vram-pct",
         type=float,
         default=float(os.environ.get("TARGET_VRAM_PCT", 0.85)),
-        help="Target GPU VRAM utilization ratio (default: 0.85 for >=80% VRAM saturation).",
+        help="Target GPU VRAM utilization ratio (default: 0.85 for >=80%% VRAM saturation).",
     )
     parser.add_argument("--epochs", type=int, default=int(os.environ.get("EPOCHS", train_cfg.epochs)))
     parser.add_argument("--lr", type=float, default=float(os.environ.get("LEARNING_RATE", train_cfg.learning_rate)))
+    parser.add_argument("--lr-schedule", type=str, default=os.environ.get("LR_SCHEDULE", "wsd"), choices=["wsd", "cosine"], help="Learning rate schedule (default: wsd).")
+    parser.add_argument("--warmup-ratio", type=float, default=float(os.environ.get("WARMUP_RATIO", 0.05)), help="Fraction of total steps for linear warmup (default: 0.05).")
+    parser.add_argument("--stable-ratio", type=float, default=float(os.environ.get("STABLE_RATIO", 0.70)), help="Fraction of total steps for stable phase (default: 0.70).")
+    parser.add_argument("--min-lr-ratio", type=float, default=float(os.environ.get("MIN_LR_RATIO", 0.01)), help="Minimum LR ratio at end of decay (default: 0.01).")
+    parser.add_argument(
+        "--use-length-weighted-loss",
+        dest="use_length_weighted_loss",
+        action="store_true",
+        default=bool(int(os.environ.get("USE_LENGTH_WEIGHTED_LOSS", 1))),
+        help="Enable length-weighted peptide loss to balance short vs long peptides (default: True).",
+    )
+    parser.add_argument(
+        "--no-length-weighted-loss",
+        dest="use_length_weighted_loss",
+        action="store_false",
+        help="Disable length-weighted loss.",
+    )
+    parser.add_argument(
+        "--length-weight-alpha",
+        type=float,
+        default=float(os.environ.get("LENGTH_WEIGHT_ALPHA", 0.5)),
+        help="Alpha power for length-weighted loss (default: 0.5).",
+    )
     parser.add_argument("--weight-decay", type=float, default=float(os.environ.get("WEIGHT_DECAY", train_cfg.weight_decay)))
     parser.add_argument("--num-workers", type=int, default=int(os.environ.get("NUM_WORKERS", train_cfg.num_workers)))
     parser.add_argument("--top-k-peaks", type=int, default=int(os.environ.get("TOP_K_PEAKS", data_cfg.top_k_peaks)))
@@ -235,6 +258,12 @@ def parse_args():
         help="Exclude PTMs and use standard 20 amino acids vocabulary.",
     )
     parser.add_argument(
+        "--no-use-ptm",
+        dest="use_ptm",
+        action="store_false",
+        help="Exclude PTMs and use standard 20 amino acids vocabulary (alias for --no-ptm).",
+    )
+    parser.add_argument(
         "--seed",
         type=int,
         default=int(os.environ.get("SEED", 42)),
@@ -303,64 +332,71 @@ def main():
     vocab_path = output_dir / args.run_name / "vocabulary.json"
     vocab_path.parent.mkdir(parents=True, exist_ok=True)
     with open(vocab_path, "w") as f:
-        json.dump(vocabulary, f)
+        json.dump(vocabulary, f, indent=2)
+    # Also save at root of output_dir for easy discovery by downstream stages
+    with open(output_dir / "vocabulary.json", "w") as f:
+        json.dump(vocabulary, f, indent=2)
 
     model = DFMLightningModule(vocabulary, args_dict)
 
-    resume_ckpt_path = args.resume_from
-    if args.resume_from:
-        ckpt = torch.load(args.resume_from, map_location="cpu", weights_only=False)
-        state_dict = ckpt.get("state_dict", ckpt)
-        source_vocab_size = state_dict.get("decoder.peptide_embedding.weight", torch.zeros(0)).shape[0]
-        target_vocab_size = max(vocabulary.values()) + 1
-
-        if source_vocab_size > 0 and source_vocab_size != target_vocab_size:
-            print(f"Vocabulary mismatch detected (source: {source_vocab_size}, target: {target_vocab_size}).")
-            print("Applying automatic checkpoint surgery to transplant weights...")
-            from data.constants import STANDARD_AMINO_ACIDS
-            from train.surgery import transplant_state_dict
-            
-            # Find old vocabulary
-            cand_paths = [
-                Path(args.resume_from).parent.parent / "vocabulary.json",
-                Path(args.resume_from).parent / "vocabulary.json",
-            ]
-            old_vocab = None
-            for p in cand_paths:
-                if p.exists():
-                    with open(p) as f:
-                        old_vocab = json.load(f)
-                    break
-            if old_vocab is None:
-                old_vocab = {aa: idx for idx, aa in enumerate(STANDARD_AMINO_ACIDS)}
-                old_vocab["<pad>"] = 20
-                old_vocab["<mask_token>"] = 21
-                old_vocab["<mask" + ">"] = 21
-
-            state_dict = transplant_state_dict(state_dict, old_vocab, vocabulary)
-            if "ema_shadow_params" in ckpt and ckpt["ema_shadow_params"]:
-                ckpt["ema_shadow_params"] = transplant_state_dict(
-                    ckpt["ema_shadow_params"], old_vocab, vocabulary
-                )
-            ckpt["state_dict"] = state_dict
-            ckpt["optimizer_states"] = []
-            ckpt["lr_schedulers"] = []
-            ckpt["epoch"] = 0
-            ckpt["global_step"] = 0
-
-            transplanted_path = output_dir / args.run_name / "transplanted_init.ckpt"
-            torch.save(ckpt, transplanted_path)
-            print(f"Transplanted checkpoint saved to: {transplanted_path}")
-            resume_ckpt_path = str(transplanted_path)
-
-        if args.weights_only:
-            print(f"Loading weights only from checkpoint: {resume_ckpt_path or args.resume_from}")
-            missing, unexpected = model.load_state_dict(state_dict, strict=False)
-            print(f"Loaded weights (missing: {len(missing)}, unexpected: {len(unexpected)}). Starting training at epoch 0.")
-            resume_ckpt_path = None
+    resume_ckpt_path = None
+    if args.resume_from and str(args.resume_from).strip().lower() not in ("none", "false", "", "null"):
+        if not Path(args.resume_from).is_file():
+            print(f"[Warning] Specified resume_from checkpoint '{args.resume_from}' does not exist on disk. Starting training from scratch.")
         else:
-            mode_desc = f"resetting optimizer with default LR ({args.lr})" if args.reset_lr_on_resume else "preserving saved optimizer state"
-            print(f"Resuming training from checkpoint: {resume_ckpt_path} ({mode_desc})")
+            resume_ckpt_path = str(args.resume_from)
+            ckpt = torch.load(args.resume_from, map_location="cpu", weights_only=False)
+            state_dict = ckpt.get("state_dict", ckpt)
+            source_vocab_size = state_dict.get("decoder.peptide_embedding.weight", torch.zeros(0)).shape[0]
+            target_vocab_size = max(vocabulary.values()) + 1
+
+            if source_vocab_size > 0 and source_vocab_size != target_vocab_size:
+                print(f"Vocabulary mismatch detected (source: {source_vocab_size}, target: {target_vocab_size}).")
+                print("Applying automatic checkpoint surgery to transplant weights...")
+                from data.constants import STANDARD_AMINO_ACIDS
+                from train.surgery import transplant_state_dict
+                
+                # Find old vocabulary
+                cand_paths = [
+                    Path(args.resume_from).parent.parent / "vocabulary.json",
+                    Path(args.resume_from).parent / "vocabulary.json",
+                ]
+                old_vocab = None
+                for p in cand_paths:
+                    if p.exists():
+                        with open(p) as f:
+                            old_vocab = json.load(f)
+                        break
+                if old_vocab is None:
+                    old_vocab = {aa: idx for idx, aa in enumerate(STANDARD_AMINO_ACIDS)}
+                    old_vocab["<pad>"] = 20
+                    old_vocab["<mask_token>"] = 21
+                    old_vocab["<mask" + ">"] = 21
+
+                state_dict = transplant_state_dict(state_dict, old_vocab, vocabulary)
+                if "ema_shadow_params" in ckpt and ckpt["ema_shadow_params"]:
+                    ckpt["ema_shadow_params"] = transplant_state_dict(
+                        ckpt["ema_shadow_params"], old_vocab, vocabulary
+                    )
+                ckpt["state_dict"] = state_dict
+                ckpt["optimizer_states"] = []
+                ckpt["lr_schedulers"] = []
+                ckpt["epoch"] = 0
+                ckpt["global_step"] = 0
+
+                transplanted_path = output_dir / args.run_name / "transplanted_init.ckpt"
+                torch.save(ckpt, transplanted_path)
+                print(f"Transplanted checkpoint saved to: {transplanted_path}")
+                resume_ckpt_path = str(transplanted_path)
+
+            if args.weights_only:
+                print(f"Loading weights only from checkpoint: {resume_ckpt_path or args.resume_from}")
+                missing, unexpected = model.load_state_dict(state_dict, strict=False)
+                print(f"Loaded weights (missing: {len(missing)}, unexpected: {len(unexpected)}). Starting training at epoch 0.")
+                resume_ckpt_path = None
+            else:
+                mode_desc = f"resetting optimizer with default LR ({args.lr})" if args.reset_lr_on_resume else "preserving saved optimizer state"
+                print(f"Resuming training from checkpoint: {resume_ckpt_path} ({mode_desc})")
 
     csv_logger = CSVLogger(save_dir=args.output_dir, name=args.run_name)
     tb_logger = TensorBoardLogger(save_dir=args.output_dir, name=args.run_name)
