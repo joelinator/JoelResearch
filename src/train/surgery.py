@@ -127,7 +127,7 @@ def transplant_state_dict(
                     new_head_b[new_idx] = tensor[parent_old_idx] + bias_prior_offset
                     assigned_indices.add(new_idx)
                 else:
-                    new_head_b[new_idx] = 0.0
+                    new_head_b[new_idx] = bias_prior_offset
                     assigned_indices.add(new_idx)
 
             new_state_dict[key] = new_head_b
@@ -142,9 +142,11 @@ def transplant_state_dict(
 def transplant_checkpoint(
     source_ckpt_path: str | Path,
     target_ckpt_path: str | Path,
-    new_vocab: dict[str, int],
+    new_vocab: dict[str, int] | None = None,
     old_vocab: dict[str, int] | None = None,
     parent_map: Mapping[str, str] = PTM_PARENT_MAP,
+    perturbation_std: float = 0.005,
+    bias_prior_offset: float = -0.5,
     reset_optimizer: bool = True,
 ) -> dict:
     """
@@ -158,22 +160,34 @@ def transplant_checkpoint(
     checkpoint = torch.load(source_path, map_location="cpu", weights_only=False)
 
     if old_vocab is None:
-        # Check if vocabulary.json exists next to checkpoint directory
-        candidate_vocab_paths = [
-            source_path.parent.parent / "vocabulary.json",
-            source_path.parent / "vocabulary.json",
-        ]
-        for p in candidate_vocab_paths:
-            if p.exists():
-                with open(p) as f:
-                    old_vocab = json.load(f)
-                print(f"Loaded old vocabulary from: {p}")
-                break
+        # 1. Check if vocabulary was saved inside checkpoint
+        if isinstance(checkpoint, dict) and "vocabulary" in checkpoint and checkpoint["vocabulary"]:
+            old_vocab = checkpoint["vocabulary"]
+            print(f"Loaded old vocabulary from checkpoint payload: {len(old_vocab)} tokens")
+        else:
+            # 2. Check if vocabulary.json exists next to checkpoint directory
+            candidate_vocab_paths = [
+                source_path.parent.parent / "vocabulary.json",
+                source_path.parent / "vocabulary.json",
+            ]
+            for p in candidate_vocab_paths:
+                if p.exists():
+                    with open(p) as f:
+                        old_vocab = json.load(f)
+                    print(f"Loaded old vocabulary from: {p}")
+                    break
 
     if old_vocab is None:
-        raise ValueError(
-            "Could not automatically locate old vocabulary.json. Please pass old_vocab explicitly."
-        )
+        from data.constants import STANDARD_AMINO_ACIDS
+        old_vocab = {aa: idx for idx, aa in enumerate(STANDARD_AMINO_ACIDS)}
+        old_vocab["<pad>"] = 20
+        old_vocab["<mask_token>"] = 21
+        print(f"Using default standard 20 AA vocabulary ({len(old_vocab)} tokens)")
+
+    if new_vocab is None:
+        from data.data import build_vocabulary
+        new_vocab = build_vocabulary(include_ptms=True)
+        print(f"Using standard target PTM vocabulary ({len(new_vocab)} tokens)")
 
     print(f"Old vocabulary size: {len(old_vocab)} (max id: {max(old_vocab.values())})")
     print(f"New vocabulary size: {len(new_vocab)} (max id: {max(new_vocab.values())})")
@@ -181,7 +195,12 @@ def transplant_checkpoint(
     # 1. Surgery on state_dict
     state_dict = checkpoint.get("state_dict", checkpoint)
     new_state_dict = transplant_state_dict(
-        state_dict, old_vocab, new_vocab, parent_map=parent_map
+        state_dict,
+        old_vocab,
+        new_vocab,
+        parent_map=parent_map,
+        perturbation_std=perturbation_std,
+        bias_prior_offset=bias_prior_offset,
     )
     checkpoint["state_dict"] = new_state_dict
 
@@ -189,7 +208,12 @@ def transplant_checkpoint(
     if "ema_shadow_params" in checkpoint and checkpoint["ema_shadow_params"]:
         print("Transplanting EMA shadow parameters...")
         checkpoint["ema_shadow_params"] = transplant_state_dict(
-            checkpoint["ema_shadow_params"], old_vocab, new_vocab, parent_map=parent_map
+            checkpoint["ema_shadow_params"],
+            old_vocab,
+            new_vocab,
+            parent_map=parent_map,
+            perturbation_std=perturbation_std,
+            bias_prior_offset=bias_prior_offset,
         )
 
     # 3. Clean up optimizer state if resetting
@@ -209,3 +233,42 @@ def transplant_checkpoint(
     print(f"Saved new vocabulary to: {vocab_save_path}")
 
     return checkpoint
+
+
+def main():
+    import argparse
+    parser = argparse.ArgumentParser(description="Weight Surgery: Expand vocabulary to support PTMs.")
+    parser.add_argument("--source-ckpt", type=str, required=True, help="Path to input checkpoint (standard 20 AA).")
+    parser.add_argument("--target-ckpt", type=str, required=True, help="Path to output transplanted checkpoint.")
+    parser.add_argument("--perturbation-std", type=float, default=0.005, help="Noise std for PTM embedding initialization.")
+    parser.add_argument("--bias-prior-offset", type=float, default=-0.5, help="Bias prior offset for PTM head initialization.")
+    parser.add_argument("--old-vocab", type=str, default=None, help="Path to old vocabulary.json (optional).")
+    parser.add_argument("--new-vocab", type=str, default=None, help="Path to new vocabulary.json (optional).")
+    parser.add_argument("--keep-optimizer", action="store_true", help="Keep optimizer states instead of resetting.")
+
+    args = parser.parse_args()
+
+    old_vocab = None
+    if args.old_vocab:
+        with open(args.old_vocab) as f:
+            old_vocab = json.load(f)
+
+    new_vocab = None
+    if args.new_vocab:
+        with open(args.new_vocab) as f:
+            new_vocab = json.load(f)
+
+    transplant_checkpoint(
+        source_ckpt_path=args.source_ckpt,
+        target_ckpt_path=args.target_ckpt,
+        new_vocab=new_vocab,
+        old_vocab=old_vocab,
+        perturbation_std=args.perturbation_std,
+        bias_prior_offset=args.bias_prior_offset,
+        reset_optimizer=not args.keep_optimizer,
+    )
+    print("Weight surgery completed successfully.")
+
+
+if __name__ == "__main__":
+    main()

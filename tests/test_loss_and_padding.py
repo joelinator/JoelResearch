@@ -164,4 +164,4 @@ if __name__ == "__main__":
     test_decoder_self_attention_masking()
     test_lightning_reset_lr_on_resume()
     test_pad_token_mass_accuracy()
-    print("All user modification verification tests passed successfully!")
+    print("All loss and padding tests passed successfully!")
