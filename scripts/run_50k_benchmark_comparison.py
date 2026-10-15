@@ -27,9 +27,7 @@ from train.factory import build_models
 from train.io import load_checkpoint, load_models_from_checkpoint
 
 DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-_canonical_ckpt = PROJECT_ROOT / "models" / "frozen_production_model.ckpt"
-_train_ckpt = PROJECT_ROOT / "artifacts" / "dfm_joint_balanced_30ep" / "checkpoints" / "dfm_balanced_best.ckpt"
-DEFAULT_CKPT = _canonical_ckpt if _canonical_ckpt.exists() else _train_ckpt
+DEFAULT_CKPT = PROJECT_ROOT / "artifacts" / "dfm_joint_balanced_30ep" / "checkpoints" / "dfm_balanced_best.ckpt"
 
 
 def load_model(ckpt_path: Path):
@@ -115,50 +113,18 @@ def evaluate_run(
 
 
 def main():
-    parser = argparse.ArgumentParser(
-        description="Head-to-head 50,000 spectrum benchmark comparing baseline vs refined decoding on Nine-Species and ProteomeTools."
-    )
-    parser.add_argument(
-        "--model-path",
-        "--checkpoint",
-        dest="checkpoint",
-        default=os.environ.get("MODEL_PATH", os.environ.get("CHECKPOINT", str(DEFAULT_CKPT))),
-        help=f"Path to model checkpoint file (default: {DEFAULT_CKPT}).",
-    )
-    parser.add_argument(
-        "--max-samples",
-        type=int,
-        default=int(os.environ.get("MAX_SAMPLES", "50000")),
-        help="Number of test spectra to evaluate per benchmark (default: 50000).",
-    )
-    parser.add_argument(
-        "--batch-size",
-        type=int,
-        default=int(os.environ.get("BATCH_SIZE", "128")),
-        help="Batch size for benchmark evaluation (default: 128).",
-    )
-    parser.add_argument(
-        "--output-dir",
-        default=os.environ.get("OUTPUT_DIR", "artifacts/benchmark_50k_comparison"),
-        help="Directory to save comparison JSON results (default: artifacts/benchmark_50k_comparison).",
-    )
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--checkpoint", default=str(DEFAULT_CKPT))
+    parser.add_argument("--max-samples", type=int, default=50000)
+    parser.add_argument("--batch-size", type=int, default=128)
+    parser.add_argument("--output-dir", default="artifacts/benchmark_50k_comparison")
     args = parser.parse_args()
-
-    ckpt_path = Path(args.checkpoint)
-    if not ckpt_path.is_file():
-        print(f"Error: Model checkpoint file not found at '{args.checkpoint}'.", file=sys.stderr)
-        print("Please verify the path or download the production checkpoint (see models/README.md).", file=sys.stderr)
-        sys.exit(1)
 
     out_dir = Path(args.output_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
 
     print("Loading model checkpoint from:", args.checkpoint)
-    try:
-        enc, lp, dec, guid, vocab = load_model(ckpt_path)
-    except Exception as exc:
-        print(f"Error loading model from '{ckpt_path}': {exc}", file=sys.stderr)
-        sys.exit(1)
+    enc, lp, dec, guid, vocab = load_model(Path(args.checkpoint))
 
     results = {}
 
