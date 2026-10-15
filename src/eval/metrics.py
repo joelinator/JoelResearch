@@ -430,12 +430,8 @@ class DenovoMetrics:
             "peptide_precision": self.peptide_precision_mass,
             "peptide_recall": self.peptide_recall_mass,
             "peptide_f1": self.peptide_f1_mass,
-            # User formula explicitly mapped:
-            "user_peptide_recall_exact": self.peptide_precision_exact,
-            "user_peptide_precision_exact": self.exact_peptide_accuracy,
-            "user_peptide_recall_mass": self.peptide_precision_mass,
-            "user_peptide_precision_mass": self.mass_peptide_accuracy,
         }
+
 
 
 def compute_denovo_metrics(

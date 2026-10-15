@@ -53,7 +53,7 @@ def run():
     # If we favor L when ambiguous, let's see what happens if I is replaced by L
     # when target also has L:
     # In practice, what if we use L as the canonical residue when no w-ion is present?
-    # If the user evaluates under strict match on human, replacing I with L:
+    # Evaluating under strict match with canonical L substitution:
     preds_L_prior = [p.replace("I", "L") for p in preds]
     # In human targets, L is 65.4% and I is 34.6%.
     # If we replace I with L in predictions, how many match target?

@@ -146,20 +146,41 @@ def evaluate_dataset(
     return res
 
 
+import argparse
+
+
 def main():
-    ckpt_dir = PROJECT_ROOT / "artifacts" / "dfm_length_weighted_10ep" / "checkpoints"
-    ckpt_path = find_best_checkpoint(ckpt_dir)
-    out_dir = PROJECT_ROOT / "artifacts" / "dfm_length_weighted_10ep"
+    parser = argparse.ArgumentParser(description="Evaluate 50k spectra benchmark with Refined Decoding")
+    parser.add_argument("--checkpoint", type=str, default=None, help="Path to checkpoint file")
+    parser.add_argument("--output-dir", type=str, default=None, help="Output directory for JSON reports")
+    parser.add_argument("--max-samples", type=int, default=50000, help="Number of test spectra to evaluate")
+    parser.add_argument("--batch-size", type=int, default=256, help="Batch size for evaluation")
+    parser.add_argument("--eta", type=float, default=0.15, help="Detailed balance correction rate")
+    args = parser.parse_args()
+
+    if args.checkpoint:
+        ckpt_path = Path(args.checkpoint)
+    else:
+        ckpt_dir = PROJECT_ROOT / "artifacts" / "dfm_length_weighted_10ep" / "checkpoints"
+        ckpt_path = find_best_checkpoint(ckpt_dir)
+
+    if args.output_dir:
+        out_dir = Path(args.output_dir)
+    else:
+        out_dir = ckpt_path.parent.parent
     out_dir.mkdir(parents=True, exist_ok=True)
 
+    print(f"[Benchmark 50k] Using checkpoint: {ckpt_path}")
+    print(f"[Benchmark 50k] Output directory: {out_dir}")
+
     # 1. HC-PT 50k
-    hcpt_res = evaluate_dataset(ckpt_path, "InstaDeepAI/ms_proteometools", max_samples=50000, batch_size=256, eta=0.15)
+    hcpt_res = evaluate_dataset(ckpt_path, "InstaDeepAI/ms_proteometools", max_samples=args.max_samples, batch_size=args.batch_size, eta=args.eta)
     with open(out_dir / "hcpt_50k_refined_decoding.json", "w") as f:
         json.dump(hcpt_res, f, indent=2)
     print(f"[Saved] {out_dir / 'hcpt_50k_refined_decoding.json'}")
 
     # 2. Nine-Species 50k
-    ns_res = evaluate_dataset(ckpt_path, "InstaDeepAI/ms_ninespecies_benchmark", max_samples=50000, batch_size=256, eta=0.15)
+    ns_res = evaluate_dataset(ckpt_path, "InstaDeepAI/ms_ninespecies_benchmark", max_samples=args.max_samples, batch_size=args.batch_size, eta=args.eta)
     with open(out_dir / "ninespecies_50k_refined_decoding.json", "w") as f:
         json.dump(ns_res, f, indent=2)
     print(f"[Saved] {out_dir / 'ninespecies_50k_refined_decoding.json'}")
