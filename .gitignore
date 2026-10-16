@@ -230,4 +230,6 @@ models/*.ckpt
 *.ckpt
 .gradio/
 val_metrics/
+thesis/
+presentation/
 
