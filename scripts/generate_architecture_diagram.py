@@ -76,7 +76,7 @@ def create_architecture_diagram():
         ax.scatter([spec_cx + px], [6.85 + ph], color='#0F766E', s=12, zorder=5)
     ax.text(spec_cx, 6.55, r"Peaks $(m_i, I_i)_{i=1}^M$", ha='center', va='center', fontsize=8.2,
             fontweight='bold', color='#0F172A', zorder=4)
-    ax.text(spec_cx, 6.28, r"• $M \leq 500$ peaks, $\sqrt{I_i}$ scaled", ha='center', va='center',
+    ax.text(spec_cx, 6.28, r"• $M \leq 200$ peaks, $\sqrt{I_i}$ scaled", ha='center', va='center',
             fontsize=7.4, color='#334155', zorder=4)
 
     # Card 1B: Precursor Metadata (y: 4.10 to 5.85, h: 1.75)
@@ -362,7 +362,6 @@ def create_architecture_diagram():
     print(f"    - {out_thesis}")
     print(f"    - {out_docs}")
     print(f"    - {out_pres}")
-    print(f"    - {out_artifact}")
     plt.close(fig)
 
 if __name__ == "__main__":

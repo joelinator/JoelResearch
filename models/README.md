@@ -14,22 +14,15 @@ The canonical frozen production checkpoint is:
   - Throughput: **227 – 256 spectra/second** on single GPU
 
 ### Download Checkpoint
-You can download the canonical production checkpoint (454 MB) directly via:
+You can download the canonical production checkpoint directly via:
 - **Hugging Face Hub**: [`joelinator/dflow-novo-model`](https://huggingface.co/joelinator/dflow-novo-model)
 - **GitHub Release**: [v0.2.0](https://github.com/joelinator/JoelResearch/releases/tag/v0.2.0)
 
 ```bash
-# Option 1: Direct curl / wget (no additional dependencies)
-curl -L -o models/frozen_production_model.ckpt \
-  https://huggingface.co/joelinator/dflow-novo-model/resolve/main/frozen_production_model.ckpt
-
-# Option 2: Using huggingface-cli
+# Using huggingface-cli
 huggingface-cli download joelinator/dflow-novo-model frozen_production_model.ckpt --local-dir models/
 
-# Option 3: Using Python huggingface_hub
-python3 -c "from huggingface_hub import hf_hub_download; hf_hub_download('joelinator/dflow-novo-model', 'frozen_production_model.ckpt', local_dir='models')"
-
-# Option 4: Using GitHub CLI (gh)
+# Using gh cli
 gh release download v0.2.0 -p frozen_production_model.ckpt -D models/
 ```
 

@@ -58,7 +58,7 @@ where $m(y)$ denotes the monoisotopic residue mass of amino acid $y$, $M_{\text{
 $$P_{\text{autoregressive}}(Y \mid \mathcal{S}) = \prod_{j=1}^L P(y_j \mid y_{<j}, \mathcal{S}, M_{\text{prec}}, z)$$
 
 While InstaNovo established strong performance, it suffers from several fundamental bottlenecks:
-1. **Error Propagation (Exposure Bias)**: Autoregressive models cannot backtrack during inference. If token $y_3$ is misidentified due to missing b- or y-ion peaks, all subsequent tokens $y_4, \dots, y_L$ condition on erroneous context, causing full-sequence hallucination.
+1. **Error Propagation (Exposure Bias)**: Autoregressive models cannot backtrack during inference. If token $y_3$ is misidentified due to missing b- or y-ion peaks, all subsequent tokens $y_4, \dots, y_L$ condition on erroneous context, causing compounding errors and degenerate sequence generation.
 2. **Directional Ion Asymmetry**: Mass spectrometry fragmentation generates complementary ion series: b-ions from the N-terminus and y-ions from the C-terminus. Autoregressive left-to-right generation processes N-to-C sequentially, inherently breaking the symmetric physical duality between b- and y-ions.
 3. **Inference Latency $O(L)$**: Autoregressive decoding requires $L$ sequential transformer passes (typically 15–30 forward calls per spectrum).
 

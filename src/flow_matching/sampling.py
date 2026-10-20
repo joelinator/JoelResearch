@@ -164,14 +164,23 @@ def inference_sample_mask(
             )
 
         if kt_next is not None:
-            # Cumulative unmasking with optional Detailed Balance boost
-            if eta > 0.0:
-                target_clean = torch.round(num_active * (kt_next.view(-1, 1) + eta * kt.view(-1, 1) * delta_t)).long()
-            else:
-                target_clean = torch.round(num_active * kt_next.view(-1, 1)).long()
+            # Target clean token count at time t + dt according to the flow matching schedule
+            target_clean = torch.round(num_active * kt_next.view(-1, 1).clamp(0.0, 1.0)).long()
             act = active_mask if active_mask is not None else torch.ones_like(is_masked)
             current_clean = (~is_masked & act).sum(dim=-1, keepdim=True)
-            num_to_unmask = torch.clamp(target_clean - current_clean, min=0)
+            num_masked = (is_masked & act).sum(dim=-1, keepdim=True)
+
+            if eta > 0.0 and not is_final_step:
+                # Campbell et al. (2024) Detailed Balance:
+                # current_clean tokens will be re-masked with probability eta * delta_t.
+                # In expectation: E[C_{t+dt}] = current_clean + num_unmask - current_clean * eta * delta_t = target_clean
+                # => num_unmask = target_clean - current_clean + current_clean * eta * delta_t
+                remask_offset = current_clean.float() * (eta * delta_t)
+                num_to_unmask = torch.round(target_clean.float() - current_clean.float() + remask_offset).long()
+            else:
+                num_to_unmask = target_clean - current_clean
+
+            num_to_unmask = torch.minimum(torch.clamp(num_to_unmask, min=0), num_masked)
         else:
             num_to_unmask = torch.clamp(torch.ceil(num_active * prob_unmask).long(), min=1)
 

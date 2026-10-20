@@ -44,13 +44,12 @@ short_description: De Novo Peptide Sequencing with Flow Matching
 
 ---
 
-## 📖 Citation
+## Citation
 
 ```bibtex
-@mastersthesis{gedeon2026dflownovo,
+@article{gedeon2026dflownovo,
   title={Discrete Flow Matching for De Novo Peptide Sequencing in Mass Spectrometry},
   author={G{\'e}d{\'e}on, Jo{\"e}l},
-  school={African Institute for Mathematical Sciences (AIMS South Africa) / InstaDeep},
   year={2026}
 }
 ```

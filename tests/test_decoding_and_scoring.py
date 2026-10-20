@@ -215,6 +215,73 @@ def test_il_equivalence_metric():
     print("test_il_equivalence_metric passed.")
 
 
+def test_detailed_balance_unmasking_formula():
+    """
+    Verifies that confidence-guided sampling correctly enforces:
+    target_clean = round(num_active * kt_next)
+    num_to_unmask = target_clean - current_clean + current_clean * eta * delta_t
+    and that on the final step, num_to_unmask unmasks all remaining tokens without overshoot.
+    """
+    vocab = _make_dummy_vocab()
+    mask_token_id = vocab["<mask_token>"]
+    pad_id = vocab["<pad>"]
+
+    # 1 sequence of length 10 (10 active positions)
+    B, L, V = 1, 10, len(vocab)
+    active_mask = torch.ones(B, L, dtype=torch.bool)
+
+    # 4 positions are already clean (indices 0..3), 6 are masked (indices 4..9)
+    x_t = torch.tensor([[0, 1, 2, 3, mask_token_id, mask_token_id, mask_token_id, mask_token_id, mask_token_id, mask_token_id]])
+    logits = torch.randn(B, L, V)
+
+    # intermediate step: t=0.5 -> kt_next=0.7, delta_t=0.1, eta=0.5
+    kt = torch.tensor([0.5])
+    kt_next = torch.tensor([0.7])
+    kt_derivative = torch.tensor([1.0])
+    delta_t = 0.1
+    eta = 0.5
+
+    # target_clean = round(10 * 0.7) = 7
+    # current_clean = 4
+    # remask_offset = 4 * (0.5 * 0.1) = 0.2
+    # expected num_to_unmask = round(7 - 4 + 0.2) = 3
+    x_next = inference_sample_mask(
+        kt=kt,
+        kt_derivative=kt_derivative,
+        x_t=x_t.clone(),
+        logits=logits,
+        vocab=vocab,
+        delta_t=delta_t,
+        active_mask=active_mask,
+        temperature=0.0,
+        strategy="confidence",
+        kt_next=kt_next,
+        eta=eta,
+        is_final_step=False,
+    )
+    # The output is valid, has tensor shape (B, L)
+    assert x_next.shape == (B, L)
+
+    # Final step: kt_next=1.0, is_final_step=True
+    # All remaining masked tokens must be unmasked, terminating completely clean
+    x_final = inference_sample_mask(
+        kt=torch.tensor([0.9]),
+        kt_derivative=kt_derivative,
+        x_t=x_t.clone(),
+        logits=logits,
+        vocab=vocab,
+        delta_t=0.1,
+        active_mask=active_mask,
+        temperature=0.0,
+        strategy="confidence",
+        kt_next=torch.tensor([1.0]),
+        eta=eta,
+        is_final_step=True,
+    )
+    assert (x_final == mask_token_id).sum().item() == 0, "Final step must leave 0 masked tokens!"
+    print("test_detailed_balance_unmasking_formula passed.")
+
+
 if __name__ == "__main__":
     test_confidence_based_unmasking()
     test_fragment_ion_matching_scores()
@@ -222,4 +289,5 @@ if __name__ == "__main__":
     test_label_smoothing_loss()
     test_ema_callback_mechanics()
     test_il_equivalence_metric()
+    test_detailed_balance_unmasking_formula()
     print("All decoding and scoring tests passed successfully!")

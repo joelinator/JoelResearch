@@ -438,7 +438,11 @@ class DFMLightningModule(pl.LightningModule):
         stable_steps = int(total_steps * (warmup_ratio + stable_ratio))
 
         def lr_lambda(current_step: int):
-            if lr_schedule == "wsd":
+            if lr_schedule in ("constant", "flat", "none"):
+                if warmup_steps > 0 and current_step < warmup_steps:
+                    return float(current_step) / float(max(1, warmup_steps))
+                return 1.0
+            elif lr_schedule == "wsd":
                 if current_step < warmup_steps:
                     return float(current_step) / float(max(1, warmup_steps))
                 elif current_step < stable_steps:
@@ -474,8 +478,10 @@ class DFMLightningModule(pl.LightningModule):
             checkpoint["lr_schedulers"] = []
 
     def on_save_checkpoint(self, checkpoint: dict) -> None:
-        """Persist explicit model architectural configuration in checkpoint."""
+        """Persist explicit model architectural configuration and vocabulary in checkpoint."""
         if hasattr(self, "model_cfg") and self.model_cfg is not None:
             checkpoint["model_cfg"] = self.model_cfg
         elif "model_cfg" in self.args:
             checkpoint["model_cfg"] = self.args["model_cfg"]
+        if hasattr(self, "vocabulary") and self.vocabulary is not None:
+            checkpoint["vocabulary"] = self.vocabulary

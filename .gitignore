@@ -147,7 +147,6 @@ activemq-data/
 # SageMath parsed files
 *.sage.py
 
-# Training artifacts
 artifacts/
 
 # Environments
@@ -222,18 +221,39 @@ __marimo__/
 
 # Custom
 report.md
-data/
+/data/
 lightning_logs/
 scratch/
-artifacts/
 *.log
 .env
 models/*.ckpt
 *.ckpt
 .gradio/
 val_metrics/
-*.aux
-*.nav
-*.out
-*.snm
-*.toc
+thesis/
+presentation/
+
+
+# Thesis and archives
+*.zip
+*.tar.gz
+thesis_and_artifacts.zip
+
+# Scratch, diagnostic, and redundant scripts
+scripts/diagnostic_*.py
+scripts/test_*.py
+scripts/extract_*.py
+scripts/serve_file_browser.py
+scripts/run_large_model_pipeline.py
+scripts/run_50k_k8_reranker.py
+scripts/run_50k_benchmark_comparison.py
+scripts/run_full_benchmarks_all_datasets.py
+scripts/benchmark_length_weighted_50k.py
+scripts/benchmark_refined_decoding_50k.py
+scripts/plot_benchmark_comparison.py
+scripts/plot_four_way_benchmark.py
+scripts/plot_length_weighted_comparison.py
+scripts/apply_weight_surgery_and_eval.py
+scripts/web_explorer.py
+scripts/generate_appendix_flow_trajectories.py
+docs/figures/appendix_flow_trajectories.png

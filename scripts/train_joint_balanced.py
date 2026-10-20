@@ -22,7 +22,7 @@ from pathlib import Path
 import numpy as np
 import pytorch_lightning as pl
 import torch
-from pytorch_lightning.callbacks import LearningRateMonitor, ModelCheckpoint
+from pytorch_lightning.callbacks import LearningRateMonitor, ModelCheckpoint, EarlyStopping
 from pytorch_lightning.loggers import CSVLogger, TensorBoardLogger
 from torch.utils.data import DataLoader, Dataset
 
@@ -142,7 +142,8 @@ def parse_args():
     parser.add_argument("--samples-per-epoch", type=int, default=1_000_000, help="Total train samples per epoch (50%% each domain)")
     parser.add_argument("--val-samples", type=int, default=20_000, help="Total validation samples (50%% each domain)")
     parser.add_argument("--lr", type=float, default=5e-4, help="Learning rate (default: 5e-4 matching pretraining)")
-    parser.add_argument("--lr-schedule", type=str, default="wsd", choices=["wsd", "cosine"], help="Learning rate schedule (default: wsd)")
+    parser.add_argument("--lr-schedule", type=str, default="wsd", choices=["wsd", "cosine", "constant", "flat"], help="Learning rate schedule (default: wsd)")
+    parser.add_argument("--patience", type=int, default=int(os.environ.get("PATIENCE", 0)), help="Early stopping patience in epochs based on valid_gen_exact_match (default: 0 = disabled)")
     parser.add_argument("--warmup-ratio", type=float, default=0.05, help="Warmup fraction of total steps (default: 0.05)")
     parser.add_argument("--stable-ratio", type=float, default=0.70, help="Stable peak LR fraction of total steps (default: 0.70)")
     parser.add_argument("--min-lr-ratio", type=float, default=0.01, help="Minimum LR floor ratio (default: 0.01)")
@@ -350,11 +351,29 @@ def main():
         auto_insert_metric_name=False,
     )
 
+    last_cb = ModelCheckpoint(
+        dirpath=checkpoint_dir,
+        filename="last",
+        save_top_k=1,
+        save_weights_only=True,
+    )
+
     callbacks = [
         best_gen_cb,
+        last_cb,
         JointResampleCallback(),
         LearningRateMonitor(logging_interval="step"),
     ]
+    if args.patience > 0:
+        callbacks.append(
+            EarlyStopping(
+                monitor="valid_gen_exact_match",
+                mode="max",
+                patience=args.patience,
+                min_delta=0.001,
+                verbose=True,
+            )
+        )
     if args.use_ema:
         callbacks.append(EMACallback(decay=args.ema_decay))
 

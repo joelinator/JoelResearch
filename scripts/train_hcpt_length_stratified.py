@@ -20,7 +20,7 @@ from pathlib import Path
 import numpy as np
 import pytorch_lightning as pl
 import torch
-from pytorch_lightning.callbacks import LearningRateMonitor, ModelCheckpoint
+from pytorch_lightning.callbacks import LearningRateMonitor, ModelCheckpoint, EarlyStopping
 from pytorch_lightning.loggers import CSVLogger, TensorBoardLogger
 from torch.utils.data import DataLoader
 
@@ -82,7 +82,7 @@ def parse_args():
     )
     parser.add_argument("--batch-size", type=int, default=512, help="Mini-batch size.")
     parser.add_argument("--lr", type=float, default=5e-4, help="Fine-tuning learning rate (default: 5e-4 matching pretraining).")
-    parser.add_argument("--lr-schedule", type=str, default="wsd", choices=["wsd", "cosine"], help="Learning rate schedule (default: wsd).")
+    parser.add_argument("--lr-schedule", type=str, default="wsd", choices=["wsd", "cosine", "constant", "flat"], help="Learning rate schedule (default: wsd).")
     parser.add_argument("--warmup-ratio", type=float, default=0.05, help="Fraction of total steps for warmup.")
     parser.add_argument("--stable-ratio", type=float, default=0.70, help="Fraction of total steps for stable phase (WSD).")
     parser.add_argument("--min-lr-ratio", type=float, default=0.01, help="Minimum LR ratio floor (default: 0.01).")
@@ -130,6 +130,12 @@ def parse_args():
         type=float,
         default=72.0,
         help="Target minimum VRAM utilization percentage (default: 72.0%%).",
+    )
+    parser.add_argument(
+        "--patience",
+        type=int,
+        default=int(os.environ.get("PATIENCE", 0)),
+        help="Early stopping patience in epochs based on valid_gen_exact_match (default: 0 = disabled).",
     )
 
     return parser.parse_args()
@@ -316,7 +322,7 @@ def main():
         monitor="valid_gen_exact_match",
         mode="max",
         save_top_k=1,
-        save_last=False,
+        save_last=True,
         save_weights_only=True,
         auto_insert_metric_name=False,
     )
@@ -324,6 +330,16 @@ def main():
     sampler_cb = SamplerEpochCallback()
 
     callbacks = [checkpoint_cb, lr_monitor, sampler_cb]
+    if args.patience > 0:
+        callbacks.append(
+            EarlyStopping(
+                monitor="valid_gen_exact_match",
+                mode="max",
+                patience=args.patience,
+                min_delta=0.001,
+                verbose=True,
+            )
+        )
     if args.use_ema:
         callbacks.append(EMACallback(decay=args.ema_decay))
 

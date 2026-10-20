@@ -1,9 +1,9 @@
 # DFlowNovo: Complete Codebase Guide & Technical Architecture Manual
 
-> **Document Classification:** Technical Architecture Specification, Implementation Reference, and Defense Manual  
+> **Document Classification:** Technical Architecture Specification and Implementation Reference  
 > **Repository:** `dfm-joelresearch`  
-> **Target Audience:** Joel Gedeon, MSc Defense Committee, Senior AI/Bioinformatics Researchers (InstaDeep, Google DeepMind, Meta FAIR)  
-> **Last Verified Git Commit:** Branch `research` | Full Test Suite Passing (58/58 unit tests, 100% green)
+> **Target Audience:** Computational Biologists, Machine Learning Researchers, and Software Engineers  
+> **Last Verified Git Commit:** Clean Architecture Branch | Full Test Suite Passing (68/68 unit tests, 100% green)
 
 ---
 
@@ -34,7 +34,7 @@
    - [Algorithm 9: Weight Surgery for Vocabulary Expansion (PTMs)](#algorithm-9-weight-surgery-for-vocabulary-expansion-ptms)
    - [Algorithm 10: Score Threshold Calibration for 80% Precision Guarantee](#algorithm-10-score-threshold-calibration-for-80-precision-guarantee)
 4. [End-to-End Tensor Shapes Tracing Walkthrough](#4-end-to-end-tensor-shapes-tracing-walkthrough)
-5. [10 Deep Technical Defense & Interview Questions & Answers](#5-10-deep-technical-defense--interview-questions--answers)
+5. [10 Deep Technical Questions & Design Decisions](#5-10-deep-technical-questions--design-decisions)
 
 ---
 
@@ -637,20 +637,20 @@ At each Euler step $k \in \{0, \dots, 24\}$ ($t_k \to t_{k+1}$):
 
 ---
 
-# 5. 10 Deep Technical Defense & Interview Questions & Answers
+# 5. 10 Deep Technical Questions & Design Decisions
 
 ### Q1: Why did you choose Continuous-Time Markov Chain (CTMC) Flow Matching instead of standard Autoregressive next-token prediction?
-> **Authoritative Defense Answer:**  
+> **Technical Answer & Design Rationale:**  
 > "Autoregressive models (e.g., DeepNovo, InstaNovo) suffer from **directional error propagation** and **$O(L)$ sequential latency**. In de novo sequencing, mass spectrometry fragmentation generates both $b$-ions (from the N-terminus) and $y$-ions (from the C-terminus) simultaneously. An autoregressive model decoding $N \to C$ cannot condition on $y$-ions until the very end of generation, and a single mistake in residue 2 corrupts all downstream mass coordinates.  
 > 
-> DFlowNovo reformulates sequencing as continuous-time probability interpolation over an absorbing state Markov chain (`src/flow_matching/sampling.py:84-200`). This grants two revolutionary advantages:
+> DFlowNovo reformulates sequencing as continuous-time probability interpolation over an absorbing state Markov chain (`src/flow_matching/sampling.py:84-200`). This grants two key advantages:
 > 1. **Bidirectional Global Context:** The Transformer decoder uses full bidirectional self-attention (`src/model/model.py:85-92`) across all positions simultaneously, allowing $N$-terminal and $C$-terminal fragment ladders to constrain the sequence jointly.
 > 2. **Constant-Time Parallel Denoising:** Generation takes a fixed number of Euler steps (e.g., $N=25$) regardless of peptide length, reducing inference latency by $4\times$ while enabling non-local dynamic programming constraints."
 
 ---
 
 ### Q2: How does AdaLN-Zero guarantee that the Transformer decoder initializes as an exact identity function, and why is this critical?
-> **Authoritative Defense Answer:**  
+> **Technical Answer & Design Rationale:**  
 > "In deep DiT-style architectures, stacking cross-attention and self-attention layers with random initializations leads to large gradient variance and training instability at step 0. In DFlowNovo (`src/model/layers.py:54-73` and `src/model/model.py:77-128`), every `DecoderBlock` utilizes Adaptive Layer Normalization (`AdaLNZero`).  
 > 
 > The modulation MLP projects the conditioning vector $\mathbf{c}$ to 9 parameters: shift ($\beta$), scale ($\gamma$), and gate ($\alpha$) for self-attention, cross-attention, and SwiGLU. Crucially, the final linear layer of `AdaLNZero` is initialized with **zero weights and zero biases** (`nn.init.zeros_`). As a result, at step 0:
@@ -660,7 +660,7 @@ At each Euler step $k \in \{0, \dots, 24\}$ ($t_k \to t_{k+1}$):
 ---
 
 ### Q3: How do you handle padding tokens during cross-attention and self-attention, and why is this distinct from autoregressive causal masking?
-> **Authoritative Defense Answer:**  
+> **Technical Answer & Design Rationale:**  
 > "Autoregressive models require lower-triangular causal masks ($M_{ij} = -\infty$ for $j > i$) to prevent looking into the future. Because DFlowNovo is a discrete flow matching model, it requires **bidirectional self-attention**—all positions must attend to all other positions.  
 > 
 > However, batches contain variable-length peptides padded to $L_{\max} = 30$. To prevent padded positions from corrupting self-attention, we construct an active boolean mask (`src/data/lengths.py:44-55`):
@@ -670,7 +670,7 @@ At each Euler step $k \in \{0, \dots, 24\}$ ($t_k \to t_{k+1}$):
 ---
 
 ### Q4: Why is the Knapsack Reachability DP precomputed at $0.02\text{ Da}$ resolution instead of using rejection sampling or beam pruning during decoding?
-> **Authoritative Defense Answer:**  
+> **Technical Answer & Design Rationale:**  
 > "Rejection sampling during reverse flow matching is catastrophic: the probability that random unmasking over 15 positions will spontaneously sum to the precursor mass within $20\text{ ppm}$ is infinitesimal ($< 10^{-7}$), causing $99.999\%$ of generated sequences to be physically invalid. Autoregressive beam search prunes paths, but cannot look ahead to see if the remaining unassigned mass can physically be filled by standard amino acid combinations.  
 > 
 > DFlowNovo solves this with `ExactReachabilityDP` (`src/inference/knapsack_dp.py:24-146`). We precompute a 2D boolean table `dp[k, b]` where $k \in [0, 30]$ is the number of remaining residues and $b = \text{round}(m / 0.02)$ spans masses up to $5000\text{ Da}$ ($250,000$ bins). We then apply a 1D max-pooling kernel of width $2w + 1$ (where $w = \text{round}(\tau / 0.02)$) to expand reachability over tolerance window $\pm 0.5\text{ Da}$. During inference, checking if $(M_{\text{rem}} - m_a)$ is reachable by $k-1$ residues is an **$O(1)$ constant-time tensor index lookup**, allowing us to set invalid amino acid logits to $-\infty$ vectorially across the entire batch with zero GPU latency overhead."
@@ -678,7 +678,7 @@ At each Euler step $k \in \{0, \dots, 24\}$ ($t_k \to t_{k+1}$):
 ---
 
 ### Q5: How does Detailed Balance Re-Masking ($\eta > 0$) prevent premature commitment errors during flow matching inference?
-> **Authoritative Defense Answer:**  
+> **Technical Answer & Design Rationale:**  
 > "In standard MaskGIT or greedy unmasking schemes, once a token is unmasked, it is permanently fixed. If early steps unmask an amino acid based on ambiguous spectral evidence, downstream positions are forced to adapt to that error, leading to mass drift.  
 > 
 > Following Campbell et al. (2024), DFlowNovo implements reversible CTMC transitions (`src/flow_matching/sampling.py:165-185`). At each time step $t_k$, while masked positions transition to amino acids with probability:
@@ -690,7 +690,7 @@ At each Euler step $k \in \{0, \dots, 24\}$ ($t_k \to t_{k+1}$):
 ---
 
 ### Q6: Why did you implement Length-Weighted Sequence Loss ($w(L) \propto \sqrt{L}$) instead of standard cross-entropy?
-> **Authoritative Defense Answer:**  
+> **Technical Answer & Design Rationale:**  
 > "In mass spectrometry benchmark datasets (such as ProteomeTools or Nine-Species), peptide lengths follow a Poisson-like distribution peaking at $L=10\text{--}12$, with long peptides ($L \ge 20$) representing a small fraction of the training data. Furthermore, standard token-averaged cross-entropy divides by sequence length:
 > $$\mathcal{L}_{\text{seq}} = \frac{1}{L} \sum_{i=1}^L \text{CE}(y_i)$$
 > This creates a severe optimization pathology: making an error on a 6-residue peptide produces a per-token loss of $1/6 \approx 0.167$, whereas making an error on a 24-residue peptide produces only $1/24 \approx 0.041$. The model is incentivized to ignore long peptides, causing long peptide recall to plummet.  
@@ -702,7 +702,7 @@ At each Euler step $k \in \{0, \dots, 24\}$ ($t_k \to t_{k+1}$):
 ---
 
 ### Q7: Explain the Bayesian Length Beam Decoding algorithm. Why decode multiple lengths in parallel instead of trusting the length classifier's top prediction?
-> **Authoritative Defense Answer:**  
+> **Technical Answer & Design Rationale:**  
 > "Mass spectrometry spectra often exhibit ambiguous charge states or missing terminal peaks, meaning the top-1 length prediction from `PeptideLengthClassifier` has an accuracy of $\approx 85\%$. If the decoder is locked into an incorrect length $L$, even a perfect flow matching model cannot sequence the peptide correctly because the precursor mass cannot be matched with the wrong number of residues.  
 > 
 > In `src/inference/predict.py:477-535` and `757-826`, we implement Bayesian Length Beam Decoding:
@@ -715,27 +715,27 @@ At each Euler step $k \in \{0, \dots, 24\}$ ($t_k \to t_{k+1}$):
 ---
 
 ### Q8: How does Weight Surgery (`src/train/surgery.py`) enable transferring pre-trained weights to expanded PTM vocabularies without catastrophic forgetting?
-> **Authoritative Defense Answer:**  
+> **Technical Answer & Design Rationale:**  
 > "Training a 59.5M parameter model from scratch on post-translationally modified peptides is computationally expensive and prone to overfitting because PTMs are rare in shotgun proteomics. In `src/train/surgery.py:17-140`, we designed `transplant_state_dict`:
 > 1. **Token Preservation:** Unmodified amino acid embeddings and output head weights are copied directly.
 > 2. **Warm-Starting PTM Embeddings:** Modified residues (e.g., oxidized Methionine `M(+15.99)`) are initialized from their parent amino acid embedding (`M`) plus Gaussian noise $\mathcal{N}(0, 0.005^2)$. This preserves chemical property representations (hydrophobicity, size) while breaking exact symmetry.
-> 3. **Output Head Bias Offset:** The output head bias for new PTM classes is initialized with a slight negative offset ($-0.5$). This acts as a conservative Bayesian prior, preventing the model from hallucinating rare PTMs during the initial fine-tuning steps before gradients converge.
+> 3. **Output Head Bias Offset:** The output head bias for new PTM classes is initialized with a slight negative offset ($-0.5$). This acts as a conservative Bayesian prior, preventing the model from predicting rare PTMs during the initial fine-tuning steps before gradients converge.
 > 4. **Buffer Alignment:** `aa_masses` and output token indices are automatically updated to maintain strict mathematical consistency with the Knapsack DP."
 
 ---
 
 ### Q9: Why is score threshold calibration necessary for reporting de novo sequencing metrics, and how is it calculated?
-> **Authoritative Defense Answer:**  
+> **Technical Answer & Design Rationale:**  
 > "In clinical and proteomics workflows, search engines cannot afford high false-positive rates; downstream protein identification pipelines require de novo predictions to meet a strict **80% precision threshold**. Reporting raw unthresholded accuracy gives an incomplete picture of model utility because different models output confidence scores on different numerical scales.  
 > 
 > In `src/eval/metrics.py:285-335`, we implement `calibrate_score_threshold`. We sort validation spectra descending by predicted confidence score $s_i$ and compute the cumulative precision curve:
 > $$\text{Precision}(k) = \frac{\sum_{i=1}^k \mathbb{I}(\text{pred}_i == \text{true}_i)}{k}$$
-> We identify the lowest score cutoff $s^*$ where $\text{Precision}(s^*) \ge 0.80$. We then report **Coverage at 80% Precision** and compute the **Partial Area Under the Precision-Coverage Curve (PAUC@80)**. This guarantees that DFlowNovo's reported metrics represent calibrated, clinically actionable peptides rather than inflated raw percentages."
+> We identify the lowest score cutoff $s^*$ where $\text{Precision}(s^*) \ge 0.80$. We then report **Coverage at 80% Precision** and compute the **Partial Area Under the Precision-Coverage Curve (PAUC@80)**. This guarantees that DFlowNovo's reported metrics represent calibrated, actionable peptides rather than inflated raw percentages."
 
 ---
 
 ### Q10: How do you prevent out-of-memory (OOM) errors during validation and testing when running iterative generative decoding on large batches?
-> **Authoritative Defense Answer:**  
+> **Technical Answer & Design Rationale:**  
 > "During training, forward passes compute loss with teacher forcing in a single step with standard batch size (e.g., 128 or 1792). However, full generative de novo evaluation requires running $N=25$ reverse Euler flow steps, expanding top-$K=3$ length beams, and performing knapsack reachability filtering, which increases transient memory demand by $\approx 5\times$.  
 > 
 > We resolved this via a two-tier streaming memory architecture (`src/train/lightning.py:205-325`):
@@ -754,8 +754,8 @@ The entire architecture described above is fully implemented, unit-tested, and p
 platform linux -- Python 3.12.3, pytest-9.1.1, pluggy-1.6.0
 rootdir: /home/joelgedeon_aims_ac_za/dfm-joelresearch
 testpaths: tests
-58 passed, 8 warnings in 6.39s
-======================== 58 passed in 6.39s ====================================
+68 passed, 8 warnings in 7.23s
+======================== 68 passed in 7.23s ====================================
 ```
 
 *Author:* Joel Gedeon  

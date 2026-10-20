@@ -14,11 +14,13 @@ from pathlib import Path
 
 import torch
 import pytorch_lightning as pl
-from pytorch_lightning.callbacks import ModelCheckpoint, LearningRateMonitor
+from pytorch_lightning.callbacks import ModelCheckpoint, LearningRateMonitor, EarlyStopping
 from pytorch_lightning.loggers import CSVLogger, TensorBoardLogger
 
 ROOT = Path(__file__).resolve().parent.parent
-sys.path.insert(0, str(ROOT / "src"))
+sys.path = [p for p in sys.path if p != str(Path(__file__).resolve().parent)]
+if str(ROOT / "src") not in sys.path:
+    sys.path.insert(0, str(ROOT / "src"))
 
 from dotenv import load_dotenv
 load_dotenv(ROOT / ".env", override=False)
@@ -29,17 +31,19 @@ from train.callbacks import EMACallback
 from train.lightning import DFMLightningModule
 
 
-def get_recommended_batch_size(target_vram_pct: float = 0.85) -> int:
-    """Calculates recommended batch size to reach >=80% VRAM based on available GPU capacity."""
+def get_recommended_batch_size(target_vram_pct: float = 0.85, encoder_layers: int = 6, decoder_blocks: int = 6) -> int:
+    """Calculates recommended batch size to reach >=80% VRAM based on available GPU capacity and model depth."""
     if not torch.cuda.is_available():
         return 64
     total_gb = torch.cuda.get_device_properties(0).total_memory / (1024**3)
-    if total_gb >= 70:  # 80GB H100 / A100: 1792 achieves 70.4 GB (88.9% VRAM)
+    if total_gb >= 70:  # 80GB H100 / A100: 1152 for deep 9L, 1792 for 6L achieves ~80-85% VRAM
+        if encoder_layers >= 8 or decoder_blocks >= 8:
+            return 1152 if target_vram_pct >= 0.80 else 896
         return 1792 if target_vram_pct >= 0.80 else 1024
     elif total_gb >= 35:  # 40GB A100
-        return 896
+        return 512 if (encoder_layers >= 8 or decoder_blocks >= 8) else 896
     elif total_gb >= 20:  # 24GB RTX 3090 / 4090 / A10G
-        return 448
+        return 256 if (encoder_layers >= 8 or decoder_blocks >= 8) else 448
     return 128
 
 
@@ -70,7 +74,7 @@ def parse_args():
     )
     parser.add_argument("--epochs", type=int, default=int(os.environ.get("EPOCHS", train_cfg.epochs)))
     parser.add_argument("--lr", type=float, default=float(os.environ.get("LEARNING_RATE", train_cfg.learning_rate)))
-    parser.add_argument("--lr-schedule", type=str, default=os.environ.get("LR_SCHEDULE", "wsd"), choices=["wsd", "cosine"], help="Learning rate schedule (default: wsd).")
+    parser.add_argument("--lr-schedule", type=str, default=os.environ.get("LR_SCHEDULE", "wsd"), choices=["wsd", "cosine", "constant", "flat"], help="Learning rate schedule (default: wsd).")
     parser.add_argument("--warmup-ratio", type=float, default=float(os.environ.get("WARMUP_RATIO", 0.05)), help="Fraction of total steps for linear warmup (default: 0.05).")
     parser.add_argument("--stable-ratio", type=float, default=float(os.environ.get("STABLE_RATIO", 0.70)), help="Fraction of total steps for stable phase (default: 0.70).")
     parser.add_argument("--min-lr-ratio", type=float, default=float(os.environ.get("MIN_LR_RATIO", 0.01)), help="Minimum LR ratio at end of decay (default: 0.01).")
@@ -169,6 +173,12 @@ def parse_args():
         help="Load model weights only, ignoring saved optimizer/scheduler states and epoch counter.",
     )
     parser.add_argument(
+        "--patience",
+        type=int,
+        default=int(os.environ.get("PATIENCE", 0)),
+        help="Early stopping patience in epochs based on valid_gen_exact_match (default: 0 = disabled).",
+    )
+    parser.add_argument(
         "--use-ema",
         dest="use_ema",
         action="store_true",
@@ -263,6 +273,13 @@ def parse_args():
         action="store_false",
         help="Exclude PTMs and use standard 20 amino acids vocabulary (alias for --no-ptm).",
     )
+    parser.add_argument("--model-dim", type=int, default=512, help="Hidden embedding dimension (default: 512)")
+    parser.add_argument("--encoder-layers", type=int, default=6, help="Number of SpectrumEncoder layers (default: 6)")
+    parser.add_argument("--encoder-heads", type=int, default=8, help="Number of encoder attention heads (default: 8)")
+    parser.add_argument("--encoder-ff-dim", type=int, default=1536, help="Encoder FFN dimension (default: 1536)")
+    parser.add_argument("--decoder-blocks", type=int, default=6, help="Number of AdaLN decoder blocks (default: 6)")
+    parser.add_argument("--decoder-heads", type=int, default=8, help="Number of decoder attention heads (default: 8)")
+    parser.add_argument("--mlp-hidden-dim", type=int, default=1536, help="Decoder SwiGLU MLP dimension (default: 1536)")
     parser.add_argument(
         "--seed",
         type=int,
@@ -277,7 +294,11 @@ def main():
 
     if args.batch_size is None:
         if args.optimize_vram:
-            args.batch_size = get_recommended_batch_size(args.target_vram_pct)
+            args.batch_size = get_recommended_batch_size(
+                args.target_vram_pct,
+                encoder_layers=args.encoder_layers,
+                decoder_blocks=args.decoder_blocks,
+            )
             print(f"[VRAM Optimization] Auto-tuned batch_size={args.batch_size} targeting >={int(args.target_vram_pct*100)}% VRAM on device.")
         else:
             args.batch_size = DEFAULTS.train.batch_size
@@ -326,7 +347,21 @@ def main():
         is_train=False,
     )
 
+    model_cfg = {
+        "model_dim": args.model_dim,
+        "encoder_layers": args.encoder_layers,
+        "encoder_heads": args.encoder_heads,
+        "encoder_ff_dim": args.encoder_ff_dim,
+        "decoder_blocks": args.decoder_blocks,
+        "decoder_heads": args.decoder_heads,
+        "mlp_hidden_dim": args.mlp_hidden_dim,
+        "max_charge": DEFAULTS.model.max_charge,
+        "max_length": DEFAULTS.model.max_length,
+        "min_length": DEFAULTS.model.min_length,
+        "dropout": DEFAULTS.model.dropout,
+    }
     args_dict = vars(args)
+    args_dict["model_cfg"] = model_cfg
     args_dict["learning_rate"] = args.lr
     
     vocab_path = output_dir / args.run_name / "vocabulary.json"
@@ -338,6 +373,8 @@ def main():
         json.dump(vocabulary, f, indent=2)
 
     model = DFMLightningModule(vocabulary, args_dict)
+    total_params = sum(p.numel() for p in model.parameters())
+    print(f"\nModel Initialized: {total_params / 1e6:.2f}M parameters ({args.encoder_layers}L Encoder, {args.decoder_blocks}L Decoder, Dim: {args.model_dim})")
 
     resume_ckpt_path = None
     if args.resume_from and str(args.resume_from).strip().lower() not in ("none", "false", "", "null"):
@@ -403,6 +440,7 @@ def main():
     loggers = [csv_logger, tb_logger]
     
     checkpoint_dir = output_dir / args.run_name / "checkpoints"
+    checkpoint_dir.mkdir(parents=True, exist_ok=True)
 
     # 1. Best model based strictly on Generative Exact Peptide Match (keep top 1)
     best_gen_cb = ModelCheckpoint(
@@ -411,6 +449,7 @@ def main():
         monitor="valid_gen_exact_match",
         mode="max",
         save_top_k=1,
+        save_weights_only=True,
         auto_insert_metric_name=False,
     )
 
@@ -420,11 +459,22 @@ def main():
         filename="last",
         save_last=True,
         save_top_k=0,
+        save_weights_only=True,
         save_on_train_epoch_end=True,
     )
 
     checkpoint_callbacks = [best_gen_cb, last_cb]
     callbacks = [*checkpoint_callbacks, LearningRateMonitor(logging_interval="step")]
+    if args.patience > 0:
+        callbacks.append(
+            EarlyStopping(
+                monitor="valid_gen_exact_match",
+                mode="max",
+                patience=args.patience,
+                min_delta=0.001,
+                verbose=True,
+            )
+        )
     if args.use_ema:
         callbacks.append(EMACallback(decay=args.ema_decay))
 
