@@ -222,6 +222,36 @@ def parse_args():
         action="store_false",
         help="Use simple explained intensity fragment scoring.",
     )
+    parser.add_argument(
+        "--implicit-length",
+        action="store_true",
+        default=bool(int(os.environ.get("IMPLICIT_LENGTH", 0))),
+        help="Use implicit length prediction via <pad> tokens in decoder (freeze length classifier, set L=30).",
+    )
+    parser.add_argument(
+        "--esm-mode",
+        choices=["none", "in_loop", "late_stage", "rerank"],
+        default=os.environ.get("ESM_MODE", "none"),
+        help="ESM-2 guidance/rerank mode: none, in_loop, late_stage, rerank (default: none).",
+    )
+    parser.add_argument(
+        "--esm-model-name",
+        type=str,
+        default=os.environ.get("ESM_MODEL_NAME", "facebook/esm2_t6_8M_UR50D"),
+        help="HuggingFace model identifier for ESM-2 (default: facebook/esm2_t6_8M_UR50D).",
+    )
+    parser.add_argument(
+        "--esm-guidance-scale",
+        type=float,
+        default=float(os.environ.get("ESM_GUIDANCE_SCALE", 0.2)),
+        help="Weight/scale for ESM-2 guidance or candidate reranking (default: 0.2).",
+    )
+    parser.add_argument(
+        "--esm-late-stage-t",
+        type=float,
+        default=float(os.environ.get("ESM_LATE_STAGE_T", 0.75)),
+        help="Flow time threshold for late-stage annealed ESM guidance (default: 0.75).",
+    )
     parser.add_argument("--no-amp", dest="amp", action="store_false", default=True, help="Disable automatic mixed precision (FP16/BF16)")
     return parser.parse_args()
 
@@ -234,6 +264,11 @@ def main():
 
     if device.type == "cuda":
         torch.set_float32_matmul_precision("high")
+        mem_frac = float(os.environ.get("CUDA_MEMORY_FRACTION", "0.10"))
+        try:
+            torch.cuda.set_per_process_memory_fraction(mem_frac, device.index if device.index is not None else 0)
+        except Exception:
+            pass
 
     checkpoint = load_checkpoint(args.checkpoint, map_location=device)
     
@@ -251,6 +286,13 @@ def main():
     if vocabulary is None:
         vocabulary = build_vocabulary(include_ptms=True)
 
+    model_cfg = infer_model_config_from_checkpoint(checkpoint)
+    implicit_length = args.implicit_length or bool(model_cfg.get("implicit_length", False))
+    model_cfg["implicit_length"] = implicit_length
+    if implicit_length:
+        args.top_k_lengths = 1
+        args.use_knapsack_filter = False
+
     loader = build_dataloader(
         ds,
         vocabulary,
@@ -258,10 +300,10 @@ def main():
         shuffle=False,
         num_workers=args.num_workers,
         pin_memory=(device.type == "cuda"),
+        max_peptide_length=DEFAULTS.model.max_length if implicit_length else None,
     )
     loader.dataset.top_k = DEFAULTS.data.top_k_peaks
 
-    model_cfg = infer_model_config_from_checkpoint(checkpoint)
     spectrum_encoder, length_predictor, decoder, guidance = build_models(vocabulary, device, model_cfg=model_cfg)
     load_models_from_checkpoint(
         checkpoint,
@@ -272,11 +314,24 @@ def main():
     )
     total_params = sum(p.numel() for p in spectrum_encoder.parameters()) + sum(p.numel() for p in length_predictor.parameters()) + sum(p.numel() for p in decoder.parameters()) + sum(p.numel() for p in guidance.parameters())
 
+    esm_guidance_helper = None
+    if args.esm_mode != "none":
+        print(f"Loading ESM-2 guidance helper ({args.esm_model_name}, mode={args.esm_mode}, scale={args.esm_guidance_scale})...")
+        from model.esm_guidance import ESMGuidanceHelper
+        esm_guidance_helper = ESMGuidanceHelper(
+            model_name=args.esm_model_name,
+            device=device,
+            vocabulary=vocabulary,
+            fp16=True,
+        )
+
     print("==========================================================")
     print("  DFM De Novo Sequencing Generative Evaluation")
     print("==========================================================")
     print(f"Checkpoint:       {args.checkpoint}")
     print(f"Model Parameters: {total_params/1e6:.2f}M (Enc: {model_cfg.get('encoder_layers', 6)}L, Dec: {model_cfg.get('decoder_blocks', 6)}L, Dim: {model_cfg.get('model_dim', 512)})")
+    print(f"Implicit Length:  {implicit_length}")
+    print(f"ESM Mode:         {args.esm_mode} (scale={args.esm_guidance_scale}, late_t={args.esm_late_stage_t})")
     print(f"Split:            {args.split} (total batches: {len(loader)})")
     print(f"Batch Size:       {args.batch_size}")
     print(f"Workers:          {args.num_workers}")
@@ -288,6 +343,10 @@ def main():
     print(f"Samples/Length:   {args.num_samples_per_length}")
     print(f"Device:           {device}")
     print("==========================================================")
+
+    # NOTE: full Nine-Species evaluation (111k spectra) takes ~8-10 mins on an 80GB H100.
+    # KnapsackDP filtering removes impossible prefix sums early and saves significant compute.
+    # TODO: dump per-species subset TSVs automatically if species column is available in metadata.
 
     # 1. Run full evaluation collecting all outputs & scores
     raw_metrics, details = evaluate_generative(
@@ -323,6 +382,11 @@ def main():
         eta=args.eta,
         enzyme=args.enzyme,
         use_composite_ladders=args.use_composite_ladders,
+        implicit_length=implicit_length,
+        esm_guidance_helper=esm_guidance_helper,
+        esm_mode=args.esm_mode,
+        esm_guidance_scale=args.esm_guidance_scale,
+        esm_late_stage_t=args.esm_late_stage_t,
     )
 
     scores = np.asarray(details["scores"], dtype=np.float64)
@@ -392,6 +456,8 @@ def main():
     print("                EVALUATION SUMMARY")
     print("=" * 65)
     print(f"Total Samples: {len(scores)}")
+    if "throughput" in details:
+        print(f"Throughput:                           {details['throughput']:.1f} spectra/sec ({details['elapsed_time']:.1f}s total)")
     print(f"Unthresholded Exact (Strict) Accuracy: {metrics_unthresh.exact_peptide_accuracy * 100:.2f}%")
     print(f"Unthresholded Exact (I/L Equiv) Acc:   {metrics_unthresh.exact_peptide_accuracy_il * 100:.2f}%")
     print(f"Unthresholded Mass-Based Accuracy:     {metrics_unthresh.mass_peptide_accuracy * 100:.2f}%")
@@ -433,6 +499,8 @@ def main():
             "unthresholded_metrics": metrics_unthresh.to_dict(),
             "exact_calibrated_metrics": metrics_exact_calib.to_dict(),
             "stratified_breakdown": details.get("stratified_breakdown"),
+            "elapsed_time": details.get("elapsed_time"),
+            "throughput": details.get("throughput"),
             "subset_calibration_exact": calib_exact,
             "subset_calibration_mass": calib_mass,
             "config": {
@@ -449,6 +517,10 @@ def main():
                 "knapsack_guidance_penalty": args.knapsack_guidance_penalty,
                 "enzyme": args.enzyme,
                 "use_composite_ladders": args.use_composite_ladders,
+                "esm_mode": args.esm_mode,
+                "esm_model_name": args.esm_model_name if args.esm_mode != "none" else None,
+                "esm_guidance_scale": args.esm_guidance_scale if args.esm_mode != "none" else None,
+                "esm_late_stage_t": args.esm_late_stage_t if args.esm_mode == "late_stage" else None,
             },
         }
         output_path.write_text(json.dumps(results, indent=2) + "\n")

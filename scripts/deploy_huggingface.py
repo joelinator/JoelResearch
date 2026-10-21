@@ -25,6 +25,10 @@ from dotenv import load_dotenv
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(PROJECT_ROOT))
 
+# NOTE: The Hugging Face Space uses free CPU basic tier (2 vCPUs, 16GB RAM).
+# It works fine for single-spectrum demos, but for real batch throughput, run on GPU.
+# TODO: add optional ZeroGPU grant decorator if we want faster live demo inference.
+
 # Load .env
 env_path = PROJECT_ROOT / ".env"
 if env_path.exists():
@@ -125,13 +129,35 @@ def update_model_repo():
                 path_in_repo="frozen_production_model.ckpt",
                 repo_id=MODEL_REPO_ID,
                 repo_type="model",
-                commit_message="feat(model): add canonical 68.28% SOTA frozen production checkpoint",
+                commit_message="feat(model): add canonical frozen production checkpoint",
             )
             print("   ✓ Production checkpoint uploaded successfully.")
         else:
             print("   ⚠️ Local frozen_production_model.ckpt not found, skipping upload.")
     else:
         print("   ✓ frozen_production_model.ckpt already exists in model repository.")
+
+    # 4b. Check & upload dfm_massive_kb.ckpt
+    massive_ckpt = PROJECT_ROOT / "models" / "dfm_massive_kb.ckpt"
+    if massive_ckpt.is_symlink():
+        massive_ckpt = massive_ckpt.resolve()
+
+    if "dfm_massive_kb.ckpt" not in existing_files:
+        if massive_ckpt.exists():
+            size_mb = massive_ckpt.stat().st_size / (1024 * 1024)
+            print(f"   Uploading dfm_massive_kb.ckpt ({size_mb:.1f} MB) via Git LFS...")
+            api.upload_file(
+                path_or_fileobj=str(massive_ckpt),
+                path_in_repo="dfm_massive_kb.ckpt",
+                repo_id=MODEL_REPO_ID,
+                repo_type="model",
+                commit_message="feat(model): release MassIVE-KB pretrained checkpoint",
+            )
+            print("   ✓ MassIVE-KB checkpoint uploaded successfully.")
+        else:
+            print("   ⚠️ Local dfm_massive_kb.ckpt not found, skipping upload.")
+    else:
+        print("   ✓ dfm_massive_kb.ckpt already exists in model repository.")
 
     # 5. Update Model Card README.md
     model_card = f"""---
@@ -147,12 +173,11 @@ tags:
 - generative-models
 - pytorch
 datasets:
+- InstaDeepAI/ms_proteometools
 - InstaDeepAI/ms_ninespecies_benchmark
-- InstaDeepAI/ms_proteometools_hc
 metrics:
-- exact_match
-- peptide_recall
-- amino_acid_precision
+- peptide_accuracy
+- amino_acid_f1
 pipeline_tag: text-generation
 ---
 
@@ -161,63 +186,53 @@ pipeline_tag: text-generation
 [![Hugging Face Space](https://img.shields.io/badge/%F0%9F%A4%97%20Hugging%20Face-Live%20Gradio%20Demo-blue)](https://huggingface.co/spaces/{SPACE_REPO_ID})
 [![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
 
-**DFlowNovo** is a state-of-the-art de novo peptide sequencing system powered by **Continuous-Time Markov Chain Discrete Flow Matching (CTMC-DFM)**. By treating peptide sequencing as continuous probability flows over discrete amino acid states and integrating dynamic programming (`KnapsackDP`) reachability constraints, DFlowNovo achieves:
+## Task Description
+De novo peptide sequencing from tandem mass spectrometry (MS/MS) using discrete flow matching over Continuous-Time Markov Chains (CTMC).
 
-- **68.28% Strict Exact Match** on the canonical Nine-Species biological benchmark.
-- **56.79% I/L Exact Match** on the ProteomeTools high-complexity benchmark.
-- **227–256 spectra/second** parallel GPU decoding, and fast interactive CPU sequencing.
-- Native support for **Post-Translational Modifications (PTMs)** with standard UNIMOD annotations (`M(ox)` $\\to$ `M[UNIMOD:35]`, `C(cam)` $\\to$ `C[UNIMOD:4]`, `N(deam)` $\\to$ `N[UNIMOD:7]`, `Q(deam)` $\\to$ `Q[UNIMOD:7]`, `S(ph)` $\\to$ `S[UNIMOD:21]`, `T(ph)` $\\to$ `T[UNIMOD:21]`, `Y(ph)` $\\to$ `Y[UNIMOD:21]`).
-
----
+## Evaluation Metrics
+- **Peptide Accuracy**: Exact match and I/L-tolerant full peptide sequence prediction accuracy.
+- **Amino Acid F1 Score**: Harmonic mean of residue-level precision and recall across predicted sequences.
 
 ## 📦 Checkpoints Available
 
-| Checkpoint Name | Description | Size | Strict Exact Match (9-Species) |
-|---|---|---|---|
-| `frozen_production_model.ckpt` | **Canonical Production Model** (Joint Nine-Species + ProteomeTools with length-weighted loss $w(L) \propto \sqrt{{L}}$) | 907 MB | **68.28%** |
-| `ptm_extended_warmstart.ckpt` | **PTM Extended Model** (Pretrained base with extended PTM vocabulary) | 476 MB | 67.92% |
+| Checkpoint Name | Description | Size |
+|---|---|---|
+| `frozen_production_model.ckpt` | **Canonical Production Model**: Pretrained on synthetic peptides from HC-PT ([InstaDeepAI/ms_proteometools](https://huggingface.co/datasets/InstaDeepAI/ms_proteometools)) and fine-tuned on the Nine-Species benchmark ([InstaDeepAI/ms_ninespecies_benchmark](https://huggingface.co/datasets/InstaDeepAI/ms_ninespecies_benchmark), trained on 8 species, evaluated on yeast). | 454 MB |
+| `dfm_massive_kb.ckpt` | **MassIVE-KB Pretrained Model**: Trained exclusively on ~28M human MS/MS spectra from the MassIVE-KB dataset ([MSV000084075](https://massive.ucsd.edu/ProteoSAFe/dataset.jsp?task=86ee46be220f4f9f9ce6d0ef06a7be7c)) without fine-tuning (supports peptide sequences up to length 50). | 227 MB |
+| `ptm_extended_warmstart.ckpt` | **PTM Extended Model**: Pretrained base model with extended post-translational modification (PTM) vocabulary. | 476 MB |
 
----
-
-## 💻 Python Usage
+## 💻 Python Quickstart
 
 ```python
 import torch
 from huggingface_hub import hf_hub_download
-from train.io import load_checkpoint, load_models_from_checkpoint
 from train.factory import build_models
-from inference.predict import predict_peptide
+from train.io import load_checkpoint, load_models_from_checkpoint
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-# Download checkpoint
+# Download and load checkpoint (e.g. frozen_production_model.ckpt or dfm_massive_kb.ckpt)
 ckpt_path = hf_hub_download(repo_id="{MODEL_REPO_ID}", filename="frozen_production_model.ckpt")
 ckpt = load_checkpoint(ckpt_path, map_location=device)
 vocab = ckpt["vocabulary"]
 
 # Build & load models
-enc, lp, dec, guid = build_models(vocab, device)
-load_models_from_checkpoint(ckpt, enc, lp, dec, guid, use_ema=True)
-enc.eval(); lp.eval(); dec.eval(); guid.eval()
-
-# Run de novo sequencing
-# x_t, lengths, seqs, scores = predict_peptide(...)
+encoder, len_pred, decoder, guidance = build_models(vocab, device)
+load_models_from_checkpoint(ckpt, encoder, len_pred, decoder, guidance, use_ema=True)
+encoder.eval(); len_pred.eval(); decoder.eval(); guidance.eval()
 ```
-
----
 
 ## 🚀 Live Interactive Demo
 
 Try the live Gradio interface at: **[https://huggingface.co/spaces/{SPACE_REPO_ID}](https://huggingface.co/spaces/{SPACE_REPO_ID})**
 
----
-
-## Citation
+## 📖 Citation
 
 ```bibtex
-@article{{gedeon2026dflownovo,
+@mastersthesis{{gedeon2026dflownovo,
   title={{Discrete Flow Matching for De Novo Peptide Sequencing in Mass Spectrometry}},
   author={{G{{\\'e}}d{{\\'e}}on, Jo{{\\"e}}l}},
+  school={{African Institute for Mathematical Sciences (AIMS South Africa)}},
   year={{2026}}
 }}
 ```

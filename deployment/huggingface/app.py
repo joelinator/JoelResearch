@@ -10,6 +10,16 @@ import torch
 import gradio as gr
 import pyteomics.mgf
 
+try:
+    import spaces
+except ImportError:
+    class _MockSpaces:
+        def GPU(self, *args, **kwargs):
+            def decorator(fn):
+                return fn
+            return decorator
+    spaces = _MockSpaces()
+
 # Ensure root and src/ are in sys.path
 ROOT_DIR = Path(__file__).resolve().parent
 for p in [str(ROOT_DIR), str(ROOT_DIR / "src"), str(ROOT_DIR.parent.parent), str(ROOT_DIR.parent.parent / "src")]:
@@ -33,12 +43,35 @@ CANONICAL_CKPT = "frozen_production_model.ckpt"
 FALLBACK_CKPT = "ptm_extended_warmstart.ckpt"
 VOCAB_FILENAME = "vocabulary.json"
 
+MODEL_CHOICES = {
+    "Production Model (HC-PT + Nine-Species)": "frozen_production_model.ckpt",
+    "MassIVE-KB Pretrained Model (Human 28M)": "dfm_massive_kb.ckpt",
+    "PTM Extended Model": "ptm_extended_warmstart.ckpt",
+}
 
-def get_model(ckpt_name=CANONICAL_CKPT):
+
+def get_model(ckpt_name=CANONICAL_CKPT, target_device=None):
     """Load model weights and vocabulary, with local cache and Hub fallback."""
     global CACHED_MODELS
-    if ckpt_name in CACHED_MODELS:
-        return CACHED_MODELS[ckpt_name]
+    if target_device is None:
+        target_device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    elif isinstance(target_device, str):
+        target_device = torch.device(target_device)
+
+    cache_key = (ckpt_name, target_device.type)
+    if cache_key in CACHED_MODELS:
+        return CACHED_MODELS[cache_key]
+
+    other_type = "cpu" if target_device.type == "cuda" else "cuda"
+    if (ckpt_name, other_type) in CACHED_MODELS:
+        enc, lp, dec, guid, vocab = CACHED_MODELS[(ckpt_name, other_type)]
+        enc = enc.to(target_device)
+        lp = lp.to(target_device)
+        dec = dec.to(target_device)
+        if guid is not None:
+            guid = guid.to(target_device)
+        CACHED_MODELS[cache_key] = (enc, lp, dec, guid, vocab)
+        return CACHED_MODELS[cache_key]
 
     # 1. Resolve checkpoint path
     env_ckpt = os.environ.get("CHECKPOINT")
@@ -48,6 +81,7 @@ def get_model(ckpt_name=CANONICAL_CKPT):
         ROOT_DIR / "checkpoints" / ckpt_name,
         ROOT_DIR.parent.parent / "models" / ckpt_name,
         ROOT_DIR.parent.parent / "models" / "frozen_production_model.ckpt",
+        ROOT_DIR.parent.parent / "models" / "dfm_massive_kb.ckpt",
         ROOT_DIR.parent.parent / "artifacts" / "dfm_length_weighted_10ep" / "checkpoints" / "best-joint-gen-exact-epoch=01-exact=0.4746.ckpt",
         ROOT_DIR.parent.parent / "artifacts" / "dfm_joint_balanced_30ep" / "checkpoints" / "dfm_balanced_best.ckpt",
         ROOT_DIR / "checkpoints" / FALLBACK_CKPT,
@@ -72,17 +106,18 @@ def get_model(ckpt_name=CANONICAL_CKPT):
         print(f"Downloaded checkpoint to: {ckpt_path}")
 
     # 2. Instantiate model architecture and load weights
-    ckpt = load_checkpoint(ckpt_path, map_location=DEVICE)
+    ckpt = load_checkpoint(ckpt_path, map_location=target_device)
     vocab = ckpt.get("vocabulary") or build_vocabulary(include_ptms=True)
-    enc, lp, dec, guid = build_models(vocab, DEVICE)
+    enc, lp, dec, guid = build_models(vocab, target_device, model_cfg=ckpt.get("model_cfg"))
     load_models_from_checkpoint(ckpt, enc, lp, dec, guid, use_ema=True)
-    enc.eval()
-    lp.eval()
-    dec.eval()
-    guid.eval()
+    enc.eval().to(target_device)
+    lp.eval().to(target_device)
+    dec.eval().to(target_device)
+    if guid is not None:
+        guid.eval().to(target_device)
 
-    CACHED_MODELS[ckpt_name] = (enc, lp, dec, guid, vocab)
-    return CACHED_MODELS[ckpt_name]
+    CACHED_MODELS[cache_key] = (enc, lp, dec, guid, vocab)
+    return CACHED_MODELS[cache_key]
 
 
 def parse_mgf_stream(stream):
@@ -144,26 +179,34 @@ def load_spectra_file(file_path):
             return parse_mgf_stream(f)
 
 
-def run_sequencing(
+def _do_sequencing(
     spectrum_file,
-    model_choice: str = "Frozen Production Model (Nine-Species SOTA, 68.28% Strict Exact Match)",
+    model_choice: str = "Production Model (HC-PT + Nine-Species)",
     max_spectra: int = 50,
     num_steps: int = 20,
     top_k_lengths: int = 5,
     guidance_scale: float = 1.5,
     beta_frag: float = 0.5,
     trypsin_prior: bool = True,
+    device_override: str = None,
     progress=gr.Progress(track_tqdm=True),
 ):
-    """Gradio handler: parses uploaded .mgz/.mgf, runs de novo sequencing, and returns results table."""
+    """Core sequencing engine: parses uploaded .mgz/.mgf, runs de novo sequencing on specified device."""
     if spectrum_file is None:
         raise gr.Error("Please upload a .mgz or .mgf file first.")
 
-    ckpt_name = CANONICAL_CKPT if "Production" in str(model_choice) else FALLBACK_CKPT
-    progress(0.05, desc=f"Loading DFlowNovo model ({ckpt_name})...")
-    enc, lp, dec, guid, vocab = get_model(ckpt_name)
+    if device_override:
+        curr_device = torch.device(device_override)
+    else:
+        curr_device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-    progress(0.15, desc="Parsing mass spectrometry file...")
+    ckpt_name = MODEL_CHOICES.get(str(model_choice), CANONICAL_CKPT)
+    if progress:
+        progress(0.05, desc=f"Loading DFlowNovo model ({ckpt_name})...")
+    enc, lp, dec, guid, vocab = get_model(ckpt_name, target_device=curr_device)
+
+    if progress:
+        progress(0.15, desc="Parsing mass spectrometry file...")
     file_path = spectrum_file.name if hasattr(spectrum_file, "name") else str(spectrum_file)
     spectra = load_spectra_file(file_path)
 
@@ -177,10 +220,11 @@ def run_sequencing(
         spectra = spectra[:max_spectra]
 
     n_samples = len(spectra)
-    batch_size = 16 if DEVICE.type == "cpu" else 64
+    batch_size = 16 if curr_device.type == "cpu" else 64
     results = []
 
-    progress(0.25, desc=f"Sequencing {n_samples} spectra on {DEVICE.type.upper()}...")
+    if progress:
+        progress(0.25, desc=f"Sequencing {n_samples} spectra on {curr_device.type.upper()}...")
     t0 = time.time()
 
     for start_idx in range(0, n_samples, batch_size):
@@ -222,18 +266,18 @@ def run_sequencing(
 
         # Pad to max peaks
         max_p = max(len(m) for m in mz_tensors)
-        padded_mz = torch.zeros((cur_b, max_p), dtype=torch.float32, device=DEVICE)
-        padded_intens = torch.zeros((cur_b, max_p), dtype=torch.float32, device=DEVICE)
-        padded_mask = torch.ones((cur_b, max_p), dtype=torch.bool, device=DEVICE)
+        padded_mz = torch.zeros((cur_b, max_p), dtype=torch.float32, device=curr_device)
+        padded_intens = torch.zeros((cur_b, max_p), dtype=torch.float32, device=curr_device)
+        padded_mask = torch.ones((cur_b, max_p), dtype=torch.bool, device=curr_device)
 
         for i in range(cur_b):
             n = len(mz_tensors[i])
-            padded_mz[i, :n] = mz_tensors[i].to(DEVICE)
-            padded_intens[i, :n] = intens_tensors[i].to(DEVICE)
+            padded_mz[i, :n] = mz_tensors[i].to(curr_device)
+            padded_intens[i, :n] = intens_tensors[i].to(curr_device)
             padded_mask[i, :n] = False
 
-        t_prec_mass = torch.tensor(prec_masses, dtype=torch.float32, device=DEVICE)
-        t_prec_charge = torch.tensor(prec_charges, dtype=torch.long, device=DEVICE)
+        t_prec_mass = torch.tensor(prec_masses, dtype=torch.float32, device=curr_device)
+        t_prec_charge = torch.tensor(prec_charges, dtype=torch.long, device=curr_device)
         t_mz_comp = t_prec_mass.unsqueeze(-1) + 2 * M_H - padded_mz
 
         with torch.no_grad():
@@ -284,7 +328,8 @@ def run_sequencing(
 
         done_so_far = len(results)
         pct = 0.25 + 0.70 * (done_so_far / n_samples)
-        progress(pct, desc=f"Sequenced {done_so_far}/{n_samples} spectra...")
+        if progress:
+            progress(pct, desc=f"Sequenced {done_so_far}/{n_samples} spectra...")
 
     total_time = time.time() - t0
     throughput = n_samples / max(total_time, 0.001)
@@ -300,40 +345,53 @@ def run_sequencing(
     tsv_file.close()
 
     mean_score = df["Confidence Score"].mean() if not df.empty else 0.0
-    high_conf = (df["Confidence Score"] >= 0.8).sum() if not df.empty else 0
     mean_abs_ppm = df["Delta Mass (ppm)"].abs().mean() if not df.empty else 0.0
 
     summary_md = f"""
 ### 📊 Sequencing Run Complete
 - **Model Checkpoint**: `{ckpt_name}`
 - **Spectra Processed**: **{n_samples}** (out of {total_in_file} in file)
-- **Runtime**: **{total_time:.2f} s** (**{throughput:.1f} spectra/sec** on `{DEVICE.type.upper()}`)
+- **Runtime**: **{total_time:.2f} s** (**{throughput:.1f} spectra/sec** on `{curr_device.type.upper()}`)
 - **Mean Confidence Score**: **{mean_score:.3f}**
-- **High Confidence Predictions (>= 0.8)**: **{high_conf} / {n_samples}** ({high_conf / max(n_samples, 1) * 100:.1f}%)
 - **Mean Precursor Mass Error**: **{mean_abs_ppm:.1f} ppm**
 """
     return summary_md, df, csv_file.name, tsv_file.name
 
 
+@spaces.GPU(duration=15)
+def _run_sequencing_gpu(*args, **kwargs):
+    return _do_sequencing(*args, device_override="cuda", **kwargs)
+
+
+def run_sequencing(*args, **kwargs):
+    try:
+        return _run_sequencing_gpu(*args, **kwargs)
+    except Exception as e:
+        err_msg = str(e)
+        if "ZeroGPU" in err_msg or "quota" in err_msg.lower() or "cuda" in err_msg.lower():
+            print(f"ZeroGPU unavailable or quota reached ({e}). Running on CPU fallback...")
+            return _do_sequencing(*args, device_override="cpu", **kwargs)
+        raise
+
+
 # Gradio Web UI Layout
 custom_css = """
-.gradio-container { max-width: 1280px !important; margin: auto; }
-.metric-card { background: #f8fafc; border-radius: 8px; padding: 12px; border: 1px solid #e2e8f0; }
+.gradio-container { max-width: 1200px !important; margin: auto; }
 """
 
 with gr.Blocks(title="DFlowNovo: De Novo Peptide Sequencing") as demo:
+    gr.HTML("<style>.gradio-container { max-width: 1200px !important; margin: auto; }</style>")
     gr.Markdown(
         """
-        # 🧬 DFlowNovo: Discrete Flow Matching for De Novo Peptide Sequencing
-        ### End-to-End De Novo Sequencing with Post-Translational Modification (PTM) & UNIMOD Support
-        Upload an **`.mgz`** or **`.mgf`** mass spectrometry file to reconstruct peptide sequences directly from MS/MS spectra.
-        Powered by Continuous-Time Markov Chain Discrete Flow Matching (CTMC-DFM) with exact dynamic programming reachability guidance.
+        # 🧬 DFlowNovo: De Novo Peptide Sequencing
+        Fast *de novo* peptide sequencing from tandem mass spectrometry (MS/MS) using discrete flow matching over Continuous-Time Markov Chains (CTMC).
+        Upload an **`.mgz`** or **`.mgf`** mass spectrometry file to predict peptide sequences with fast parallel decoding and dynamic programming reachability constraints.
         """
     )
 
     with gr.Row():
         with gr.Column(scale=1):
-            gr.Markdown("### 📂 Input Spectrum & Model Configuration")
+            gr.Markdown("### 📂 Input Spectrum & Configuration")
             input_file = gr.File(
                 label="Upload .mgz, .mgf, or .mgf.gz file",
                 file_types=[".mgz", ".mgf", ".gz", ".txt"],
@@ -341,12 +399,9 @@ with gr.Blocks(title="DFlowNovo: De Novo Peptide Sequencing") as demo:
             )
 
             model_dropdown = gr.Dropdown(
-                choices=[
-                    "Frozen Production Model (Nine-Species SOTA, 68.28% Strict Exact Match)",
-                    "PTM Extended Warmstart Model (Pretrained + PTM vocabulary)",
-                ],
-                value="Frozen Production Model (Nine-Species SOTA, 68.28% Strict Exact Match)",
-                label="🧠 Model Architecture & Weights",
+                choices=list(MODEL_CHOICES.keys()),
+                value="Production Model (HC-PT + Nine-Species)",
+                label="🧠 Model Checkpoint",
                 info="Select the model checkpoint for inference.",
             )
 
@@ -359,7 +414,7 @@ with gr.Blocks(title="DFlowNovo: De Novo Peptide Sequencing") as demo:
                 info="Limit the number of spectra processed per submission.",
             )
 
-            with gr.Accordion("⚙️ Advanced Inference Parameters", open=False):
+            with gr.Accordion("⚙️ Inference Parameters", open=False):
                 num_steps_slider = gr.Slider(
                     label="Flow Matching Steps",
                     minimum=5,
@@ -406,7 +461,7 @@ with gr.Blocks(title="DFlowNovo: De Novo Peptide Sequencing") as demo:
             if sample_path.exists():
                 gr.Examples(
                     examples=[
-                        [str(sample_path), "Frozen Production Model (Nine-Species SOTA, 68.28% Strict Exact Match)", 5, 20, 5, 1.5, 0.5, True],
+                        [str(sample_path), "Production Model (HC-PT + Nine-Species)", 5, 20, 5, 1.5, 0.5, True],
                     ],
                     inputs=[
                         input_file,

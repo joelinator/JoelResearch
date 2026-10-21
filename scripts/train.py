@@ -117,6 +117,10 @@ def main():
     train_loader.dataset.top_k = args.top_k_peaks
     valid_loader.dataset.top_k = args.top_k_peaks
 
+    # NOTE: batch size 256 fits well in 80GB H100 with BF16 mixed precision.
+    # On 24GB GPUs (3090/4090), drop batch size to 64 or 128 to avoid OOM.
+    # TODO: add multi-GPU DDP launcher script once slurm cluster allocation is renewed.
+
     spectrum_encoder, length_predictor, decoder, guidance = build_models(vocabulary, device, compile_models=args.compile)
 
     optimizer = AdamW(
