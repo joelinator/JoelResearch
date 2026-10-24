@@ -55,6 +55,15 @@ cover/
 *.mo
 *.pot
 
+# LaTeX build files
+*.aux
+*.bbl
+*.blg
+*.out
+*.fls
+*.fdb_latexmk
+*.synctex.gz
+
 # Django stuff:
 *.log
 local_settings.py
@@ -239,12 +248,14 @@ arxiv_paper/
 *.zip
 *.tar.gz
 thesis_and_artifacts.zip
+THESIS_DEFENSE_GUIDE.md
 
 # Scratch, diagnostic, and redundant scripts
 scripts/diagnostic_*.py
 scripts/test_*.py
 scripts/extract_*.py
 scripts/serve_file_browser.py
+scripts/monitor_dashboard.py
 scripts/run_large_model_pipeline.py
 scripts/run_50k_k8_reranker.py
 scripts/run_50k_benchmark_comparison.py

@@ -38,6 +38,7 @@ def build_models(
     max_charge = int(_get("max_charge", DEFAULTS.model.max_charge))
     max_length = int(_get("max_length", DEFAULTS.model.max_length))
     min_length = int(_get("min_length", DEFAULTS.model.min_length))
+    implicit_length = bool(_get("implicit_length", False))
 
     spectrum_encoder = SpectrumEncoder(
         model_dim=model_dim,
@@ -65,6 +66,7 @@ def build_models(
         max_charge=max_charge,
         max_length=max_length,
         min_length=min_length,
+        implicit_length=implicit_length,
     ).to(device)
     guidance = ClfGuidance(cond_dim=model_dim).to(device)
 

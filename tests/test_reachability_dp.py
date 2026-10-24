@@ -27,7 +27,7 @@ from inference.predict import (
     compute_terminal_prior,
     knapsack_filter_logits_vectorized,
 )
-from scripts.train_joint_balanced import get_recommended_batch_size
+from train.utils import get_recommended_batch_size
 
 
 class TestExactReachabilityDP:

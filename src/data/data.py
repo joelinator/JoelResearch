@@ -1,8 +1,14 @@
+# MS/MS spectrum dataset loading, peak filtering, and collating.
+# Handles Hugging Face datasets, local MassIVE-KB parquet shards, and MGF files.
+# NOTE: sqrt-normalizing intensities prevents giant precursor bleed peaks from dominating.
+# TODO: explore on-the-fly deisotoping for high charge precursor states (> +3).
+
 import os
 import re
 from functools import partial
 
 import torch
+import torch.nn.functional as F
 from datasets import load_dataset
 from torch.nn.utils.rnn import pad_sequence
 from torch.utils.data import DataLoader, Dataset
@@ -276,14 +282,14 @@ def build_vocabulary(ds=None, include_ptms: bool = True) -> Vocabulary:
 def invert_vocabulary(vocab: dict[str, int]) -> dict[int, str]:
     return {index: token for token, index in vocab.items()}
 
-def decoder_output_token_ids(vocab: dict[str, int]) -> list[int]:
+def decoder_output_token_ids(vocab: dict[str, int], include_pad: bool = False) -> list[int]:
     pad_id = vocab["<pad>"]
     mask_id = vocab.get("<mask_token>", vocab.get("<mask" + ">"))
-    special = {pad_id, mask_id}
+    special = {mask_id} if include_pad else {pad_id, mask_id}
     return sorted(token_id for token_id in vocab.values() if token_id not in special)
 
-def decoder_output_size(vocab: dict[str, int]) -> int:
-    return len(decoder_output_token_ids(vocab))
+def decoder_output_size(vocab: dict[str, int], include_pad: bool = False) -> int:
+    return len(decoder_output_token_ids(vocab, include_pad=include_pad))
 
 def get_aa_masses(vocab):
     masses = []
@@ -297,10 +303,10 @@ def get_aa_masses(vocab):
         masses.append(AA_MASSES_DICT[token])
     return torch.tensor(masses, dtype=torch.float32)
 
-def get_output_aa_masses(vocab: dict[str, int]) -> torch.Tensor:
-    """Per-residue masses aligned with decoder output logits (amino acids only)."""
+def get_output_aa_masses(vocab: dict[str, int], include_pad: bool = False) -> torch.Tensor:
+    """Per-residue masses aligned with decoder output logits (amino acids only, or including pad)."""
     masses = get_aa_masses(vocab)
-    return masses[decoder_output_token_ids(vocab)]
+    return masses[decoder_output_token_ids(vocab, include_pad=include_pad)]
 
 class SpectrumDataSet(Dataset):
     def __init__(
@@ -400,7 +406,7 @@ class SpectrumDataSet(Dataset):
     def __len__(self):
         return len(self.data)
 
-def spectrum_collate(batch_data, vocab):
+def spectrum_collate(batch_data, vocab, max_peptide_length: int | None = None):
     (
         mz_array,
         intensity_array,
@@ -431,9 +437,19 @@ def spectrum_collate(batch_data, vocab):
 
     precursor_mass = torch.tensor(precursor_mass, dtype=torch.float32)
     precursor_charge = torch.tensor(precursor_charge, dtype=torch.long)
-    sequence = pad_sequence(
-        sequence, batch_first=True, padding_value=vocab["<pad>"], padding_side="right"
-    )
+    if max_peptide_length is not None:
+        padded_seqs = []
+        for s in sequence:
+            pad_needed = max(0, max_peptide_length - len(s))
+            if pad_needed > 0:
+                padded_seqs.append(F.pad(s, (0, pad_needed), value=vocab["<pad>"]))
+            else:
+                padded_seqs.append(s[:max_peptide_length])
+        sequence = torch.stack(padded_seqs, dim=0)
+    else:
+        sequence = pad_sequence(
+            sequence, batch_first=True, padding_value=vocab["<pad>"], padding_side="right"
+        )
     padded_mask = sequence == vocab["<pad>"]
 
     return (
@@ -458,6 +474,7 @@ def build_dataloader(
     top_k: int = 200,
     peak_dropout_prob: float = 0.0,
     is_train: bool = True,
+    max_peptide_length: int | None = None,
 ):
     dataset = SpectrumDataSet(
         ds,
@@ -466,7 +483,7 @@ def build_dataloader(
         peak_dropout_prob=peak_dropout_prob,
         is_train=is_train,
     )
-    collate_fn = partial(spectrum_collate, vocab=vocab)
+    collate_fn = partial(spectrum_collate, vocab=vocab, max_peptide_length=max_peptide_length)
     # persistent_workers avoids re-forking worker processes each epoch.
     # prefetch_factor keeps the GPU fed with 4 batches in flight at all times.
     # pin_memory allows async DMA transfers to the GPU (zero-copy host memory).

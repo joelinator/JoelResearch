@@ -33,3 +33,19 @@ def length_noiser(
         return noised, is_noised
 
     return batch_lengths, False
+
+
+def get_recommended_batch_size(target_vram_pct: float = 0.85) -> int:
+    """Recommend batch size based on available GPU VRAM."""
+    if not torch.cuda.is_available():
+        return 64
+    total_mem_gb = torch.cuda.get_device_properties(0).total_memory / (1024 ** 3)
+    if total_mem_gb >= 70:
+        return 1792
+    elif total_mem_gb >= 35:
+        return 896
+    elif total_mem_gb >= 20:
+        return 448
+    else:
+        return 128
+

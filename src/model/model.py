@@ -1,3 +1,8 @@
+# Spectrum encoder and AdaLN-Zero discrete flow matching decoder.
+# Fuses observed m/z peaks and theoretical complementary b/y ion ladders.
+# NOTE: pre-LayerNorm (norm_first=True) is crucial for stable training with deep transformers.
+# TODO: benchmark flash-attention-2 for the spectrum encoder on dense spectra (>500 peaks).
+
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -143,6 +148,7 @@ class DFMPeptideDecoder(nn.Module):
         n_decoder_blocks: int = 6,
         num_heads: int = 8,
         dropout: float = 0.1,
+        implicit_length: bool = False,
     ):
         super().__init__()
         if mask_token_id is None:
@@ -150,22 +156,25 @@ class DFMPeptideDecoder(nn.Module):
         if pad_token_id is None:
             pad_token_id = vocab_size - 2
 
+        self.implicit_length = implicit_length
+        special = {mask_token_id} if implicit_length else {mask_token_id, pad_token_id}
         output_token_ids = [
             token_id
             for token_id in range(vocab_size)
-            if token_id not in {mask_token_id, pad_token_id}
+            if token_id not in special
         ]
-        if output_token_ids != list(range(vocab_size - 2)):
+        expected_size = vocab_size - 1 if implicit_length else vocab_size - 2
+        if output_token_ids != list(range(expected_size)):
             raise ValueError(
-                "Decoder output logits require <pad> and <mask_token> to be the last two "
-                f"vocabulary entries (pad={pad_token_id}, mask={mask_token_id}, "
+                f"Decoder output logits require {'<mask_token>' if implicit_length else '<pad> and <mask_token>'} "
+                f"to be the last vocabulary entries (pad={pad_token_id}, mask={mask_token_id}, "
                 f"vocab_size={vocab_size})."
             )
 
         self.vocab_size = vocab_size
         self.mask_token_id = mask_token_id
         self.pad_token_id = pad_token_id
-        self.output_vocab_size = vocab_size - 2
+        self.output_vocab_size = expected_size
 
         self.sinusoidal_embedding = SinusoidalEmbedding(emb_dim)
         # Input embedding uses the full vocabulary (noisy x_t may contain <mask_token>).

@@ -1,3 +1,7 @@
+# Monoisotopic residue masses from Unimod / NIST.
+# NOTE: do not touch these mass values unless someone discovers new physics.
+# Both I and L have identical mass: 113.0840640 Da (hence standard I/L evaluation).
+
 AA_MASSES_DICT = {
     "<pad>": 0.0,
     "<mask" + ">": 0.0,
@@ -134,6 +138,7 @@ PTM_ALIAS_MAP = {
     "M[15.99]": "M(ox)",
     "M(+15.99)": "M(ox)",
     "M(+15.995)": "M(ox)",
+    "M[+15.995]": "M(ox)",
     "M[+16]": "M(ox)",
     # Cysteine carboxyamidomethylation (+57.0215 Da, UNIMOD:4)
     "C[UNIMOD:4]": "C(cam)",
@@ -141,6 +146,7 @@ PTM_ALIAS_MAP = {
     "C[57.02]": "C(cam)",
     "C(+57.02)": "C(cam)",
     "C(+57.021)": "C(cam)",
+    "C[+57.021]": "C(cam)",
     "C[+57]": "C(cam)",
     # Asparagine deamidation (+0.9840 Da, UNIMOD:7)
     "N[UNIMOD:7]": "N(deam)",
@@ -148,6 +154,7 @@ PTM_ALIAS_MAP = {
     "N[0.98]": "N(deam)",
     "N(+0.98)": "N(deam)",
     "N(+.98)": "N(deam)",
+    "N[+0.984]": "N(deam)",
     "N[+1]": "N(deam)",
     # Glutamine deamidation (+0.9840 Da, UNIMOD:7)
     "Q[UNIMOD:7]": "Q(deam)",
@@ -155,6 +162,7 @@ PTM_ALIAS_MAP = {
     "Q[0.98]": "Q(deam)",
     "Q(+0.98)": "Q(deam)",
     "Q(+.98)": "Q(deam)",
+    "Q[+0.984]": "Q(deam)",
     "Q[+1]": "Q(deam)",
     # Serine phosphorylation (+79.9663 Da, UNIMOD:21)
     "S[UNIMOD:21]": "S(ph)",
@@ -181,17 +189,20 @@ PTM_ALIAS_MAP = {
     "[UNIMOD:1]": "(+42.01)",
     "[42.0106]": "(+42.01)",
     "[+42.01]": "(+42.01)",
+    "[+42.011]": "(+42.01)",
     "(+42.0106)": "(+42.01)",
     "[+42]": "(+42.01)",
     # N-terminal Carbamylation (+43.0058 Da, UNIMOD:5)
     "[UNIMOD:5]": "(+43.01)",
     "[43.0058]": "(+43.01)",
     "[+43.01]": "(+43.01)",
+    "[+43.006]": "(+43.01)",
     "(+43.0058)": "(+43.01)",
     "[+43]": "(+43.01)",
     # N-terminal Ammonia Loss (-17.0265 Da, UNIMOD:385)
     "[UNIMOD:385]": "(-17.03)",
     "[-17.0265]": "(-17.03)",
+    "[-17.027]": "(-17.03)",
     "[-17.03]": "(-17.03)",
     "(-17.0265)": "(-17.03)",
     "[-17]": "(-17.03)",

@@ -223,6 +223,9 @@ def _run_epoch(
                     + list(decoder.parameters())
                     + list(guidance.parameters())
                 )
+                # NOTE: clipping gradient norm to 1.0 is crucial -- AdaLN zero-init scales blow up
+                # early on without it, especially during the cosine warmup phase.
+                # TODO: test AdamW with decoupled weight decay schedule vs standard constant decay.
                 if scaler is not None and use_amp and amp_dtype == torch.float16:
                     scaler.scale(loss).backward()
                     scaler.unscale_(optimizer)

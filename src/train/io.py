@@ -39,21 +39,26 @@ OFFICIAL_CHECKPOINTS: dict[str, dict[str, Any]] = {
         "tag": "v0.3.0",
         "url": "https://github.com/joelinator/JoelResearch/releases/download/v0.3.0/dfm_massive_kb.ckpt",
         "size": 238063513,
-        "description": "MassIVE-KB model (max length 50, 28M parameters)",
+        "description": "MassIVE-KB model (max length 50, 59.5M parameters, trained on 28.2M spectra)",
         "aliases": [
             "massive-kb",
             "massive_kb",
-            "massive-kb-28m",
-            "massive_kb_28m",
+            "massive-kb-59m",
+            "massive_kb_59m",
             "dfm_massive_kb",
-            "dfm_massive_kb_28m",
             "dfm_massive_kb.ckpt",
-            "dfm_massive_kb_28m.ckpt",
             "MassIVE-KB",
             "MassIVE-KB Model",
+            "MassIVE-KB 59M",
+            "MassIVE-KB 59.5M",
+            "MassIVE-KB 59M Foundation",
+            "dfm_massive_kb_continual.ckpt",
+            "massive-kb-28m",
+            "massive_kb_28m",
+            "dfm_massive_kb_28m",
+            "dfm_massive_kb_28m.ckpt",
             "MassIVE-KB 28M",
             "MassIVE-KB 28M Foundation",
-            "dfm_massive_kb_continual.ckpt",
         ],
         "local_relpaths": [
             "checkpoints/dfm_massive_kb.ckpt",
@@ -66,7 +71,7 @@ OFFICIAL_CHECKPOINTS: dict[str, dict[str, Any]] = {
         "tag": "v0.2.0",
         "url": "https://github.com/joelinator/JoelResearch/releases/download/v0.2.0/dfm_balanced_best.ckpt",
         "size": 475945737,
-        "description": "Nine-Species fine-tuned model (max length 30, 28M parameters)",
+        "description": "Nine-Species fine-tuned model (max length 30, 59.5M parameters)",
         "aliases": [
             "nine-species",
             "nine_species",
@@ -75,6 +80,8 @@ OFFICIAL_CHECKPOINTS: dict[str, dict[str, Any]] = {
             "dfm_balanced_best",
             "balanced",
             "frozen_production_model",
+            "nine-species-59m",
+            "Nine-Species 59M",
         ],
         "local_relpaths": [
             "checkpoints/dfm_balanced_best.ckpt",
@@ -144,8 +151,8 @@ def ensure_checkpoint(
     Resolve a checkpoint path locally, or download it from official GitHub releases.
 
     Args:
-        model_name_or_path: File path or model alias (e.g. 'MassIVE-KB 28M Foundation',
-            'dfm_massive_kb_28m.ckpt', 'Nine-Species Fine-Tuned', 'dfm_balanced_best.ckpt', 'HCPT Pretrained').
+        model_name_or_path: File path or model alias (e.g. 'MassIVE-KB',
+            'Nine-Species Fine-Tuned', 'dfm_massive_kb.ckpt', 'dfm_balanced_best.ckpt').
         cache_dir: Optional explicit directory to store/check checkpoints.
         repo_root: Optional repository root path.
         force_download: If True, re-download even if local file exists.

@@ -1,18 +1,9 @@
-"""
-Loss-weight schedules for multi-task training.
-
-Total loss:
-  L = L_decoder + λ(epoch) · L_length + γ(epoch) · L_mass
-
-Design rationale
-----------------
-* L_decoder (flow-matching CE) is always the primary objective (implicit weight 1).
-* λ (length): ramp up early-mid training. Length conditions the decoder at inference,
-  but should not compete with the decoder while it is still learning denoising.
-* γ (mass): start later and ramp slowly. Mass consistency is a physics prior that
-  only helps once residue distributions are meaningful; applying it too early adds
-  noisy gradients on corrupted x_t states.
-"""
+# Multi-task loss weight schedules.
+# Total loss: L = L_decoder + lambda(epoch) * L_length + gamma(epoch) * L_mass
+#
+# NOTE: L_decoder (flow matching cross-entropy) is always the main objective.
+# Length and mass losses ramp up gradually so the model doesn't get distracted early on.
+# TODO: experiment with adaptive loss weighting (e.g. GradNorm or uncertainty weights)
 
 from __future__ import annotations
 
@@ -187,16 +178,18 @@ def length_loss(logits, length, loss_fn=ce_loss):
     return loss_fn(logits, length_to_class(length))
 
 
-def peptide_loss(logits, peptide, pad_id: int, label_smoothing: float = 0.0, loss_fn=None):
+def peptide_loss(logits, peptide, pad_id: int | None = None, label_smoothing: float = 0.0, loss_fn=None):
     """
-    Cross-entropy on decoder logits (amino acids only).
+    Cross-entropy on decoder logits.
 
-    Padding positions in `peptide` are ignored via `ignore_index=pad_id`.
+    If pad_id is provided, padding positions in `peptide` are ignored via `ignore_index=pad_id`.
+    If pad_id is None, <pad> tokens are treated as active targets (implicit length modeling).
     When `label_smoothing > 0.0`, regularizes the model against overconfidence
     on noisy or ambiguous fragment peaks.
     """
     if loss_fn is None:
-        loss_fn = nn.CrossEntropyLoss(ignore_index=pad_id, label_smoothing=label_smoothing)
+        ignore_index = pad_id if pad_id is not None else -100
+        loss_fn = nn.CrossEntropyLoss(ignore_index=ignore_index, label_smoothing=label_smoothing)
     return loss_fn(
         logits.reshape(-1, logits.shape[-1]),
         peptide.reshape(-1),

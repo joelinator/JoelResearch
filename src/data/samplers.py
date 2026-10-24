@@ -58,6 +58,9 @@ class LengthStratifiedBatchSampler(Sampler[list[int]]):
         self.epoch = 0
 
         # Validate ranges
+        # NOTE: standard tryptic digest is heavily skewed towards short peptides (7-12 AA).
+        # Without stratification, the decoder barely sees long sequences and performs terribly on L>=20.
+        # TODO: benchmark dynamic bucket boundaries for HLA peptidomics where lengths cluster around 8-11.
         self.short_range = short_range
         self.medium_range = medium_range
         self.long_range = long_range

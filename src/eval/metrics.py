@@ -1,7 +1,12 @@
-"""De novo sequencing evaluation metrics (InstaNovo & Proteomics-compatible definitions).
+"""
+Evaluation metrics for de novo peptide sequencing.
 
-Provides exact sequence match, mass-based match (with precursor & prefix mass tolerance),
-confidence-score thresholded Precision/Recall/F1, and Area Under the Precision-Coverage Curve (AUC / PAUC).
+Matches the standard Proteomics benchmark conventions (InstaNovo/Casanovo):
+- Isobaric Leucine (L) and Isoleucine (I) have the exact same monoisotopic mass (113.084 Da)
+  under low-energy CID fragmentation, so standard benchmarks treat them as equivalent.
+- Amino acid precision and recall align predicted vs target prefix mass ladders within tolerance.
+
+TODO: Add support for multi-pass decharging if evaluating on cross-linked peptides in the future.
 """
 
 from __future__ import annotations
@@ -427,6 +432,10 @@ class DenovoMetrics:
             "pr_auc_mass": self.pr_auc_mass,
             "p_pr_auc80_mass": self.p_pr_auc80_mass,
             # Legacy / compatibility keys
+            "coverage_at_80": self.coverage_at_80,
+            "coverage_at_90": self.coverage_at_90,
+            "coverage_at_95": self.coverage_at_95,
+            "average_precision": self.average_precision,
             "peptide_precision": self.peptide_precision_mass,
             "peptide_recall": self.peptide_recall_mass,
             "peptide_f1": self.peptide_f1_mass,
@@ -474,6 +483,11 @@ def compute_denovo_metrics(
             peptide_recall_mass=0.0,
             peptide_f1_mass=0.0,
         )
+
+    if predicted_lengths is None:
+        predicted_lengths = [len(parse_peptide(p) if isinstance(p, str) else p) for p in predictions]
+    if target_lengths is None:
+        target_lengths = [len(parse_peptide(t) if isinstance(t, str) else t) for t in targets]
 
     aa_matches = 0
     aa_pred_total = 0
@@ -555,6 +569,8 @@ def compute_denovo_metrics(
     avg_prec = 0.0
 
     if scores is not None:
+        if hasattr(scores, "detach"):
+            scores = scores.detach().cpu().numpy()
         scores_arr = np.asarray(scores, dtype=np.float64)
         order = np.argsort(-scores_arr)
         sorted_exact = is_exact_il[order]
