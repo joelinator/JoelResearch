@@ -61,6 +61,7 @@ OFFICIAL_CHECKPOINTS: dict[str, dict[str, Any]] = {
             "MassIVE-KB 28M Foundation",
         ],
         "local_relpaths": [
+            "models/dfm_massive_kb.ckpt",
             "checkpoints/dfm_massive_kb.ckpt",
             "checkpoints/dfm_massive_kb_28m.ckpt",
             "artifacts/continual_hcpt_massivekb_run/stage3_massivekb/checkpoints/best-exact-epoch=02-exact=0.5389.ckpt",
@@ -84,6 +85,7 @@ OFFICIAL_CHECKPOINTS: dict[str, dict[str, Any]] = {
             "Nine-Species 59M",
         ],
         "local_relpaths": [
+            "models/dfm_balanced_best.ckpt",
             "checkpoints/dfm_balanced_best.ckpt",
             "checkpoints/frozen_production_model.ckpt",
             "artifacts/dfm_joint_balanced_30ep/checkpoints/dfm_balanced_best.ckpt",
@@ -152,7 +154,7 @@ def ensure_checkpoint(
 
     Args:
         model_name_or_path: File path or model alias (e.g. 'MassIVE-KB',
-            'Nine-Species Fine-Tuned', 'dfm_massive_kb.ckpt', 'dfm_balanced_best.ckpt').
+            'Nine-Species Fine-Tuned', 'models/dfm_massive_kb.ckpt', 'dfm_massive_kb.ckpt').
         cache_dir: Optional explicit directory to store/check checkpoints.
         repo_root: Optional repository root path.
         force_download: If True, re-download even if local file exists.
@@ -165,23 +167,26 @@ def ensure_checkpoint(
         return p.resolve()
 
     name_key = str(model_name_or_path).strip()
-    normalized = name_key.lower().replace("-", "_").replace(" ", "_").replace(".ckpt", "").strip()
+    file_stem_or_name = p.name.strip()
+    candidates_to_match = {
+        name_key,
+        file_stem_or_name,
+        name_key.lower().replace("-", "_").replace(" ", "_").replace(".ckpt", "").strip(),
+        file_stem_or_name.lower().replace("-", "_").replace(" ", "_").replace(".ckpt", "").strip(),
+    }
 
     matched_info = None
     target_filename = None
     for filename, info in OFFICIAL_CHECKPOINTS.items():
         fn_norm = filename.lower().replace("-", "_").replace(" ", "_").replace(".ckpt", "").strip()
-        if normalized == fn_norm or name_key == filename:
+        names_to_compare = {filename, fn_norm}
+        for alias in info.get("aliases", []):
+            names_to_compare.add(alias)
+            names_to_compare.add(alias.lower().replace("-", "_").replace(" ", "_").replace(".ckpt", "").strip())
+
+        if candidates_to_match & names_to_compare:
             matched_info = info
             target_filename = filename
-            break
-        for alias in info.get("aliases", []):
-            al_norm = alias.lower().replace("-", "_").replace(" ", "_").replace(".ckpt", "").strip()
-            if normalized == al_norm or name_key.lower() == alias.lower():
-                matched_info = info
-                target_filename = filename
-                break
-        if matched_info:
             break
 
     if not matched_info:
@@ -212,6 +217,10 @@ def ensure_checkpoint(
             if c_path.is_file():
                 return c_path
 
+        cand_input = (repo_root / p).resolve() if not p.is_absolute() else p
+        if cand_input.is_file():
+            return cand_input
+
         for rel in matched_info.get("local_relpaths", []):
             cand = repo_root / rel
             if cand.is_file():
@@ -221,6 +230,10 @@ def ensure_checkpoint(
         if cand_cwd.is_file():
             return cand_cwd
 
+        cand_models = repo_root / "models" / target_filename
+        if cand_models.is_file():
+            return cand_models
+
         user_cache = Path.home() / ".cache" / "dflow_novo" / "checkpoints" / target_filename
         if user_cache.is_file():
             return user_cache
@@ -228,6 +241,8 @@ def ensure_checkpoint(
     # Determine destination directory
     if cache_dir:
         dest_dir = Path(cache_dir).expanduser().resolve()
+    elif p.parent != Path("."):
+        dest_dir = (repo_root / p.parent).resolve() if not p.is_absolute() else p.parent
     else:
         local_checkpoints = repo_root / "checkpoints"
         try:
