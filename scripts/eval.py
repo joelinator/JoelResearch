@@ -26,6 +26,7 @@ from eval.evaluate import evaluate_generative
 from eval.metrics import calibrate_score_threshold, compute_denovo_metrics, format_metrics
 from eval.plots import plot_pauc_curve
 from flow_matching.scheduler import cosine_scheduler
+from inference.knapsack_dp import ExactReachabilityDP
 from train.io import infer_model_config_from_checkpoint, load_checkpoint, load_models_from_checkpoint
 from train.factory import build_models
 
@@ -46,15 +47,15 @@ def parse_args():
     parser.add_argument("--split", default=os.environ.get("EVAL_SPLIT", data_cfg.test_split))
     parser.add_argument(
         "--scheduler",
-        default=os.environ.get("SCHEDULER", "linear"),
+        default=os.environ.get("SCHEDULER", "cosine"),
         choices=["linear", "cosine", "power1_5", "power2", "sigmoid"],
-        help="Noise scheduler for flow matching (default: linear).",
+        help="Noise scheduler for flow matching (default: cosine).",
     )
     parser.add_argument("--batch-size", type=int, default=int(os.environ.get("BATCH_SIZE", eval_cfg.batch_size)))
     parser.add_argument("--num-workers", type=int, default=int(os.environ.get("NUM_WORKERS", eval_cfg.num_workers)))
     parser.add_argument("--cache-dir", default=os.environ.get("HF_DATASETS_CACHE", "data/cache"))
     parser.add_argument("--device", default=os.environ.get("DEVICE", "cuda" if torch.cuda.is_available() else "cpu"))
-    parser.add_argument("--num-steps", type=int, default=int(os.environ.get("INFERENCE_STEPS", 25)))
+    parser.add_argument("--num-steps", type=int, default=int(os.environ.get("INFERENCE_STEPS", 20)))
     parser.add_argument(
         "--noising-scheme",
         choices=["uniform", "mask"],
@@ -63,19 +64,19 @@ def parse_args():
     parser.add_argument(
         "--guidance-scale",
         type=float,
-        default=float(os.environ.get("GUIDANCE_SCALE", 1.8)),
+        default=float(os.environ.get("GUIDANCE_SCALE", 1.0)),
     )
     parser.add_argument(
         "--top-k-lengths",
         type=int,
-        default=int(os.environ.get("TOP_K_LENGTHS", eval_cfg.top_k_lengths)),
-        help="Number of top length candidates to decode in parallel (default: 3).",
+        default=int(os.environ.get("TOP_K_LENGTHS", 5)),
+        help="Number of top length candidates to decode in parallel (default: 5).",
     )
     parser.add_argument(
         "--length-beam-alpha",
         type=float,
-        default=float(os.environ.get("LENGTH_BEAM_ALPHA", eval_cfg.length_beam_alpha)),
-        help="Weight for mass mismatch penalty in length beam score (default: 0.5).",
+        default=float(os.environ.get("LENGTH_BEAM_ALPHA", 12.0)),
+        help="Weight for mass mismatch penalty in length beam score (default: 12.0).",
     )
     parser.add_argument(
         "--use-knapsack-filter",
@@ -93,8 +94,8 @@ def parse_args():
     parser.add_argument(
         "--knapsack-tol-da",
         type=float,
-        default=float(os.environ.get("KNAPSACK_TOL_DA", eval_cfg.knapsack_tol_da)),
-        help="Mass tolerance in Daltons for single remaining residue knapsack filter (default: 1.0 Da).",
+        default=float(os.environ.get("KNAPSACK_TOL_DA", 0.5)),
+        help="Mass tolerance in Daltons for single remaining residue knapsack filter (default: 0.5 Da).",
     )
     parser.add_argument(
         "--knapsack-guidance-penalty",
@@ -105,8 +106,8 @@ def parse_args():
     parser.add_argument(
         "--num-samples-per-length",
         type=int,
-        default=int(os.environ.get("NUM_SAMPLES_PER_LENGTH", eval_cfg.num_samples_per_length)),
-        help="Number of stochastic trajectories to sample per length candidate for test-time reranking (default: 1).",
+        default=int(os.environ.get("NUM_SAMPLES_PER_LENGTH", 2)),
+        help="Number of stochastic trajectories to sample per length candidate for test-time reranking (default: 2).",
     )
     parser.add_argument(
         "--eta",
@@ -117,8 +118,8 @@ def parse_args():
     parser.add_argument(
         "--fragment-matching-weight",
         type=float,
-        default=float(os.environ.get("FRAGMENT_MATCHING_WEIGHT", eval_cfg.fragment_matching_weight)),
-        help="Weight beta for theoretical b/y fragment ion matching in beam scoring (default: 0.5).",
+        default=float(os.environ.get("FRAGMENT_MATCHING_WEIGHT", 2.5)),
+        help="Weight beta for theoretical b/y fragment ion matching in beam scoring (default: 2.5).",
     )
     parser.add_argument(
         "--decoding-strategy",
@@ -130,8 +131,33 @@ def parse_args():
     parser.add_argument(
         "--decoding-temperature",
         type=float,
-        default=float(os.environ.get("DECODING_TEMPERATURE", eval_cfg.decoding_temperature)),
-        help="Sampling temperature during inference (default: 0.0 for greedy argmax).",
+        default=float(os.environ.get("DECODING_TEMPERATURE", 0.5)),
+        help="Sampling temperature during inference (default: 0.5).",
+    )
+    parser.add_argument(
+        "--length-weight",
+        type=float,
+        default=float(os.environ.get("LENGTH_WEIGHT", 0.10)),
+        help="Weight for length log probability in candidate scoring (default: 0.10).",
+    )
+    parser.add_argument(
+        "--terminal-weight",
+        type=float,
+        default=float(os.environ.get("TERMINAL_WEIGHT", 8.0)),
+        help="Weight for enzymatic terminal prior bonus in candidate scoring (default: 8.0).",
+    )
+    parser.add_argument(
+        "--hybrid-beam",
+        dest="hybrid_beam",
+        action="store_true",
+        default=True,
+        help="Enable hybrid beam decoding (default: True).",
+    )
+    parser.add_argument(
+        "--no-hybrid-beam",
+        dest="hybrid_beam",
+        action="store_false",
+        help="Disable hybrid beam decoding.",
     )
     parser.add_argument(
         "--trypsin-prior",
@@ -349,6 +375,10 @@ def main():
     # TODO: dump per-species subset TSVs automatically if species column is available in metadata.
 
     # 1. Run full evaluation collecting all outputs & scores
+    reachability_dp = None
+    if args.use_exact_dp_knapsack:
+        reachability_dp = ExactReachabilityDP.get_default(device=device, tol_da=args.knapsack_tol_da)
+
     raw_metrics, details = evaluate_generative(
         loader,
         vocabulary,
@@ -377,6 +407,7 @@ def main():
         use_knapsack_filter=args.use_knapsack_filter,
         use_exact_dp_knapsack=args.use_exact_dp_knapsack,
         knapsack_tol_da=args.knapsack_tol_da,
+        reachability_dp=reachability_dp,
         knapsack_guidance_penalty=args.knapsack_guidance_penalty,
         num_samples_per_length=args.num_samples_per_length,
         eta=args.eta,
@@ -387,6 +418,9 @@ def main():
         esm_mode=args.esm_mode,
         esm_guidance_scale=args.esm_guidance_scale,
         esm_late_stage_t=args.esm_late_stage_t,
+        length_weight=args.length_weight,
+        terminal_weight=args.terminal_weight,
+        hybrid_beam=args.hybrid_beam,
     )
 
     scores = np.asarray(details["scores"], dtype=np.float64)
@@ -529,11 +563,18 @@ def main():
     # 6. Save Predictions CSV
     if args.save_predictions:
         import pandas as pd
+        exact_matches_il = details.get("exact_matches_il")
+        if exact_matches_il is None:
+            exact_matches_il = [
+                p.replace("I", "L") == t.replace("I", "L")
+                for p, t in zip(details["predictions"], details["targets"])
+            ]
         pred_df = pd.DataFrame({
             "target": details["targets"],
             "prediction": details["predictions"],
             "score": scores,
             "exact_match": exact_matches,
+            "exact_match_il": exact_matches_il,
             "mass_match": mass_matches,
             "target_length": details["target_lengths"],
             "pred_length": details["predicted_lengths"],

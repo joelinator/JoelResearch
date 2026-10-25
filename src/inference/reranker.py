@@ -202,6 +202,7 @@ class CandidateReranker(nn.Module):
 
         best_val_exact = -1.0
         best_state = None
+        v_feat = torch.from_numpy(val_features).float().to(device) if val_features is not None else None
 
         for epoch in range(epochs):
             self.train()
@@ -221,8 +222,7 @@ class CandidateReranker(nn.Module):
                 train_exact = np.mean(match_il[np.arange(len(match_il)), train_preds])
 
                 val_exact = train_exact
-                if val_features is not None and val_match_il is not None:
-                    v_feat = torch.from_numpy(val_features).float().to(device)
+                if v_feat is not None and val_match_il is not None:
                     v_preds = self.forward(v_feat).argmax(dim=-1).cpu().numpy()
                     val_exact = np.mean(val_match_il[np.arange(len(val_match_il)), v_preds])
 

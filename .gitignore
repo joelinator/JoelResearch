@@ -250,6 +250,9 @@ arxiv_paper/
 thesis_and_artifacts.zip
 THESIS_DEFENSE_GUIDE.md
 
+# External benchmark repos
+ICML2026_PhysNovo/
+
 # Scratch, diagnostic, and redundant scripts
 scripts/diagnostic_*.py
 scripts/test_*.py

@@ -57,6 +57,9 @@ def evaluate_generative(
     esm_mode: str = "none",
     esm_guidance_scale: float = 0.2,
     esm_late_stage_t: float = 0.75,
+    length_weight: float = 0.10,
+    terminal_weight: float = 8.0,
+    hybrid_beam: bool = True,
 ) -> DenovoMetrics | tuple[DenovoMetrics, dict]:
     """Decode peptides with the full DFM inference loop and score against labels."""
     predictions: list[str] = []
@@ -140,6 +143,9 @@ def evaluate_generative(
                 esm_mode=esm_mode,
                 esm_guidance_scale=esm_guidance_scale,
                 esm_late_stage_t=esm_late_stage_t,
+                length_weight=length_weight,
+                terminal_weight=terminal_weight,
+                hybrid_beam=hybrid_beam,
             )
 
         predictions.extend(pred_sequences)

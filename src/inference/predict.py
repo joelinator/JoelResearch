@@ -126,9 +126,26 @@ def compute_fragment_matching_scores(
     positions = torch.arange(x_t.size(1), device=device).unsqueeze(0)
     valid_fragment = positions < (lengths.unsqueeze(1) - 1)  # (B_total, L)
 
-    # Collect theoretical ions: (B_total, 2*L)
-    theo_ions = torch.cat([b_ions, y_ions], dim=1)
-    theo_valid = torch.cat([valid_fragment, valid_fragment], dim=1)  # (B_total, 2*L)
+    # Singly charged primary b- and y-ions
+    ion_list = [b_ions, y_ions]
+    valid_list = [valid_fragment, valid_fragment]
+
+    # Neutral losses: -H2O (18.01056 Da), -NH3 (17.02655 Da), -CO (27.994915 Da, a-ions)
+    b_h2o = b_ions - M_H2O
+    b_nh3 = b_ions - 17.02655
+    a_ions = b_ions - 27.994915
+    y_h2o = y_ions - M_H2O
+    y_nh3 = y_ions - 17.02655
+    # Doubly charged ions
+    b2 = (b_ions + M_H) / 2.0
+    y2 = (y_ions + M_H) / 2.0
+
+    ion_list.extend([b_h2o, b_nh3, a_ions, y_h2o, y_nh3, b2, y2])
+    valid_list.extend([valid_fragment] * 7)
+
+    # Collect theoretical ions: (B_total, 9*L)
+    theo_ions = torch.cat(ion_list, dim=1)
+    theo_valid = torch.cat(valid_list, dim=1)
     theo_ions = theo_ions.masked_fill(~theo_valid, -1e9)
 
     # Mask padded spectrum peaks
@@ -138,11 +155,11 @@ def compute_fragment_matching_scores(
 
     # Pairwise matching between experimental peaks and theoretical ions
     exp_mz = mz_array_exp.unsqueeze(-1)  # (B_total, S, 1)
-    theo_mz = theo_ions.unsqueeze(1)     # (B_total, 1, 2*L)
+    theo_mz = theo_ions.unsqueeze(1)     # (B_total, 1, 9*L)
 
-    diff = (exp_mz - theo_mz).abs()      # (B_total, S, 2*L)
+    diff = (exp_mz - theo_mz).abs()      # (B_total, S, 9*L)
     tol = torch.maximum(theo_mz * (tolerance_ppm * 1e-6), torch.tensor(tolerance_da, device=device))
-    matched = (diff <= tol) & theo_valid.unsqueeze(1) & valid_peaks.unsqueeze(-1)  # (B_total, S, 2*L)
+    matched = (diff <= tol) & theo_valid.unsqueeze(1) & valid_peaks.unsqueeze(-1)  # (B_total, S, 9*L)
 
     peak_is_matched = matched.any(dim=-1)  # (B_total, S)
     matched_intensity = (exp_intensity * peak_is_matched.float()).sum(dim=-1)
@@ -158,14 +175,16 @@ def compute_fragment_matching_scores(
                 "ladder_score": zeros,
                 "ion_balance": zeros,
                 "unmatched_penalty": zeros,
+                "cleavage_coverage": zeros,
+                "bracket_coverage": zeros,
             }
         return explained_intensity
 
     # Multi-feature fragment scoring: consecutive ion ladders, theoretical coverage, ion balance
-    theo_is_matched = matched.any(dim=1)  # (B_total, 2*L)
+    theo_is_matched = matched.any(dim=1)  # (B_total, 9*L)
     L_seq = x_t.size(1)
     b_matched = theo_is_matched[:, :L_seq] & valid_fragment  # (B_total, L)
-    y_matched = theo_is_matched[:, L_seq:] & valid_fragment  # (B_total, L)
+    y_matched = theo_is_matched[:, L_seq:2*L_seq] & valid_fragment  # (B_total, L)
 
     # 1. Consecutive ion ladder series (contiguous sequence evidence)
     max_pairs = (lengths - 2).clamp(min=1).float()
@@ -173,27 +192,40 @@ def compute_fragment_matching_scores(
     y_ladder_ratio = (y_matched[:, :-1] & y_matched[:, 1:]).float().sum(dim=-1) / max_pairs
     ladder_score = ((b_ladder_ratio + y_ladder_ratio) / 2.0).clamp(0.0, 1.0)
 
-    # 2. Theoretical ion coverage (fraction of theoretical b and y observed)
+    # 2. Vectorized Cleavage Site Complementary Coverage:
+    # Cleavage site k in [0, L-2] is confirmed if b_k is observed OR y_{L-2-k} is observed.
+    y_rev_idx = (lengths.unsqueeze(1) - 2 - positions).clamp(min=0)
+    y_rev = torch.gather(y_matched, 1, y_rev_idx)
+    cleavage_hit = (b_matched | y_rev) & valid_fragment
+    cleavage_coverage = (cleavage_hit.float().sum(dim=-1) / (lengths - 1).clamp(min=1).float()).clamp(0.0, 1.0)
+
+    # 3. Vectorized Bracket Continuity:
+    # Amino acid at position k is physically bracketed if cleavage k-1 and cleavage k are both observed
+    bracket_hit = cleavage_hit[:, :-1] & cleavage_hit[:, 1:] & (positions[:, :-1] < (lengths.unsqueeze(1) - 2))
+    bracket_coverage = (bracket_hit.float().sum(dim=-1) / (lengths - 2).clamp(min=1).float()).clamp(0.0, 1.0)
+
+    # 4. Theoretical ion coverage (fraction of theoretical primary b and y observed)
     total_theo = (2 * (lengths - 1)).float().clamp(min=1.0)
     theo_coverage = ((b_matched.sum(dim=-1) + y_matched.sum(dim=-1)).float() / total_theo).clamp(0.0, 1.0)
 
-    # 3. Ion type balance (observing both b and y series)
+    # 5. Ion type balance (observing both b and y series)
     n_b = b_matched.sum(dim=-1).float()
     n_y = y_matched.sum(dim=-1).float()
     ion_balance = (1.0 - (n_b - n_y).abs() / (n_b + n_y + 1e-6)).clamp(0.0, 1.0)
 
-    # 4. Unmatched high-intensity peaks penalty
+    # 6. Unmatched high-intensity peaks penalty
     top_k = min(5, exp_intensity.size(-1))
     unmatched_peaks_int = exp_intensity * (~peak_is_matched).float()
     top_unmatched = unmatched_peaks_int.topk(k=top_k, dim=-1).values.sum(dim=-1) / total_spec_intensity
     unmatched_penalty = top_unmatched.clamp(0.0, 1.0)
 
     composite_score = (
-        0.45 * explained_intensity
-        + 0.20 * theo_coverage
-        + 0.20 * ladder_score
-        + 0.15 * ion_balance
-        - 0.10 * unmatched_penalty
+        0.35 * explained_intensity
+        + 0.25 * cleavage_coverage
+        + 0.20 * bracket_coverage
+        + 0.10 * theo_coverage
+        + 0.10 * ladder_score
+        - 0.05 * unmatched_penalty
     ).clamp(0.0, 1.0)
 
     if return_components:
@@ -204,6 +236,8 @@ def compute_fragment_matching_scores(
             "ladder_score": ladder_score,
             "ion_balance": ion_balance,
             "unmatched_penalty": unmatched_penalty,
+            "cleavage_coverage": cleavage_coverage,
+            "bracket_coverage": bracket_coverage,
         }
 
     return composite_score
@@ -597,10 +631,10 @@ def predict_peptide(
     noising_scheme: str = "mask",
     guidance_scale: float = 1.8,
     top_k_lengths: int = 5,
-    alpha: float = 0.5,
-    beta: float = 0.5,
+    alpha: float = 12.0,
+    beta: float = 2.0,
     decoding_strategy: str = "confidence",
-    temperature: float = 0.0,
+    temperature: float = 0.5,
     trypsin_prior: bool = True,
     tolerance_ppm: float = 20.0,
     tolerance_da: float = 0.05,
@@ -608,9 +642,9 @@ def predict_peptide(
     return_scores: bool = False,
     use_knapsack_filter: bool = True,
     use_exact_dp_knapsack: bool = True,
-    knapsack_tol_da: float = 1.0,
+    knapsack_tol_da: float = 0.5,
     reachability_dp: ExactReachabilityDP | None = None,
-    num_samples_per_length: int = 1,
+    num_samples_per_length: int = 2,
     eta: float = 0.0,
     enzyme: str | None = "trypsin",
     use_composite_ladders: bool = True,
@@ -623,9 +657,13 @@ def predict_peptide(
     esm_mode: str = "none",
     esm_guidance_scale: float = 0.2,
     esm_late_stage_t: float = 0.75,
-    length_weight: float = 1.0,
+    length_weight: float = 0.10,
+    terminal_weight: float = 8.0,
+    lambda_mass: float = 0.0,
+    sigma_nom: float = 2.5,
+    length_norm_exponent: float = 1.0,
     return_all_candidates: bool = False,
-    hybrid_beam: bool = False,
+    hybrid_beam: bool = True,
 ) -> tuple[torch.Tensor, torch.Tensor, list[str]] | tuple[torch.Tensor, torch.Tensor, list[str], torch.Tensor] | tuple[torch.Tensor, torch.Tensor, list[str], torch.Tensor, dict]:
     """
     Run de novo inference with Top-k Length Beam Decoding, Dynamic Knapsack Filtering, and fragment ladder scoring.
@@ -675,26 +713,39 @@ def predict_peptide(
             precursor_mass,
             precursor_charge,
         )
+        if use_exact_dp_knapsack and reachability_dp is not None:
+            target_res_mass = (precursor_mass - M_H2O).clamp(min=0.0)
+            num_classes = length_logits.shape[-1]
+            reach_mask = torch.zeros_like(length_logits, dtype=torch.bool)
+            for c in range(num_classes):
+                L = class_to_length(c)
+                reach_mask[:, c] = reachability_dp.is_reachable(L, target_res_mass)
+            has_reachable = reach_mask.any(dim=-1, keepdim=True)
+            length_logits = torch.where(has_reachable & (~reach_mask), torch.tensor(-1e9, device=device), length_logits)
+
+            if lambda_mass > 0.0:
+                nom_len = target_res_mass / 110.62
+                class_lens = torch.tensor([class_to_length(c) for c in range(num_classes)], device=device, dtype=torch.float32)
+                len_diff = class_lens.unsqueeze(0) - nom_len.unsqueeze(1)
+                log_p_mass = - (len_diff ** 2) / (2.0 * (sigma_nom ** 2))
+                length_logits = length_logits + lambda_mass * log_p_mass
+
         k_cand = max(1, min(top_k_lengths, length_logits.shape[-1]))
 
         if hybrid_beam:
-            k_cand = min(3, length_logits.shape[-1])
-            topk = torch.topk(length_logits, k=k_cand, dim=-1)
-            topk_classes = topk.indices  # (B, k_cand)
-            cand_lengths = clamp_length(class_to_length(topk_classes))  # (B, k_cand)
-            L1 = cand_lengths[:, 0]
-            L2 = cand_lengths[:, 1] if k_cand > 1 else L1
-            L3 = cand_lengths[:, 2] if k_cand > 2 else L2
-            cand_lengths_beam = torch.stack([L1, L1, L2, L2, L3, L3], dim=1)  # (B, 6)
-            cand_lengths_flat = cand_lengths_beam.reshape(-1)  # (B * 6,)
+            K = k_cand
+            S = max(1, int(num_samples_per_length))
+            topk = torch.topk(length_logits, k=K, dim=-1)
+            topk_classes = topk.indices  # (B, K)
+            cand_lengths = clamp_length(class_to_length(topk_classes))  # (B, K)
+            cand_lengths_beam = cand_lengths.unsqueeze(2).repeat(1, 1, S).reshape(batch_size, K * S)
+            cand_lengths_flat = cand_lengths_beam.reshape(-1)
 
             length_log_probs = F.log_softmax(length_logits, dim=-1)
-            lp1 = length_log_probs.gather(-1, topk_classes[:, 0:1]).squeeze(-1)
-            lp2 = length_log_probs.gather(-1, topk_classes[:, 1:2]).squeeze(-1) if k_cand > 1 else lp1
-            lp3 = length_log_probs.gather(-1, topk_classes[:, 2:3]).squeeze(-1) if k_cand > 2 else lp2
-            cand_length_log_probs = torch.stack([lp1, lp1, lp2, lp2, lp3, lp3], dim=1).reshape(-1)
+            cand_lp = length_log_probs.gather(-1, topk_classes)  # (B, K)
+            cand_length_log_probs = cand_lp.unsqueeze(2).repeat(1, 1, S).reshape(-1)
 
-            K_total = 6
+            K_total = K * S
             precursor_mass_exp = precursor_mass.repeat_interleave(K_total, dim=0)
             precursor_charge_exp = precursor_charge.repeat_interleave(K_total, dim=0)
             spectrum_emb_peaks_exp = spectrum_emb_peaks.repeat_interleave(K_total, dim=0)
@@ -703,7 +754,10 @@ def predict_peptide(
             intensity_array_exp = intensity_array.repeat_interleave(K_total, dim=0)
             spectrum_mask_exp = spectrum_mask.repeat_interleave(K_total, dim=0)
 
-            sample_temperature = torch.tensor([0.0, 0.7, 0.7, 0.7, 0.7, 0.7], device=device).repeat(batch_size).view(-1, 1)
+            stoch_temp = 0.7 if temperature <= 0.05 else temperature
+            temp_per_k = [0.0 if s == 0 else stoch_temp for s in range(S)]
+            temp_pattern = torch.tensor(temp_per_k * K, device=device, dtype=torch.float32)
+            sample_temperature = temp_pattern.repeat(batch_size).view(-1, 1)
         elif k_cand == 1:
             length_classes = length_logits.argmax(dim=-1)
             cand_lengths_flat = clamp_length(class_to_length(length_classes))
@@ -1037,7 +1091,7 @@ def predict_peptide(
             dim=-1, index=token_indices.unsqueeze(-1)
         ).squeeze(-1)
         token_log_probs = token_log_probs * is_non_pad.float()
-        mean_log_prob = token_log_probs.sum(dim=-1) / eff_lens
+        mean_log_prob = token_log_probs.sum(dim=-1) / (eff_lens ** length_norm_exponent)
 
         # Explained spectral intensity from theoretical b/y fragment matching
         frag_components = {}
@@ -1084,9 +1138,18 @@ def predict_peptide(
             + mean_log_prob
             - alpha * relative_mass_error
             + beta * frag_score
-            + terminal_bonus
+            + terminal_weight * terminal_bonus
             + esm_guidance_scale * esm_rerank_score
         )
+        if K_total > 1:
+            is_valid_mass = (delta_m <= knapsack_tol_da).view(batch_size, K_total)
+            has_valid_cand = is_valid_mass.any(dim=-1, keepdim=True)
+            mass_penalty = torch.where(
+                has_valid_cand & (~is_valid_mass),
+                torch.tensor(-1000.0, device=device),
+                torch.tensor(0.0, device=device),
+            ).view(-1)
+            score = score + mass_penalty
     else:
         score = torch.zeros(total_samples, device=device)
 
