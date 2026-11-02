@@ -4,7 +4,7 @@
 [![PyTorch 2.1+](https://img.shields.io/badge/PyTorch-2.1%2B-EE4C2C?logo=pytorch&logoColor=white)](https://pytorch.org/)
 [![Lightning 2.1+](https://img.shields.io/badge/Lightning-2.1%2B-792EE5?logo=lightning&logoColor=white)](https://lightning.ai/)
 [![Tests](https://img.shields.io/badge/pytest-68%20passed-success)](tests/)
-[![Tutorial Notebook](https://img.shields.io/badge/Jupyter-Tutorial%20Notebook-F37626?logo=jupyter&logoColor=white)](notebooks/dfm_de_novo_tutorial.ipynb)
+[![Tutorial Notebook](https://img.shields.io/badge/Jupyter-Tutorial%20Notebook-F37626?logo=jupyter&logoColor=white)](notebooks/dfm_tutorial.ipynb)
 [![Reproducibility Guide](https://img.shields.io/badge/Reproducibility-Verified%20Pipeline-success)](REPRODUCIBILITY.md)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
@@ -113,9 +113,11 @@ python scripts/generate_publication_figures.py
 
 ---
 
-## Interactive Tutorial
+## Interactive Tutorial & Reproducibility
 
-See [`notebooks/dfm_de_novo_tutorial.ipynb`](notebooks/dfm_de_novo_tutorial.ipynb) for an interactive walkthrough of MS/MS preprocessing, discrete flow matching sampling, and peptide prediction.
+- [`notebooks/dfm_tutorial.ipynb`](notebooks/dfm_tutorial.ipynb): Interactive getting-started tutorial with pretrained checkpoint selection, configurable decoding (CFG & knapsack DP), live benchmark evaluation, and publication figure generation.
+- [`notebooks/dfm_reproducibility.ipynb`](notebooks/dfm_reproducibility.ipynb): Interactive reviewer reproducibility notebook evaluating the full benchmark test split.
+- [`notebooks/dfm_de_novo_tutorial.ipynb`](notebooks/dfm_de_novo_tutorial.ipynb): MS/MS preprocessing, discrete flow matching sampling walkthrough, and peptide prediction.
 
 ---
 
