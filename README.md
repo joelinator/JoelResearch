@@ -1,5 +1,6 @@
 # DFlowNovo: Discrete Flow Matching for De Novo Peptide Sequencing
 
+[![Manuscript Draft](https://img.shields.io/badge/Manuscript-Draft%20(PDF)-b31b1b.svg)](paper.pdf)
 [![Python 3.10+](https://img.shields.io/badge/Python-3.10%2B-3776AB?logo=python&logoColor=white)](https://www.python.org/)
 [![PyTorch 2.1+](https://img.shields.io/badge/PyTorch-2.1%2B-EE4C2C?logo=pytorch&logoColor=white)](https://pytorch.org/)
 [![Tests](https://img.shields.io/badge/pytest-75%20passed-success)](tests/)
@@ -155,12 +156,15 @@ dfm-joelresearch/
 
 ## Citation
 
+If you build upon this codebase or find our research useful, please cite this working draft / Master's thesis:
+
 ```bibtex
-@inproceedings{asa2026dflownovo,
-  title={DFlowNovo: Discrete Flow Matching for De Novo Peptide Sequencing with Exact Knapsack Dynamic Programming Guidance},
+@misc{asa2024dflownovo,
+  title={DFlowNovo: Continuous-Time Discrete Flow Matching and Dynamic Knapsack Guidance for De Novo Peptide Sequencing},
   author={Asa, Jo{\"e}l G{\'e}d{\'e}on},
-  booktitle={International Conference on Machine Learning (ICML)},
-  year={2026}
+  year={2024},
+  howpublished={Master's Thesis / Working Paper in Preparation},
+  url={https://github.com/joelinator/JoelResearch}
 }
 ```
 
