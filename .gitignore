@@ -248,6 +248,7 @@ arxiv_paper/
 *.zip
 *.tar.gz
 thesis_and_artifacts.zip
+paper_factcheck_package/
 THESIS_DEFENSE_GUIDE.md
 
 # External benchmark repos
