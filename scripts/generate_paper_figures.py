@@ -521,40 +521,44 @@ def plot_figure_6_mass_accuracy_and_discovery():
 # -----------------------------------------------------------------------------
 def plot_figure_7_length_stratified_accuracy():
     """
-    Figure 7: Strict exact accuracy and amino acid F1 as a function of peptide sequence length.
+    Figure 7: Length-stratified peptide accuracy (I/L) and amino acid F1.
+    Evaluated empirically across the full Nine-Species test split (111,029 spectra).
     Demonstrates non-autoregressive parallel decoding advantage on longer peptides.
     """
     with open("artifacts/length_stratified_accuracy.json") as f:
         data = json.load(f)
 
-    bins = data["length_bins"]
-    dfm_exact = data["dflow_novo"]["strict_exact"]
+    raw_bins = data["length_bins"]
+    # Clean bin labels (e.g., "[7 - 10]" -> "7–10")
+    bins = [b.replace("[", "").replace("]", "").replace(" - ", "–").strip() for b in raw_bins]
+    
+    dfm_exact = data["dflow_novo"]["exact_il"]
     dfm_aaf1 = data["dflow_novo"]["aa_f1"]
-    insta_exact = data["instanovo_v1_2"]["strict_exact"]
+    insta_exact = data["instanovo_v1_2"]["exact_il"]
     insta_aaf1 = data["instanovo_v1_2"]["aa_f1"]
-    casa_exact = data["casanovo"]["strict_exact"]
+    casa_exact = data["casanovo"]["exact_il"]
     casa_aaf1 = data["casanovo"]["aa_f1"]
 
     x = np.arange(len(bins))
 
     fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(7.2, 2.8), layout="constrained")
 
-    # Panel A: Strict Exact Peptide Accuracy
-    ax1.plot(x, dfm_exact, marker="o", color=C_BLUE, lw=2.0, ms=5, label="DFM (Ours)")
+    # Panel A: Isobaric (I/L) Peptide Accuracy
+    ax1.plot(x, dfm_exact, marker="o", color=C_BLUE, lw=2.0, ms=5, label="DFlowNovo (Ours)")
     ax1.plot(x, insta_exact, marker="s", color=C_CORAL, lw=1.8, ms=5, label="InstaNovo v1.2")
     ax1.plot(x, casa_exact, marker="^", color="#777777", lw=1.5, ms=5, label="Casanovo")
 
     ax1.set_xlabel("Peptide length (amino acids)")
-    ax1.set_ylabel("Exact peptide accuracy (%)")
+    ax1.set_ylabel("Peptide accuracy (I/L, %)")
     ax1.set_xticks(x)
     ax1.set_xticklabels(bins)
-    ax1.set_ylim(0, 95)
+    ax1.set_ylim(15, 95)
     ax1.grid(axis="both", linestyle="--", alpha=0.3)
-    ax1.legend(frameon=False, loc="lower left")
+    ax1.legend(frameon=False, loc="lower left", fontsize=8.5)
     despine(ax1)
 
     # Panel B: Amino Acid F1
-    ax2.plot(x, dfm_aaf1, marker="o", color=C_BLUE, lw=2.0, ms=5, label="DFM (Ours)")
+    ax2.plot(x, dfm_aaf1, marker="o", color=C_BLUE, lw=2.0, ms=5, label="DFlowNovo (Ours)")
     ax2.plot(x, insta_aaf1, marker="s", color=C_CORAL, lw=1.8, ms=5, label="InstaNovo v1.2")
     ax2.plot(x, casa_aaf1, marker="^", color="#777777", lw=1.5, ms=5, label="Casanovo")
 
@@ -562,9 +566,9 @@ def plot_figure_7_length_stratified_accuracy():
     ax2.set_ylabel("Amino acid F1 (%)")
     ax2.set_xticks(x)
     ax2.set_xticklabels(bins)
-    ax2.set_ylim(25, 100)
+    ax2.set_ylim(35, 100)
     ax2.grid(axis="both", linestyle="--", alpha=0.3)
-    ax2.legend(frameon=False, loc="lower left")
+    ax2.legend(frameon=False, loc="lower left", fontsize=8.5)
     despine(ax2)
 
     for ext in ["png", "pdf"]:
